@@ -1,0 +1,27 @@
+from datetime import datetime
+
+def log(message):
+    print(f"[{datetime.utcnow()}] {message}")
+
+# crypto_bot/
+# │
+# ├── main.py                     # Main controller script
+# ├── config.py                   # Configuration and settings
+# │
+# ├── api/
+# │   └── revolut_api.py         # RevolutX API integration layer (to be filled in later)
+# │
+# ├── data/
+# │   └── market_data.py          # Handles fetching market data
+# │
+# ├── analysis/
+# │   └── indicators.py          # Your indicator functions (RSI, MA, etc.)
+# │
+# ├── strategy/
+# │   └── strategy_engine.py      # Where we generate buy/sell signals
+# │
+# ├── trading/
+# │   └── trader.py               # Manages actual trade decisions
+# │
+# └── utils/
+#     └── logger.py               # (Optional) Logging and debugging utilities
