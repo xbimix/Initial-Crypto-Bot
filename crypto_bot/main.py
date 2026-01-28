@@ -1,22 +1,41 @@
 import time
+
+from utils.config_loader import load_config
 from data.market_data import fetch_ohlcv
 from strategy.strategy_engine import generate_signal
 from trading.executor import execute_trade
 
-SYMBOL = "BTC-USD"
+
+POLL_INTERVAL = 5  # seconds (safe)
+
 
 def main():
-    print("Bot running... CTRL+C to stop")
+    print("🚀 Bot started")
 
     while True:
-        ohlcv = fetch_ohlcv(SYMBOL)
-        signal = generate_signal(ohlcv)
+        try:
+            cfg = load_config()
 
-        print(f"Score: {signal['score']} | {signal['reasons']}")
+            # ---------------------------
+            # Global enable / disable
+            # ---------------------------
+            if not cfg.get("enabled", False):
+                time.sleep(POLL_INTERVAL)
+                continue
 
-        execute_trade(signal, SYMBOL)
+            symbols = cfg.get("symbols", [])
 
-        time.sleep(15)
+            for symbol in symbols:
+                ohlcv = fetch_ohlcv(symbol)
+                signal = generate_signal(ohlcv, cfg)
+                execute_trade(signal, symbol, cfg)
+
+            time.sleep(POLL_INTERVAL)
+
+        except Exception as e:
+            print(f"[ERROR] {e}")
+            time.sleep(10)
+
 
 if __name__ == "__main__":
     main()
