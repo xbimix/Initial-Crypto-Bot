@@ -81,7 +81,7 @@ def execute_trade(signal, symbol, cfg):
             balance=balance,
             entry_price=entry_price,
             stop_price=stop_price,
-            confidence=confidence,
+            
         )
 
         if size <= 0:

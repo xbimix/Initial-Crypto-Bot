@@ -5,7 +5,21 @@ MIN_COOLDOWN_SECONDS = 60
 MAX_COOLDOWN_SECONDS = 3600
 
 SUPPORTED_SYMBOLS = {
-    "BTC-USD",
-    "ETH-USD",
-    "SOL-USD"
+    "BTC/USDT",
+    "ETH/USDT",
+    "BNB/USDT",
+    "SOL/USDT",
+    "XRP/USDT",
+    "ADA/USDT",
+    "DOGE/USDT",
+    "DOT/USDT",
+    "LTC/USDT",
+    "LINK/USDT",
+    "UNI/USDT",
+    "ATOM/USDT",
+    "XLM/USDT",
+    "AVAX/USDT",
+    "MATIC/USDT",
+    "SUI/USDT",
+    "SEI/USDT"
 }

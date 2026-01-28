@@ -1,5 +1,12 @@
 "use client";
 
+/**
+ * Config editor UI
+ * - Loads config safely
+ * - Never crashes on invalid backend response
+ * - Saves config back to Flask
+ */
+
 import { useEffect, useState } from "react";
 import SymbolSelector from "./SymbolSelector";
 
@@ -7,7 +14,20 @@ export default function ConfigForm() {
   const [config, setConfig] = useState<any>(null);
 
   useEffect(() => {
-    fetch("/api/config").then(r => r.json()).then(setConfig);
+    const load = async () => {
+      const res = await fetch("/api/config");
+      const text = await res.text();
+
+      if (!text) throw new Error("Empty response from backend");
+
+      try {
+        setConfig(JSON.parse(text));
+      } catch {
+        console.error("Invalid JSON:", text);
+      }
+    };
+
+    load().catch(console.error);
   }, []);
 
   if (!config) return <p>Loading config…</p>;
@@ -26,7 +46,6 @@ export default function ConfigForm() {
       <label>
         Buy Score
         <input
-          className="input"
           type="number"
           value={config.strategy.buy_score_threshold}
           onChange={(e) =>
@@ -44,7 +63,6 @@ export default function ConfigForm() {
       <label>
         Cooldown
         <input
-          className="input"
           type="number"
           value={config.cooldown_seconds}
           onChange={(e) =>
@@ -55,9 +73,7 @@ export default function ConfigForm() {
 
       <SymbolSelector config={config} setConfig={setConfig} />
 
-      <button onClick={save} className="btn bg-blue-600">
-        Save Config
-      </button>
+      <button onClick={save}>Save Config</button>
     </div>
   );
 }

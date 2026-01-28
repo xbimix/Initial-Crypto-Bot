@@ -1,17 +1,61 @@
 import { NextResponse } from "next/server";
-const BASE = "http://127.0.0.1:8001";
+
+const BACKEND = "http://127.0.0.1:8001";
 
 export async function GET() {
-  const res = await fetch(`${BASE}/config`, { cache: "no-store" });
-  return NextResponse.json(await res.json());
+  try {
+    const res = await fetch(`${BACKEND}/config`, {
+      cache: "no-store",
+    });
+
+    const text = await res.text();
+
+    if (!text) {
+      return NextResponse.json(
+        { error: "Empty response from Flask backend" },
+        { status: 502 }
+      );
+    }
+
+    return new NextResponse(text, {
+      status: res.status,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err.message },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(req: Request) {
-  const body = await req.json();
-  const res = await fetch(`${BASE}/config`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  return NextResponse.json(await res.json());
+  try {
+    const body = await req.json();
+
+    const res = await fetch(`${BACKEND}/config`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const text = await res.text();
+
+    if (!text) {
+      return NextResponse.json(
+        { error: "Empty response from Flask backend" },
+        { status: 502 }
+      );
+    }
+
+    return new NextResponse(text, {
+      status: res.status,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err: any) {
+    return NextResponse.json(
+      { error: err.message },
+      { status: 500 }
+    );
+  }
 }
