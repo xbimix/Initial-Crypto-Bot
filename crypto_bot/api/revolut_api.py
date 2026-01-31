@@ -1,148 +1,157 @@
 import time
 import json
-import base64
 import requests
-import os
 from pathlib import Path
-from nacl.signing import SigningKey
-from cryptography.hazmat.primitives import serialization
-from dotenv import load_dotenv
+from utils.logger import setup_logger
 
-load_dotenv()
+logger = setup_logger()
 
-# ---------------------------
-# Paths (ABSOLUTE, SAFE)
-# ---------------------------
+# =========================
+# CONFIG
+# =========================
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-KEYS_DIR = PROJECT_ROOT / "revolut-keys"
+BASE_URL = "https://revx.revolut.com/api/1.0"
+API_KEY = Path("revolut-keys/api_key.txt").read_text().strip()
 
-PRIVATE_KEY_PATH = KEYS_DIR / "private.pem"
-PUBLIC_KEY_PATH = KEYS_DIR / "public.pem"
+HEADERS = {
+    "Accept": "application/json",
+    "X-Revx-API-Key": API_KEY
+}
 
-# ---------------------------
-# API Config
-# ---------------------------
-
-BASE_URL = "https://api.revolut.com/api/1.0"
-API_KEY = os.getenv("REVOLUT_API_KEY")
-
-READ_ONLY = True  # 🔒 SAFE MODE (spot-view / no trades)
+TIMEOUT = 10
 
 
-# ---------------------------
-# Signing
-# ---------------------------
+# =========================
+# HELPERS
+# =========================
 
-def _load_signing_key():
-    if not PRIVATE_KEY_PATH.exists():
-        raise FileNotFoundError(f"Private key not found: {PRIVATE_KEY_PATH}")
+def _get(path, params=None):
+    url = f"{BASE_URL}{path}"
+    r = requests.get(url, headers=HEADERS, params=params, timeout=TIMEOUT)
+    r.raise_for_status()
+    return r.json()
 
-    pem_data = PRIVATE_KEY_PATH.read_bytes()
-    private_key = serialization.load_pem_private_key(
-        pem_data,
-        password=None
+
+def _post(path, payload=None):
+    url = f"{BASE_URL}{path}"
+    r = requests.post(
+        url,
+        headers={**HEADERS, "Content-Type": "application/json"},
+        data=json.dumps(payload or {}),
+        timeout=TIMEOUT
+    )
+    r.raise_for_status()
+    return r.json()
+
+
+def _delete(path):
+    url = f"{BASE_URL}{path}"
+    r = requests.delete(url, headers=HEADERS, timeout=TIMEOUT)
+    r.raise_for_status()
+    return r.json()
+
+
+# =========================
+# CONFIGURATION
+# =========================
+
+def get_all_currencies():
+    """
+    Revolut-supported currencies + precision
+    """
+    logger.info("📘 Fetching currency configuration")
+    return _get("/configuration/currencies")
+
+
+def get_all_pairs():
+    logger.info("📘 Fetching trading pairs")
+    return _get("/configuration/pairs")
+
+
+# =========================
+# MARKET DATA
+# =========================
+
+def get_candles(symbol, interval="15m", limit=100):
+    """
+    OHLCV candles
+    """
+    logger.info(f"📊 Fetching candles {symbol} {interval}")
+    return _get(
+        "/market-data/candles",
+        params={
+            "symbol": symbol,
+            "interval": interval,
+            "limit": limit
+        }
     )
 
-    raw = private_key.private_bytes(
-        encoding=serialization.Encoding.Raw,
-        format=serialization.PrivateFormat.Raw,
-        encryption_algorithm=serialization.NoEncryption()
+
+def get_order_book(symbol, depth=20):
+    """
+    Public order book snapshot
+    """
+    logger.info(f"📚 Fetching order book {symbol}")
+    return _get(
+        "/market-data/order-book",
+        params={
+            "symbol": symbol,
+            "limit": depth
+        }
     )
 
-    return SigningKey(raw)
+
+def get_public_trades(symbol, limit=50):
+    logger.info(f"🧾 Fetching public trades {symbol}")
+    return _get(
+        "/market-data/trades",
+        params={
+            "symbol": symbol,
+            "limit": limit
+        }
+    )
 
 
-
-SIGNING_KEY = _load_signing_key()
-
-
-def _sign(method, path, query="", body=""):
-    timestamp = str(int(time.time() * 1000))
-    message = f"{timestamp}{method}{path}{query}{body}".encode()
-
-    signature = SIGNING_KEY.sign(message).signature
-
-    return {
-        "X-Revx-API-Key": API_KEY,
-        "X-Revx-Timestamp": timestamp,
-        "X-Revx-Signature": base64.b64encode(signature).decode(),
-        "Content-Type": "application/json"
-    }
-
-
-# ---------------------------
-# ---------------------------
-# API Calls (Executor-facing)
-# ---------------------------
+# =========================
+# ACCOUNT
+# =========================
 
 def get_balances():
-    """
-    Fetch account balances (spot, safe).
-    """
-    path = "/balances"
-    headers = _sign("GET", path)
-    resp = requests.get(BASE_URL + path, headers=headers, timeout=10)
-    resp.raise_for_status()
-    return resp.json()
+    logger.info("💰 Fetching balances")
+    return _get("/balances")
 
 
 def get_active_orders():
-    """
-    Fetch active open orders.
-    """
-    path = "/orders/active"
-    headers = _sign("GET", path)
-    resp = requests.get(BASE_URL + path, headers=headers, timeout=10)
-    resp.raise_for_status()
-    return resp.json()
+    logger.info("📦 Fetching active orders")
+    return _get("/orders")
 
 
-def place_order(symbol, side, size, price=None):
-    """
-    Place an order (DRY-RUN when READ_ONLY=True).
-    """
-    if READ_ONLY:
-        print(f"[DRY-RUN] place_order blocked: {side} {symbol} size={size}")
-        return None
-
-    path = "/orders"
-    order_type = "market" if price is None else "limit"
-
-    body = {
-        "symbol": symbol,
-        "side": side,
-        "order_configuration": {
-            order_type: {
-                "base_size": str(size),
-                **({"price": str(price)} if price else {})
-            }
-        }
-    }
-
-    body_str = json.dumps(body, separators=(",", ":"))
-    headers = _sign("POST", path, body=body_str)
-
-    resp = requests.post(
-        BASE_URL + path,
-        headers=headers,
-        data=body_str,
-        timeout=10
-    )
-    resp.raise_for_status()
-    return resp.json()
+def get_order(order_id):
+    return _get(f"/orders/{order_id}")
 
 
 def cancel_order(order_id):
-    """
-    Cancel an order (DRY-RUN when READ_ONLY=True).
-    """
-    if READ_ONLY:
-        print(f"[DRY-RUN] cancel_order blocked: {order_id}")
-        return None
+    logger.info(f"❌ Cancelling order {order_id}")
+    return _delete(f"/orders/{order_id}")
 
-    path = f"/orders/{order_id}"
-    headers = _sign("DELETE", path)
-    resp = requests.delete(BASE_URL + path, headers=headers, timeout=10)
-    resp.raise_for_status()
-    return resp.json()
+
+# =========================
+# EXECUTION (LIVE — NOT USED YET)
+# =========================
+
+def place_order(symbol, side, quantity, order_type="market", price=None):
+    """
+    LIVE ORDER — gated by execution_mode
+    """
+    payload = {
+        "symbol": symbol,
+        "side": side,
+        "type": order_type,
+        "quantity": quantity
+    }
+
+    if price:
+        payload["price"] = price
+
+    logger.warning(f"⚠️ LIVE ORDER ATTEMPT: {payload}")
+    return _post("/orders", payload)

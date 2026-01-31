@@ -1,144 +1,118 @@
 from analysis.indicators import (
+    calculate_rsi,
     moving_average,
     calculate_volatility,
+    market_regime
 )
+from utils.logger import setup_logger
 
-from analysis.data_analysis import (
-    calculate_support_resistance,
-    calculate_rsi,
-    detect_wave_pattern,
-    calculate_fib_levels,
-)
+logger = setup_logger()
 
 
-def generate_signal(ohlcv, cfg):
+def evaluate_symbol(symbol, ohlcv, cfg):
     """
-    Core strategy engine.
-    Deterministic, explainable, executor-safe.
+    Evaluates a symbol and returns a fully scored decision.
     """
 
-    # =========================
-    # PRICE SERIES
-    # =========================
-    closes = [c["close"] for c in ohlcv]
-    highs = [c["high"] for c in ohlcv]
-    lows = [c["low"] for c in ohlcv]
-
-    current_price = closes[-1]
-
-    # =========================
-    # CONFIG
-    # =========================
-    BUY_SCORE_THRESHOLD = cfg["strategy"]["buy_score_threshold"]
-
-    USE_TREND_FILTER = cfg["filters"]["trend"]
-    USE_VOLATILITY_FILTER = cfg["filters"]["volatility"]
-    MAX_VOLATILITY_PERCENT = cfg["filters"]["max_volatility_percent"]
-
-    RSI_PERIOD = cfg["indicators"]["rsi_period"]
-    MA_WINDOWS = cfg["indicators"]["ma_windows"]
+    closes = ohlcv["close"]
+    price = closes[-1]
 
     # =========================
     # INDICATORS
     # =========================
-    support, resistance = calculate_support_resistance(closes)
+    rsi = calculate_rsi(closes, period=14)
+    ma20 = moving_average(closes, 20)
+    ma50 = moving_average(closes, 50)
+    ma200 = moving_average(closes, 200)
+    vol = calculate_volatility(closes)
 
-    rsi_series = calculate_rsi(closes, RSI_PERIOD)
-    rsi = rsi_series.iloc[-1] if hasattr(rsi_series, "iloc") else rsi_series
-
-    ma_20 = moving_average(closes, MA_WINDOWS[0])
-    ma_50 = moving_average(closes, MA_WINDOWS[1])
-    ma_200 = moving_average(closes, MA_WINDOWS[2])
-
-    volatility = calculate_volatility(closes)
-
-    waves = detect_wave_pattern(closes)
-    fib_levels = calculate_fib_levels(max(highs), min(lows))
+    if rsi is None or ma20 is None or ma50 is None:
+        logger.info(f"⚠️ {symbol} insufficient data")
+        return _hold(symbol, price, rsi, vol, "INSUFFICIENT_DATA")
 
     # =========================
-    # REGIME DETECTION
+    # REGIME FILTER (NEW)
     # =========================
-    trend_strength = 0
-    if ma_50 and ma_200:
-        trend_strength = abs(ma_50 - ma_200) / ma_200
+    regime = market_regime(closes)
 
-    if trend_strength > 0.01 and volatility < MAX_VOLATILITY_PERCENT:
-        regime = "trend"
-    elif volatility < MAX_VOLATILITY_PERCENT * 0.6:
-        regime = "range"
-    else:
-        regime = "chop"
+    if regime == "HIGH_VOL":
+        logger.info(f"🚫 {symbol} skipped — HIGH VOLATILITY")
+        return _hold(symbol, price, rsi, vol, regime)
+
+    # =========================
+    # TREND DETECTION
+    # =========================
+    trend = "NEUTRAL"
+    if ma20 > ma50 and (ma200 is None or ma50 > ma200):
+        trend = "BULL"
+    elif ma20 < ma50 and (ma200 is None or ma50 < ma200):
+        trend = "BEAR"
 
     # =========================
     # SCORING
     # =========================
     score = 0
-    reasons = []
 
-    # --- RSI ---
-    if rsi is not None:
-        if rsi < 30:
-            score += 30
-            reasons.append("RSI oversold")
-        elif rsi > 70:
-            score -= 25
-            reasons.append("RSI overbought")
+    # RSI mean reversion
+    if rsi < 30:
+        score += 40
+    elif rsi < 40:
+        score += 20
+    elif rsi > 70:
+        score -= 40
+    elif rsi > 60:
+        score -= 20
 
-    # --- SUPPORT ---
-    if support and current_price <= support * 1.02:
-        score += 25
-        reasons.append("Near support")
+    # Trend alignment
+    if trend == "BULL" and price > ma20:
+        score += 20
+    elif trend == "BEAR" and price < ma20:
+        score -= 20
 
-    # --- TREND ---
-    trend = "neutral"
-    if USE_TREND_FILTER and ma_50 and ma_200:
-        if ma_50 > ma_200:
-            trend = "up"
-            score += 20
-            reasons.append("Macro uptrend")
-        else:
-            trend = "down"
-            score -= 20
-            reasons.append("Macro downtrend")
-
-    # --- MOMENTUM ---
-    if ma_20 and ma_50 and ma_20 > ma_50:
-        score += 15
-        reasons.append("Short-term momentum")
-
-    # --- WAVE STRUCTURE ---
-    if waves.get("troughs") and waves.get("peaks"):
-        if waves["troughs"][-1] > waves["peaks"][-1]:
-            score += 10
-            reasons.append("Wave structure bullish")
-
-    # --- FIB CONFLUENCE ---
-    fib_618 = fib_levels.get("0.618")
-    if fib_618 and abs(current_price - fib_618) / fib_618 < 0.01:
-        score += 10
-        reasons.append("Fib 0.618 confluence")
-
-    # --- VOLATILITY FILTER ---
-    if USE_VOLATILITY_FILTER and volatility > MAX_VOLATILITY_PERCENT:
-        score -= 35
-        reasons.append("Excessive volatility")
+    # Regime constraint: no mean reversion in strong trend
+    if regime == "TREND" and rsi < 30:
+        logger.info(f"🚫 {symbol} blocked — TREND regime")
+        return _hold(symbol, price, rsi, vol, regime)
 
     # =========================
-    # FINAL NORMALIZATION
+    # DECISION
     # =========================
-    score = max(0, min(100, score))
+    buy_threshold = cfg["strategy"]["buy_score"]
+    sell_threshold = cfg["strategy"]["sell_score"]
 
-    action = "BUY" if score >= BUY_SCORE_THRESHOLD and regime != "chop" else "HOLD"
+    if score >= buy_threshold:
+        action = "BUY"
+    elif score <= -sell_threshold:
+        action = "SELL"
+    else:
+        action = "HOLD"
 
-    return {
+    decision = {
+        "symbol": symbol,
         "action": action,
         "score": score,
-        "price": current_price,
-        "support": support,
-        "resistance": resistance,
+        "price": price,
+        "rsi": rsi,
         "trend": trend,
         "regime": regime,
-        "volatility": round(volatility, 4),
-        "rsi": round(rsi, 2) if rsi is not None else None,
-        "reasons": reasons,
+        "volatility": vol
+    }
+
+    logger.info(f"🧠 STRATEGY → {decision}")
+    return decision
+
+
+def _hold(symbol, price, rsi, vol, regime):
+    """
+    Standard HOLD decision
+    """
+    return {
+        "symbol": symbol,
+        "action": "HOLD",
+        "score": 0,
+        "price": price,
+        "rsi": rsi,
+        "trend": "UNKNOWN",
+        "regime": regime,
+        "volatility": vol
     }

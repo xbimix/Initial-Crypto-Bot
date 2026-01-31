@@ -1,110 +1,74 @@
-"""
-Flask control server
-- Acts as the single source of truth for bot configuration
-- Serves JSON-only API endpoints for the UI
-- Normalizes symbols before persisting
-- Never returns HTML (prevents frontend crashes)
-"""
-
 from flask import Flask, jsonify, request
-import json
-import os
+from utils.logger import setup_logger
+from utils.config_loader import load_config, save_config
 
-BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-CONFIG_PATH = os.path.join(BASE_DIR, "state", "config.json")
-
+logger = setup_logger()
 app = Flask(__name__)
 
 
-# ------------------------
-# Helpers
-# ------------------------
+# -------------------------
+# STATUS
+# -------------------------
 
-def normalize_symbol(symbol: str) -> str:
-    """Normalize symbols to exchange-safe format (BTCUSDT)."""
-    return symbol.replace("/", "").replace("-", "").upper()
-
-
-def load_config():
-    """Load config from disk safely."""
-    if not os.path.exists(CONFIG_PATH):
-        return {}
-    with open(CONFIG_PATH, "r") as f:
-        return json.load(f)
+@app.route("/status", methods=["GET"])
+def status():
+    cfg = load_config()
+    return jsonify({
+        "enabled": cfg.get("enabled", False),
+        "execution_mode": cfg.get("execution_mode"),
+        "symbols": cfg.get("symbols"),
+        "interval": cfg.get("interval")
+    })
 
 
-def save_config(cfg):
-    """Persist config atomically."""
-    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
-    with open(CONFIG_PATH, "w") as f:
-        json.dump(cfg, f, indent=2)
-
-
-# ------------------------
-# API Routes
-# ------------------------
+# -------------------------
+# CONFIG
+# -------------------------
 
 @app.route("/config", methods=["GET"])
 def get_config():
-    """
-    Returns full bot config.
-    Always returns JSON (never HTML).
-    """
-    try:
-        return jsonify(load_config())
-    except Exception as e:
-        return jsonify({"error": str(e), "config": {}}), 500
+    return jsonify(load_config())
 
 
 @app.route("/config", methods=["POST"])
 def update_config():
-    """
-    Updates bot configuration.
-    Symbols are normalized before saving.
-    """
-    try:
-        cfg = request.get_json(force=True)
-
-        if "symbols" in cfg:
-            cfg["symbols"] = [normalize_symbol(s) for s in cfg["symbols"]]
-
-        save_config(cfg)
-        return jsonify({"status": "ok"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/start", methods=["POST"])
-def start_bot():
-    """Enable trading loop."""
     cfg = load_config()
-    cfg["enabled"] = True
+    updates = request.json or {}
+
+    cfg.update(updates)
     save_config(cfg)
-    return jsonify({"status": "bot started"})
+
+    logger.info(f"⚙️ Config updated: {updates}")
+    return jsonify({"status": "ok"})
 
 
-@app.route("/stop", methods=["POST"])
-def stop_bot():
-    """Disable trading loop."""
+# -------------------------
+# CONTROL
+# -------------------------
+
+@app.route("/control", methods=["POST"])
+def control():
+    data = request.json or {}
+    action = data.get("action")
+
     cfg = load_config()
-    cfg["enabled"] = False
+
+    if action == "START":
+        cfg["enabled"] = True
+        logger.info("▶️ Bot ENABLED via control server")
+
+    elif action == "STOP":
+        cfg["enabled"] = False
+        logger.info("⏹ Bot DISABLED via control server")
+
     save_config(cfg)
-    return jsonify({"status": "bot stopped"})
+    return jsonify({"enabled": cfg["enabled"]})
 
 
-@app.route("/kill", methods=["POST"])
-def kill_switch():
-    """Emergency stop: disables everything."""
-    cfg = load_config()
-    cfg["enabled"] = False
-    cfg["live_trading"] = False
-    save_config(cfg)
-    return jsonify({"status": "KILL SWITCH ACTIVATED"})
+# -------------------------
+# ENTRY
+# -------------------------
 
-
-# ------------------------
-# Run
-# ------------------------
-
-if __name__ == "__main__":
-    app.run(port=8001)
+def run():
+    logger.info("🌐 Control server starting on port 8001")
+    app.run(host="127.0.0.1", port=8001, debug=False)

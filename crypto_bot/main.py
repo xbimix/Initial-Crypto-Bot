@@ -1,41 +1,82 @@
 import time
 
+from utils.logger import setup_logger
 from utils.config_loader import load_config
+
 from data.market_data import fetch_ohlcv
-from strategy.strategy_engine import generate_signal
-from trading.executor import execute_trade
+from strategy.strategy_engine import evaluate_symbol
+from trading.executor import Executor
 
-
-POLL_INTERVAL = 5  # seconds (safe)
+logger = setup_logger()
 
 
 def main():
-    print("🚀 Bot started")
+    logger.info("🚀 RevBot starting (paper mode default)")
+
+    cfg = load_config()
+    executor = Executor(cfg)
 
     while True:
         try:
-            cfg = load_config()
+            cfg = load_config()  # hot reload config
 
-            # ---------------------------
-            # Global enable / disable
-            # ---------------------------
             if not cfg.get("enabled", False):
-                time.sleep(POLL_INTERVAL)
+                logger.info("⏸ Bot disabled — waiting...")
+                time.sleep(5)
                 continue
 
-            symbols = cfg.get("symbols", [])
+            logger.info("❤️ Heartbeat — bot running")
 
-            for symbol in symbols:
-                ohlcv = fetch_ohlcv(symbol)
-                signal = generate_signal(ohlcv, cfg)
-                execute_trade(signal, symbol, cfg)
+            for symbol in cfg["symbols"]:
+                logger.info(f"🔍 Processing {symbol}")
 
-            time.sleep(POLL_INTERVAL)
+                ohlcv = fetch_ohlcv(
+                    symbol=symbol,
+                    interval=cfg["interval"],
+                    limit=cfg["lookback"]
+                )
 
-        except Exception as e:
-            print(f"[ERROR] {e}")
+                if not ohlcv:
+                    logger.warning(f"⚠️ No market data for {symbol}")
+                    continue
+
+                decision = evaluate_symbol(symbol, ohlcv, cfg)
+
+                executor.handle_decision(decision)
+
             time.sleep(10)
 
+        except Exception as e:
+            logger.exception(f"🔥 Main loop error: {e}")
+            time.sleep(5)
+
+
+if __name__ == "__main__":
+    main()
+
+
+    # while True:
+    #     try:
+    #         cfg = load_config()
+
+    #         if not cfg.get("enabled"):
+    #             logger.info("⏸ Bot disabled — waiting...")
+    #             time.sleep(5)
+    #             continue
+
+    #         logger.info("❤️ Heartbeat — bot running")
+
+    #         for symbol in cfg["symbols"]:
+    #             logger.info(f"🔍 Evaluating {symbol}")
+
+    #             # Strategy + execution will be plugged in Phase 4+
+    #             # For now, we log so silence is impossible
+
+    #         time.sleep(10)
+
+    #     except Exception as e:
+    #         logger.exception(f"🔥 Fatal loop error: {e}")
+    #         time.sleep(5)
 
 if __name__ == "__main__":
     main()

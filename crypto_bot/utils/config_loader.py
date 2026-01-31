@@ -3,27 +3,18 @@ Hot-reloading config loader
 - Automatically reloads config.json when changed
 - Used by bot loop for live updates
 """
-
 import json
-import os
+from pathlib import Path
 
-BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-CONFIG_PATH = os.path.join(BASE_DIR, "state", "config.json")
-
-_last_mtime = 0
-_cached = None
-
+CONFIG_PATH = Path("state/config.json")
 
 def load_config():
-    global _last_mtime, _cached
+    if not CONFIG_PATH.exists():
+        raise FileNotFoundError("config.json not found")
 
-    if not os.path.exists(CONFIG_PATH):
-        return {}
+    with open(CONFIG_PATH, "r") as f:
+        return json.load(f)
 
-    mtime = os.path.getmtime(CONFIG_PATH)
-    if mtime != _last_mtime:
-        with open(CONFIG_PATH, "r") as f:
-            _cached = json.load(f)
-        _last_mtime = mtime
-
-    return _cached
+def save_config(cfg):
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(cfg, f, indent=2)

@@ -1,17 +1,57 @@
+import time
+from utils.logger import setup_logger
+
+logger = setup_logger()
+
+
 class RiskManager:
-    def __init__(self, risk_percent=0.02):
-        self.risk_percent = risk_percent
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.last_trade_time = {}
+        self.open_positions = {}
 
-    def position_size(self, balance, entry_price, stop_price):
+    # -------------------------
+    # COOLDOWN
+    # -------------------------
+
+    def can_trade(self, symbol):
+        cooldown = self.cfg["risk"]["cooldown_seconds"]
+        last_time = self.last_trade_time.get(symbol, 0)
+        return (time.time() - last_time) >= cooldown
+
+    def mark_trade(self, symbol):
+        self.last_trade_time[symbol] = time.time()
+
+    # -------------------------
+    # POSITION LIMITS
+    # -------------------------
+
+    def can_open_position(self):
+        max_trades = self.cfg["risk"]["max_concurrent_trades"]
+        return len(self.open_positions) < max_trades
+
+    def register_position(self, symbol, position):
+        self.open_positions[symbol] = position
+
+    def close_position(self, symbol):
+        self.open_positions.pop(symbol, None)
+
+    # -------------------------
+    # POSITION SIZING
+    # -------------------------
+
+    def position_size(self, balance, entry_price):
         """
-        Calculate position size based on fixed risk percentage.
+        Fixed % risk model.
         """
+        risk_pct = self.cfg["risk"]["risk_percent"]
 
-        risk_amount = balance * self.risk_percent
-        stop_distance = abs(entry_price - stop_price)
+        risk_amount = balance * risk_pct
+        size = risk_amount / entry_price
 
-        if stop_distance <= 0:
-            return 0
+        logger.info(
+            f"📐 Position sizing: balance={balance:.2f}, "
+            f"risk={risk_pct*100:.1f}%, size={size:.6f}"
+        )
 
-        size = risk_amount / stop_distance
         return round(size, 6)
