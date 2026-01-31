@@ -146,3 +146,4 @@ def auto_rebuy_price(current_price, risk_percent=2.0, rebuy_count=2):
         levels.append(round(price, 6))
 
     return levels
+##final
