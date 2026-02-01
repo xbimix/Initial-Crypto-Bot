@@ -1,5 +1,5 @@
 import logging
-from logging.handlers import RotatingFileHandler
+import sys
 from pathlib import Path
 
 LOG_DIR = Path("state")
@@ -7,27 +7,31 @@ LOG_DIR.mkdir(exist_ok=True)
 
 LOG_FILE = LOG_DIR / "bot.log"
 
-def setup_logger(name="RevBot"):
-    logger = logging.getLogger(name)
+
+def setup_logger():
+    logger = logging.getLogger("RevBot")
     logger.setLevel(logging.INFO)
+
+    if logger.handlers:
+        return logger
 
     formatter = logging.Formatter(
         "%(asctime)s | %(levelname)s | %(message)s"
     )
 
-    file_handler = RotatingFileHandler(
-        LOG_FILE, maxBytes=5_000_000, backupCount=5
-    )
+    # File handler (UTF-8 safe)
+    file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
     file_handler.setFormatter(formatter)
 
-    console_handler = logging.StreamHandler()
+    # Console handler (force UTF-8)
+    console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
 
-    if not logger.handlers:
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
 
     return logger
+
 
 # crypto_bot/
 # │

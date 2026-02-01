@@ -3,16 +3,11 @@ from utils.logger import setup_logger
 
 logger = setup_logger()
 
-
 # =========================
 # RSI
 # =========================
 
 def calculate_rsi(closes, period=14):
-    """
-    Standard RSI calculation (Wilder's method).
-    Returns latest RSI value or None.
-    """
     if len(closes) < period + 1:
         return None
 
@@ -45,13 +40,8 @@ def calculate_rsi(closes, period=14):
 # =========================
 
 def moving_average(values, window):
-    """
-    Simple Moving Average (SMA).
-    Returns latest MA value or None.
-    """
     if len(values) < window:
         return None
-
     return sum(values[-window:]) / window
 
 
@@ -60,10 +50,6 @@ def moving_average(values, window):
 # =========================
 
 def calculate_volatility(closes, window=20):
-    """
-    Standard deviation of log returns.
-    Returns volatility as percentage.
-    """
     if len(closes) < window + 1:
         return None
 
@@ -77,3 +63,35 @@ def calculate_volatility(closes, window=20):
     std = math.sqrt(variance)
 
     return round(std * 100, 4)
+
+
+# =========================
+# MARKET REGIME (NEW)
+# =========================
+
+def market_regime(closes, fast=20, slow=50, vol_window=20):
+    """
+    Determines market regime:
+    - TREND
+    - RANGE
+    - HIGH_VOL
+    """
+
+    ma_fast = moving_average(closes, fast)
+    ma_slow = moving_average(closes, slow)
+    vol = calculate_volatility(closes, vol_window)
+
+    if ma_fast is None or ma_slow is None or vol is None:
+        return "UNKNOWN"
+
+    # High volatility = no trade
+    if vol > 4.0:
+        return "HIGH_VOL"
+
+    # Trend strength via MA separation
+    ma_diff_pct = abs(ma_fast - ma_slow) / ma_slow * 100
+
+    if ma_diff_pct > 0.4:
+        return "TREND"
+
+    return "RANGE"

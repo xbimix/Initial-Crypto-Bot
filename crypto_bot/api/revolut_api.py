@@ -1,4 +1,3 @@
-import time
 import json
 import requests
 from pathlib import Path
@@ -6,152 +5,89 @@ from utils.logger import setup_logger
 
 logger = setup_logger()
 
-# =========================
-# CONFIG
-# =========================
+# ======================================================
+# AUTH
+# ======================================================
+
+BASE_DIR = Path(__file__).resolve().parents[2]
+KEY_PATH = BASE_DIR / "revolut-keys" / "api_key.txt"
+
+if not KEY_PATH.exists():
+    raise FileNotFoundError(f"Missing API key: {KEY_PATH}")
+
+API_KEY = KEY_PATH.read_text().strip()
 
 BASE_URL = "https://revx.revolut.com/api/1.0"
-API_KEY = Path("revolut-keys/api_key.txt").read_text().strip()
 
 HEADERS = {
     "Accept": "application/json",
-    "X-Revx-API-Key": API_KEY
+    "X-Revx-API-Key": API_KEY,
 }
 
 TIMEOUT = 10
 
-
-# =========================
-# HELPERS
-# =========================
+# ======================================================
+# INTERNAL
+# ======================================================
 
 def _get(path, params=None):
-    url = f"{BASE_URL}{path}"
-    r = requests.get(url, headers=HEADERS, params=params, timeout=TIMEOUT)
-    r.raise_for_status()
-    return r.json()
-
-
-def _post(path, payload=None):
-    url = f"{BASE_URL}{path}"
-    r = requests.post(
-        url,
-        headers={**HEADERS, "Content-Type": "application/json"},
-        data=json.dumps(payload or {}),
+    r = requests.get(
+        f"{BASE_URL}{path}",
+        headers=HEADERS,
+        params=params,
         timeout=TIMEOUT
     )
     r.raise_for_status()
     return r.json()
 
+# ======================================================
+# GRANULARITY
+# ======================================================
 
-def _delete(path):
-    url = f"{BASE_URL}{path}"
-    r = requests.delete(url, headers=HEADERS, timeout=TIMEOUT)
-    r.raise_for_status()
-    return r.json()
+GRANULARITY_MAP = {
+    "1m": "ONE_MIN",
+    "5m": "FIVE_MIN",
+    "15m": "FIFTEEN_MIN",
+    "30m": "THIRTY_MIN",
+    "1h": "ONE_HOUR",
+    "4h": "FOUR_HOUR",
+    "1d": "ONE_DAY",
+}
 
+# ======================================================
+# SYMBOL NORMALIZATION (FINAL)
+# ======================================================
 
-# =========================
-# CONFIGURATION
-# =========================
+SUPPORTED_SYMBOLS = {
+    "BTC-USDT": "BTC-USD",
+    "ETH-USDT": "ETH-USD",
+    "SOL-USDT": "SOL-USD",
+}
 
-def get_all_currencies():
-    """
-    Revolut-supported currencies + precision
-    """
-    logger.info("📘 Fetching currency configuration")
-    return _get("/configuration/currencies")
+def normalize_symbol(symbol: str) -> str:
+    if symbol not in SUPPORTED_SYMBOLS:
+        raise ValueError(f"Unsupported Revolut symbol: {symbol}")
+    return SUPPORTED_SYMBOLS[symbol]
 
-
-def get_all_pairs():
-    logger.info("📘 Fetching trading pairs")
-    return _get("/configuration/pairs")
-
-
-# =========================
-# MARKET DATA
-# =========================
+# ======================================================
+# MARKET DATA (FINAL)
+# ======================================================
 
 def get_candles(symbol, interval="15m", limit=100):
-    """
-    OHLCV candles
-    """
-    logger.info(f"📊 Fetching candles {symbol} {interval}")
+    if interval not in GRANULARITY_MAP:
+        raise ValueError(f"Unsupported interval: {interval}")
+
+    revolut_symbol = normalize_symbol(symbol)
+
+    logger.info(
+        f"📊 Fetching candles {revolut_symbol} ({GRANULARITY_MAP[interval]})"
+    )
+
     return _get(
         "/market-data/candles",
         params={
-            "symbol": symbol,
-            "interval": interval,
+            "symbol": revolut_symbol,
+            "granularity": GRANULARITY_MAP[interval],
             "limit": limit
         }
     )
-
-
-def get_order_book(symbol, depth=20):
-    """
-    Public order book snapshot
-    """
-    logger.info(f"📚 Fetching order book {symbol}")
-    return _get(
-        "/market-data/order-book",
-        params={
-            "symbol": symbol,
-            "limit": depth
-        }
-    )
-
-
-def get_public_trades(symbol, limit=50):
-    logger.info(f"🧾 Fetching public trades {symbol}")
-    return _get(
-        "/market-data/trades",
-        params={
-            "symbol": symbol,
-            "limit": limit
-        }
-    )
-
-
-# =========================
-# ACCOUNT
-# =========================
-
-def get_balances():
-    logger.info("💰 Fetching balances")
-    return _get("/balances")
-
-
-def get_active_orders():
-    logger.info("📦 Fetching active orders")
-    return _get("/orders")
-
-
-def get_order(order_id):
-    return _get(f"/orders/{order_id}")
-
-
-def cancel_order(order_id):
-    logger.info(f"❌ Cancelling order {order_id}")
-    return _delete(f"/orders/{order_id}")
-
-
-# =========================
-# EXECUTION (LIVE — NOT USED YET)
-# =========================
-
-def place_order(symbol, side, quantity, order_type="market", price=None):
-    """
-    LIVE ORDER — gated by execution_mode
-    """
-    payload = {
-        "symbol": symbol,
-        "side": side,
-        "type": order_type,
-        "quantity": quantity
-    }
-
-    if price:
-        payload["price"] = price
-
-    logger.warning(f"⚠️ LIVE ORDER ATTEMPT: {payload}")
-    return _post("/orders", payload)

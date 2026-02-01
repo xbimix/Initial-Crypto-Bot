@@ -17,34 +17,48 @@ class PaperBroker:
         self.starting_balance = starting_balance
         self._load_state()
 
-    # -------------------------
-    # STATE
-    # -------------------------
+    # =========================
+    # SAFE LOAD / SAVE
+    # =========================
+
+    def _safe_load_json(self, path, default):
+        try:
+            if not path.exists():
+                return default
+            text = path.read_text().strip()
+            if not text:
+                return default
+            return json.loads(text)
+        except Exception:
+            logger.warning(f"⚠️ Corrupt JSON detected, resetting: {path}")
+            return default
+
+    def _safe_write_json(self, path, data):
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2))
+        tmp.replace(path)
 
     def _load_state(self):
-        if STATE_FILE.exists():
-            self.state = json.loads(STATE_FILE.read_text())
-        else:
-            self.state = {
+        self.state = self._safe_load_json(
+            STATE_FILE,
+            {
                 "balance": self.starting_balance,
                 "positions": {}
             }
-            self._save_state()
+        )
 
-        if not TRADES_FILE.exists():
-            TRADES_FILE.write_text(json.dumps([], indent=2))
+        self.trades = self._safe_load_json(TRADES_FILE, [])
 
-    def _save_state(self):
-        STATE_FILE.write_text(json.dumps(self.state, indent=2))
+        self._safe_write_json(STATE_FILE, self.state)
+        self._safe_write_json(TRADES_FILE, self.trades)
 
-    def _log_trade(self, trade):
-        trades = json.loads(TRADES_FILE.read_text())
-        trades.append(trade)
-        TRADES_FILE.write_text(json.dumps(trades, indent=2))
+        logger.info(
+            f"💾 Paper state loaded | balance={self.state['balance']}"
+        )
 
-    # -------------------------
+    # =========================
     # PUBLIC API
-    # -------------------------
+    # =========================
 
     def get_balance(self):
         return self.state["balance"]
@@ -55,19 +69,19 @@ class PaperBroker:
     def get_position(self, symbol):
         return self.state["positions"].get(symbol)
 
-    # -------------------------
+    # =========================
     # EXECUTION
-    # -------------------------
+    # =========================
 
-    def buy(self, symbol, size, price, reason="strategy"):
+    def buy(self, symbol, size, price, reason=None):
         cost = size * price
 
         if cost > self.state["balance"]:
-            logger.warning("❌ Paper BUY rejected — insufficient balance")
+            logger.warning("❌ PAPER BUY rejected — insufficient balance")
             return False
 
         if symbol in self.state["positions"]:
-            logger.warning("❌ Paper BUY rejected — position exists")
+            logger.warning("❌ PAPER BUY rejected — position exists")
             return False
 
         self.state["balance"] -= cost
@@ -78,8 +92,6 @@ class PaperBroker:
             "entry_time": time.time()
         }
 
-        self._save_state()
-
         trade = {
             "time": time.time(),
             "symbol": symbol,
@@ -87,18 +99,19 @@ class PaperBroker:
             "price": price,
             "size": size,
             "balance_after": self.state["balance"],
-            "reason": reason
+            "meta": reason or {}
         }
 
-        self._log_trade(trade)
-        logger.info(f"🧾 PAPER BUY: {trade}")
+        self.trades.append(trade)
+        self._persist()
+
+        logger.info(f"🧾 PAPER BUY → {trade}")
         return True
 
     def sell(self, symbol, price, reason="exit"):
         position = self.state["positions"].get(symbol)
-
         if not position:
-            logger.warning("❌ Paper SELL rejected — no position")
+            logger.warning("❌ PAPER SELL rejected — no position")
             return False
 
         size = position["size"]
@@ -107,8 +120,6 @@ class PaperBroker:
 
         self.state["balance"] += size * price
         del self.state["positions"][symbol]
-
-        self._save_state()
 
         trade = {
             "time": time.time(),
@@ -121,6 +132,16 @@ class PaperBroker:
             "reason": reason
         }
 
-        self._log_trade(trade)
-        logger.info(f"🧾 PAPER SELL: {trade}")
+        self.trades.append(trade)
+        self._persist()
+
+        logger.info(f"🧾 PAPER SELL → {trade}")
         return True
+
+    # =========================
+    # PERSIST
+    # =========================
+
+    def _persist(self):
+        self._safe_write_json(STATE_FILE, self.state)
+        self._safe_write_json(TRADES_FILE, self.trades)
