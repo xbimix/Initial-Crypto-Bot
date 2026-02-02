@@ -1,1 +1,163 @@
-[]
+[
+  {
+    "time": 1770007242.828356,
+    "symbol": "ETH-USDT",
+    "side": "BUY",
+    "price": 2255.57,
+    "size": 0.088669,
+    "balance": 9800.00086367,
+    "reason": "strategy_buy"
+  },
+  {
+    "time": 1770007264.5891547,
+    "symbol": "ETH-USDT",
+    "side": "SELL",
+    "price": 1901.54,
+    "size": 0.088669,
+    "pnl": -31.391486070000017,
+    "balance": 9968.608513930001,
+    "reason": "strategy_sell"
+  },
+  {
+    "time": 1770007275.2684448,
+    "symbol": "BTC-USDT",
+    "side": "BUY",
+    "price": 76237.99,
+    "size": 0.002615,
+    "balance": 9769.246170080001,
+    "reason": "strategy_buy"
+  },
+  {
+    "time": 1770007286.2426023,
+    "symbol": "BTC-USDT",
+    "side": "SELL",
+    "price": 64264.84,
+    "size": 0.002615,
+    "pnl": -31.309787250000024,
+    "balance": 9937.298726680001,
+    "reason": "stop_loss"
+  },
+  {
+    "time": 1770007341.0716627,
+    "symbol": "ETH-USDT",
+    "side": "BUY",
+    "price": 2257.0,
+    "size": 0.088058,
+    "balance": 9738.55182068,
+    "reason": "strategy_buy"
+  },
+  {
+    "time": 1770007384.7272263,
+    "symbol": "ETH-USDT",
+    "side": "SELL",
+    "price": 1649.76,
+    "size": 0.088058,
+    "pnl": -53.472339919999996,
+    "balance": 9883.82638676,
+    "reason": "strategy_sell"
+  },
+  {
+    "time": 1770007385.012459,
+    "symbol": "SOL-USDT",
+    "side": "BUY",
+    "price": 85.177,
+    "size": 2.320774,
+    "balance": 9686.149819762,
+    "reason": "strategy_buy"
+  },
+  {
+    "time": 1770007417.710606,
+    "symbol": "SOL-USDT",
+    "side": "SELL",
+    "price": 100.925,
+    "size": 2.320774,
+    "pnl": 36.54754895199998,
+    "balance": 9920.373935712001,
+    "reason": "take_profit"
+  },
+  {
+    "time": 1770007438.9000118,
+    "symbol": "BTC-USDT",
+    "side": "BUY",
+    "price": 76090.83,
+    "size": 0.002608,
+    "balance": 9721.929051072002,
+    "reason": "strategy_buy"
+  },
+  {
+    "time": 1770007548.0416307,
+    "symbol": "BTC-USDT",
+    "side": "SELL",
+    "price": 75995.53,
+    "size": 0.002608,
+    "pnl": -0.2485424000000076,
+    "balance": 9920.125393312002,
+    "reason": "strategy_sell"
+  },
+  {
+    "time": 1770007548.341298,
+    "symbol": "ETH-USDT",
+    "side": "BUY",
+    "price": 2249.63,
+    "size": 0.088193,
+    "balance": 9721.723774722002,
+    "reason": "strategy_buy"
+  },
+  {
+    "time": 1770007602.846792,
+    "symbol": "ETH-USDT",
+    "side": "SELL",
+    "price": 1645.15,
+    "size": 0.088193,
+    "pnl": -53.31090464,
+    "balance": 9866.814488672002,
+    "reason": "strategy_sell"
+  },
+  {
+    "time": 1770007613.4293807,
+    "symbol": "BTC-USDT",
+    "side": "BUY",
+    "price": 75972.68,
+    "size": 0.002597,
+    "balance": 9669.513438712002,
+    "reason": "strategy_buy"
+  },
+  {
+    "time": 1770007624.3555832,
+    "symbol": "BTC-USDT",
+    "side": "SELL",
+    "price": 64026.39,
+    "size": 0.002597,
+    "pnl": -31.024515129999983,
+    "balance": 9835.789973542001,
+    "reason": "strategy_sell"
+  },
+  {
+    "time": 1770007646.4626772,
+    "symbol": "ETH-USDT",
+    "side": "BUY",
+    "price": 2248.55,
+    "size": 0.087486,
+    "balance": 9639.073328242,
+    "reason": "strategy_buy"
+  },
+  {
+    "time": 1770007766.6513493,
+    "symbol": "ETH-USDT",
+    "side": "SELL",
+    "price": 1895.53,
+    "size": 0.087486,
+    "pnl": -30.884307720000017,
+    "balance": 9804.905665822,
+    "reason": "stop_loss"
+  },
+  {
+    "time": 1770007766.9567506,
+    "symbol": "SOL-USDT",
+    "side": "BUY",
+    "price": 100.567,
+    "size": 1.949925,
+    "balance": 9608.807558347,
+    "reason": "strategy_buy"
+  }
+]

@@ -8,27 +8,30 @@ LOG_DIR.mkdir(exist_ok=True)
 LOG_FILE = LOG_DIR / "bot.log"
 
 
-def setup_logger():
-    logger = logging.getLogger("RevBot")
-    logger.setLevel(logging.INFO)
+def setup_logger(name="revbot"):
+    logger = logging.getLogger(name)
 
     if logger.handlers:
-        return logger
+        return logger  # prevent duplicate handlers
+
+    logger.setLevel(logging.INFO)
 
     formatter = logging.Formatter(
         "%(asctime)s | %(levelname)s | %(message)s"
     )
 
-    # File handler (UTF-8 safe)
+    # ---- Console handler (Windows safe, no emojis) ----
+    console = logging.StreamHandler(sys.stdout)
+    console.setFormatter(formatter)
+    console.setLevel(logging.INFO)
+
+    # ---- File handler ----
     file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
     file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.INFO)
 
-    # Console handler (force UTF-8)
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
-
+    logger.addHandler(console)
     logger.addHandler(file_handler)
-    logger.addHandler(console_handler)
 
     return logger
 

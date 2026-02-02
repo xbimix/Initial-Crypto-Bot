@@ -2,6 +2,10 @@ import json
 import time
 from pathlib import Path
 
+from utils.logger import setup_logger
+logger = setup_logger("paper_trader")
+
+
 STATE_FILE = Path("state/paper_state.json")
 JOURNAL_FILE = Path("state/trades.json")
 

@@ -3,6 +3,9 @@ import time
 from pathlib import Path
 from .limits import *
 
+from utils.logger import setup_logger
+logger = setup_logger("global_guard")
+
 STATE_FILE = Path("state/runtime.json")
 
 def _load():

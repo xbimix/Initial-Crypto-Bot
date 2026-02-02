@@ -1,58 +1,163 @@
+# main.py
 import time
-
 from utils.logger import setup_logger
 from utils.config_loader import load_config
 
-from data.market_data import fetch_ohlcv
+from data.market_data import fetch_market_snapshot
 from strategy.strategy_engine import evaluate_symbol
 from trading.executor import Executor
 
-logger = setup_logger()
+logger = setup_logger("main")
 
 
 def main():
-    logger.info("🚀 RevBot starting (paper mode default)")
+    logger.info("RevBot starting (paper mode default)")
 
     cfg = load_config()
     executor = Executor(cfg)
 
     while True:
         try:
-            cfg = load_config()  # hot reload config
+            cfg = load_config()  # hot reload
 
             if not cfg.get("enabled", False):
-                logger.info("⏸ Bot disabled — waiting...")
+                logger.info("Bot disabled — waiting")
                 time.sleep(5)
                 continue
 
-            logger.info("❤️ Heartbeat — bot running")
+            logger.info("Heartbeat — bot running")
 
             for symbol in cfg["symbols"]:
-                logger.info(f"🔍 Processing {symbol}")
+                logger.info(f"Processing {symbol}")
 
-                ohlcv = fetch_ohlcv(
-                    symbol=symbol,
-                    interval=cfg["interval"],
-                    limit=cfg["lookback"]
-                )
+                market = fetch_market_snapshot(symbol, cfg)
 
-                if not ohlcv:
-                    logger.warning(f"⚠️ No market data for {symbol}")
+                if market is None:
+                    logger.warning(f"No market data for {symbol}")
                     continue
 
-                decision = evaluate_symbol(symbol, ohlcv, cfg)
-
+                decision = evaluate_symbol(symbol, market, cfg)
                 executor.handle_decision(decision)
 
-            time.sleep(10)
+            time.sleep(cfg.get("loop_sleep", 10))
 
         except Exception as e:
-            logger.exception(f"🔥 Main loop error: {e}")
+            logger.exception(f"Main loop error: {e}")
             time.sleep(5)
 
 
 if __name__ == "__main__":
     main()
+
+
+
+# import time
+
+# from utils.logger import setup_logger
+# from utils.config_loader import load_config
+
+# from data.market_data import fetch_market_snapshot
+# from strategy.strategy_engine import evaluate_symbol
+# from trading.executor import Executor
+
+# logger = setup_logger("main")
+
+
+# def main():
+#     logger.info("RevBot starting (paper mode default)")
+
+#     cfg = load_config()
+#     executor = Executor(cfg)
+
+#     while True:
+#         try:
+#             cfg = load_config()  # hot reload
+
+#             if not cfg.get("enabled", False):
+#                 logger.info("Bot disabled — waiting")
+#                 time.sleep(5)
+#                 continue
+
+#             logger.info("Heartbeat — bot running")
+
+#             for symbol in cfg["symbols"]:
+#                 logger.info(f"Processing {symbol}")
+
+#                 market = fetch_market_snapshot(symbol)
+
+#                 if not market:
+#                     logger.warning(f"No market data for {symbol}")
+#                     continue
+
+#                 decision = evaluate_symbol(symbol, market, cfg)
+#                 executor.handle_decision(decision)
+
+#             time.sleep(cfg.get("loop_sleep", 10))
+
+#         except Exception as e:
+#             logger.exception(f"Main loop error: {e}")
+#             time.sleep(5)
+
+
+# if __name__ == "__main__":
+#     main()
+
+
+# import time
+
+# from utils.logger import setup_logger
+# from utils.config_loader import load_config
+
+# from data.market_data import fetch_ohlcv
+# from strategy.strategy_engine import evaluate_symbol
+# from trading.executor import Executor
+
+# logger = setup_logger()
+
+
+# def main():
+#     logger.info("🚀 RevBot starting (paper mode default)")
+
+#     cfg = load_config()
+#     executor = Executor(cfg)
+
+#     while True:
+#         try:
+#             cfg = load_config()  # hot reload config
+
+#             if not cfg.get("enabled", False):
+#                 logger.info("⏸ Bot disabled — waiting...")
+#                 time.sleep(5)
+#                 continue
+
+#             logger.info("❤️ Heartbeat — bot running")
+
+#             for symbol in cfg["symbols"]:
+#                 logger.info(f"🔍 Processing {symbol}")
+
+#                 ohlcv = fetch_ohlcv(
+#                     symbol=symbol,
+#                     interval=cfg["interval"],
+#                     limit=cfg["lookback"]
+#                 )
+
+#                 if not ohlcv:
+#                     logger.warning(f"⚠️ No market data for {symbol}")
+#                     continue
+
+#                 decision = evaluate_symbol(symbol, ohlcv, cfg)
+
+#                 executor.handle_decision(decision)
+
+#             time.sleep(10)
+
+#         except Exception as e:
+#             logger.exception(f"🔥 Main loop error: {e}")
+#             time.sleep(5)
+
+
+# if __name__ == "__main__":
+#     main()
 
 
     # while True:
