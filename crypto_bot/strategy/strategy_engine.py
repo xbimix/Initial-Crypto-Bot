@@ -1,63 +1,124 @@
-# strategy/strategy_engine.py
-
 from utils.logger import setup_logger
-logger = setup_logger("strategy_ engine")
 
+logger = setup_logger("strategy_engine")
+
+# --- Stateful memory (minimal & intentional) ---
+_last_signal = {}        # symbol -> "BUY" | "SELL" | None
+_last_sell_price = {}   # symbol -> float
 
 
 def evaluate_symbol(symbol: str, market: dict, cfg: dict) -> dict:
     """
-    Strategy decision engine.
-    Works with Revolut public-data snapshots (spread may be None).
+    Regime-aware, trade-first strategy.
+    - Momentum persistence
+    - 24h range price gating
+    - No rebuy above last sell
+    - Revolut-native (no candles)
     """
 
     price = market["price"]
-    momentum = market.get("momentum", 0.0)
-    spread = market.get("spread")  # May be None
+    trade_count = market.get("trade_count", 0)
+    volatility = market.get("volatility", 0.0)
+    momentum = market.get("momentum_norm", 0.0)
 
-    # --- Config thresholds ---
-    buy_momentum = cfg.get("buy_momentum", 0.002)
-    sell_momentum = cfg.get("sell_momentum", -0.002)
-    max_spread = cfg.get("max_spread")  # Optional
+    # Optional but REQUIRED for the new rule
+    high_24h = market.get("high_24h")
+    low_24h = market.get("low_24h")
+
+    # --- Config ---
+    min_trades = cfg.get("min_trades", 15)
+    min_volatility = cfg.get("min_volatility", 0.0001)
+    momentum_threshold = cfg.get("momentum_threshold", 0.7)
 
     action = "HOLD"
     reason = "no_signal"
 
-    # --- Spread filter (ONLY if spread exists) ---
-    if spread is not None and max_spread is not None:
-        if spread > max_spread:
-            logger.info(
-                f"{symbol} skipped | spread {spread:.4f} > max {max_spread:.4f}"
-            )
-            return {
-                "symbol": symbol,
-                "action": "HOLD",
-                "price": price,
-                "reason": "spread_filter",
-            }
+    # --- Trade quality gate ---
+    if trade_count < min_trades:
+        reason = "low_trade_count"
+        logger.info(f"{symbol} HOLD | trades={trade_count} < {min_trades}")
+        return _decision(symbol, action, price, momentum, reason)
 
-    # --- Momentum-based logic ---
-    if momentum >= buy_momentum:
-        action = "BUY"
-        reason = "positive_momentum"
+    # --- Volatility gate ---
+    if volatility < min_volatility:
+        reason = "low_volatility"
+        logger.info(f"{symbol} HOLD | volatility={volatility:.6f} < {min_volatility}")
+        return _decision(symbol, action, price, momentum, reason)
 
-    elif momentum <= sell_momentum:
-        action = "SELL"
-        reason = "negative_momentum"
+    # --- Raw momentum signal ---
+    signal = None
+    if momentum >= momentum_threshold:
+        signal = "BUY"
+    elif momentum <= -momentum_threshold:
+        signal = "SELL"
+
+    # --- Momentum persistence (2-tick confirmation) ---
+    prev_signal = _last_signal.get(symbol)
+
+    if signal is None:
+        _last_signal[symbol] = None
+        return _decision(symbol, "HOLD", price, momentum, "no_momentum")
+
+    if signal != prev_signal:
+        _last_signal[symbol] = signal
+        logger.info(f"{symbol} signal armed: {signal}")
+        return _decision(symbol, "HOLD", price, momentum, "signal_not_confirmed")
+
+    # Signal confirmed
+    _last_signal[symbol] = None
+
+    # --- 24h range gate (BUY only near lows) ---
+    if signal == "BUY" and high_24h and low_24h and high_24h > low_24h:
+        range_pos = (price - low_24h) / (high_24h - low_24h)
+
+        if range_pos > 0.30:
+            reason = "price_too_high_in_24h_range"
+            logger.info(f"{symbol} BUY blocked | range_pos={range_pos:.2f}")
+            return _decision(symbol, "HOLD", price, momentum, reason)
+
+        if range_pos < 0.10:
+            reason = "falling_knife_risk"
+            logger.info(f"{symbol} BUY blocked | range_pos={range_pos:.2f}")
+            return _decision(symbol, "HOLD", price, momentum, reason)
+
+    # --- No rebuy above last sell ---
+    if signal == "BUY":
+        last_sell = _last_sell_price.get(symbol)
+        if last_sell and price >= last_sell:
+            reason = "rebuy_above_last_sell"
+            logger.info(f"{symbol} BUY blocked | price={price} >= last_sell={last_sell}")
+            return _decision(symbol, "HOLD", price, momentum, reason)
+
+    # --- Final action ---
+    action = signal
+    reason = "strategy_buy" if signal == "BUY" else "strategy_sell"
+
+    if action == "SELL":
+        _last_sell_price[symbol] = price
 
     logger.info(
-        f"DECISION {symbol} | action={action} "
-        f"momentum={momentum:.5f} reason={reason}"
+        f"DECISION {symbol} | "
+        f"action={action} "
+        f"price={price} "
+        f"momentum={momentum:.3f} "
+        f"vol={volatility:.6f} "
+        f"trades={trade_count} "
+        f"reason={reason}"
     )
 
+    return _decision(symbol, action, price, momentum, reason)
+
+
+def _decision(symbol, action, price, momentum, reason):
     return {
         "symbol": symbol,
         "action": action,
         "price": price,
         "momentum": momentum,
-        "spread": spread,
         "reason": reason,
     }
+
+
 
 
 # from utils.logger import setup_logger

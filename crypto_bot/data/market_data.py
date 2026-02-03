@@ -1,56 +1,83 @@
 from api.revolut_trades import get_last_trades
-from api.revolut_order_book import get_order_book
 from utils.logger import setup_logger
+import statistics
+
 logger = setup_logger("market_data")
+
 
 def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
     """
     Revolut-first market snapshot.
-    Uses LAST TRADES only (no candles, no OHLC assumptions).
-    Safe for paper trading and public-data-only mode.
+    Trade-based only. No candles. No OHLC assumptions.
+    Produces normalized momentum + volatility + 24h range.
     """
 
     try:
-        logger.info("📘 Fetching last trades from Revolut")
-
-        # Revolut trades are asset-based (BTC, ETH), not pair-based
         asset = symbol.split("-")[0]
+        lookback = cfg.get("lookback", 200)  # slightly larger for stability
 
-        trades = get_last_trades(limit=cfg.get("lookback", 100))
+        logger.info(f"📘 Fetching last trades for {asset}")
 
-        # Filter trades for the asset we care about
+        trades = get_last_trades(limit=lookback)
         trades = [t for t in trades if t.get("aid") == asset]
 
-        if not trades:
-            logger.warning(f"No trades for {symbol}")
+        if len(trades) < 2:
+            logger.warning(f"Not enough trades for {symbol}")
             return None
 
         prices = [float(t["p"]) for t in trades]
 
+        # Trades are newest-first from Revolut
         last_price = prices[0]
         first_price = prices[-1]
 
-        momentum = (
+        # --- Volatility proxy (trade-based, candle-free) ---
+        price_changes = [
+            abs(prices[i] - prices[i + 1])
+            for i in range(len(prices) - 1)
+        ]
+
+        volatility = statistics.mean(price_changes) if price_changes else 0.0
+
+        # --- Normalized momentum ---
+        raw_momentum = (
             (last_price - first_price) / first_price
             if first_price > 0
             else 0.0
         )
 
+        norm_momentum = (
+            raw_momentum / volatility
+            if volatility > 0
+            else 0.0
+        )
+
+        # --- 24h range approximation (trade-derived, safe) ---
+        high_24h = max(prices)
+        low_24h = min(prices)
+
         snapshot = {
             "symbol": symbol,
             "price": last_price,
-            "mid_price": last_price,
-            "spread": None,          # Order book intentionally skipped
-            "momentum": momentum,
-            "prices": prices,
+            "momentum_raw": raw_momentum,
+            "momentum_norm": norm_momentum,
+            "volatility": volatility,
             "trade_count": len(prices),
+
+            # NEW (required by strategy)
+            "high_24h": high_24h,
+            "low_24h": low_24h,
         }
 
         logger.info(
             f"SNAPSHOT {symbol} | "
-            f"price={last_price:.2f} "
-            f"momentum={momentum:.5f} "
-            f"trades={len(prices)}"
+            f"price={last_price:.4f} "
+            f"raw_mom={raw_momentum:.5f} "
+            f"norm_mom={norm_momentum:.3f} "
+            f"vol={volatility:.6f} "
+            f"trades={len(prices)} "
+            f"24h_low={low_24h:.4f} "
+            f"24h_high={high_24h:.4f}"
         )
 
         return snapshot
@@ -58,6 +85,7 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
     except Exception as e:
         logger.exception(f"Market snapshot error for {symbol}: {e}")
         return None
+
 
 # from api.revolut_trades import get_last_trades
 # from api.revolut_order_book import get_order_book

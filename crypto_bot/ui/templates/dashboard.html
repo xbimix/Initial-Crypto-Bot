@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>RevBot – Paper Session</title>
+  <style>
+    body { font-family: monospace; background: #111; color: #eee; }
+    .box { margin: 10px; padding: 10px; border: 1px solid #444; }
+    .buy { color: #4caf50; }
+    .sell { color: #f44336; }
+    .hold { color: #aaa; }
+  </style>
+</head>
+<body>
+
+<h1>RevBot – Live Paper Session</h1>
+
+<div class="box">
+  <h2>Paper State</h2>
+  <pre id="state">Loading...</pre>
+</div>
+
+<div class="box">
+  <h2>Recent Logs</h2>
+  <pre id="logs">Loading...</pre>
+</div>
+
+<script>
+async function refresh() {
+  const state = await fetch("/api/state").then(r => r.json());
+  const logs = await fetch("/api/logs").then(r => r.json());
+
+  document.getElementById("state").textContent =
+    JSON.stringify(state, null, 2);
+
+  document.getElementById("logs").textContent =
+    logs.join("");
+}
+
+setInterval(refresh, 2000);
+refresh();
+</script>
+
+</body>
+</html>

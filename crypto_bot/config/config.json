@@ -1,6 +1,6 @@
 {
   "mode": "paper",
-  "symbols": ["BTC-USD", "ETH-USD", "SOL-USD"],
+  "symbols": ["BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD", "XRP-USD", "ADA-USD", "DOT-USD", "XLM-USD", "SUI-USD", "SEI-USD"],
   "timeframe_minutes": 15,
   "max_trades_per_day": 10,
   "risk_per_trade": 0.01,

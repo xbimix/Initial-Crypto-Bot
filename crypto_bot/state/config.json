@@ -3,9 +3,17 @@
   "execution_mode": "paper",
 
   "symbols": [
-    "BTC-USDT",
-    "ETH-USDT",
-    "SOL-USDT"
+    "BTC-USD",
+    "ETH-USD",
+    "SOL-USD",
+    "BNB-USD",
+    "SOL-USD",
+    "XRP-USD",
+    "ADA-USD",
+    "DOT-USD",
+    "XLM-USD",
+    "SUI-USD",
+    "SEI-USD"
   ],
 
   "interval": "15m",

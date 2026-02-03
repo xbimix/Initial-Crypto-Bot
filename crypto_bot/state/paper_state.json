@@ -1,10 +1,4 @@
 {
-  "balance": 9608.807558347,
-  "positions": {
-    "SOL-USDT": {
-      "size": 1.949925,
-      "entry_price": 100.567,
-      "entry_time": 1770007766.95675
-    }
-  }
+  "balance": 4913.111881428999,
+  "positions": {}
 }

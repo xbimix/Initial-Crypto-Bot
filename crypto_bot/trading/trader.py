@@ -9,7 +9,7 @@ logger = setup_logger("paper_trader")
 STATE_FILE = Path("state/paper_state.json")
 JOURNAL_FILE = Path("state/trades.json")
 
-STARTING_BALANCE = 10_000.0  # USDT
+STARTING_BALANCE = 5_000.0  # USDT
 
 
 class PaperBroker:
