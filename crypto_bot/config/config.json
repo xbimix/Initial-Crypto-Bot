@@ -4,6 +4,6 @@
   "timeframe_minutes": 15,
   "max_trades_per_day": 10,
   "risk_per_trade": 0.01,
-  "starting_balance": 10000,
+  "starting_balance": 5000,
   "heartbeat_seconds": 10
 }

@@ -1,7 +1,7 @@
 {
   "enabled": true,
   "execution_mode": "paper",
-
+   "starting_balance": 5000,
   "symbols": [
     "BTC-USD",
     "ETH-USD",

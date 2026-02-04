@@ -8,7 +8,7 @@ logger = setup_logger("executor")
 class Executor:
     def __init__(self, cfg):
         self.cfg = cfg
-        self.paper = PaperBroker()
+        self.paper = PaperBroker(cfg["starting_balance"])
         self.risk = RiskManager(cfg)
         self.highest_price = {}
 
