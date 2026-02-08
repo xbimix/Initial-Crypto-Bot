@@ -36,7 +36,8 @@ def main():
                     logger.warning(f"No market data for {symbol}")
                     continue
 
-                decision = evaluate_symbol(symbol, market, cfg)
+                decision = evaluate_symbol(market, cfg)
+
                 executor.handle_decision(decision)
 
             time.sleep(cfg.get("loop_sleep", 10))

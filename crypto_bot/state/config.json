@@ -1,7 +1,7 @@
 {
   "enabled": true,
   "execution_mode": "paper",
-   "starting_balance": 5000,
+   "starting_balance": 10000,
   "symbols": [
     "BTC-USD",
     "ETH-USD",
@@ -16,8 +16,8 @@
     "SEI-USD"
   ],
 
-  "interval": "15m",
-  "lookback": 100,
+  "interval": "10m",
+  "lookback": 200,
 
   "strategy": {
     "buy_score": 70,

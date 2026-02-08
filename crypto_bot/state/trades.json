@@ -9,13 +9,13 @@
     "reason": "strategy_buy"
   },
   {
-    "time": 1770110392.0102615,
-    "symbol": "XRP-USD",
+    "time": 1770447144.6867888,
+    "symbol": "ETH-USD",
     "side": "SELL",
-    "price": 1.3597,
-    "size": 61.39525,
-    "pnl": -15.084812925000001,
-    "balance": 4913.111881428999,
+    "price": 1750.95,
+    "size": 0.056272,
+    "pnl": -18.058810239999985,
+    "balance": 5811.317483892969,
     "reason": "stop_loss"
   }
 ]

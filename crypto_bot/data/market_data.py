@@ -1,58 +1,89 @@
+import time
+import statistics
+from datetime import datetime
 from api.revolut_trades import get_last_trades
 from utils.logger import setup_logger
-import statistics
 
 logger = setup_logger("market_data")
 
+EPSILON = 1e-8
+SECONDS_24H = 86400
+
+
+def _parse_ts(trade: dict) -> float | None:
+    iso = trade.get("tdt") or trade.get("pdt")
+    if not iso:
+        return None
+    try:
+        return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return None
+
 
 def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
-    """
-    Revolut-first market snapshot.
-    Trade-based only. No candles. No OHLC assumptions.
-    Produces normalized momentum + volatility + 24h range.
-    """
-
     try:
         asset = symbol.split("-")[0]
-        lookback = cfg.get("lookback", 200)  # slightly larger for stability
+        lookback = cfg.get("lookback", 200)
+        min_trades = cfg.get("min_trades", 3)
 
-        logger.info(f"📘 Fetching last trades for {asset}")
+        logger.info(f"📘 Fetching last trades for {symbol}")
+        trades = get_last_trades(symbol=symbol, limit=lookback)
 
-        trades = get_last_trades(limit=lookback)
-        trades = [t for t in trades if t.get("aid") == asset]
+        parsed = []
+        for t in trades:
+            if t.get("aid") != asset or "p" not in t:
+                continue
 
-        if len(trades) < 2:
-            logger.warning(f"Not enough trades for {symbol}")
+            ts = _parse_ts(t)
+            if ts is None:
+                continue
+
+            try:
+                price = float(t["p"])
+                if price <= 0:
+                    continue
+            except Exception:
+                continue
+
+            parsed.append({"price": price, "ts": ts})
+
+        if len(parsed) < min_trades:
+            logger.warning(f"Not enough valid trades for {symbol}")
             return None
 
-        prices = [float(t["p"]) for t in trades]
+        # --- SORT OLDEST → NEWEST ---
+        parsed.sort(key=lambda x: x["ts"])
 
-        # Trades are newest-first from Revolut
-        last_price = prices[0]
-        first_price = prices[-1]
+        now = time.time()
+        last_24h = [t for t in parsed if now - t["ts"] <= SECONDS_24H]
 
-        # --- Volatility proxy (trade-based, candle-free) ---
-        price_changes = [
-            abs(prices[i] - prices[i + 1])
-            for i in range(len(prices) - 1)
+        if len(last_24h) < min_trades:
+            logger.warning(f"Not enough 24h trades for {symbol}")
+            return None
+
+        prices = [t["price"] for t in last_24h]
+
+        first_price = prices[0]
+        last_price = prices[-1]
+
+        # --- ATR-LIKE VOLATILITY (ROBUST TO SPIKES) ---
+        deltas = [
+            abs(prices[i] - prices[i - 1]) / prices[i - 1]
+            for i in range(1, len(prices))
+            if prices[i - 1] > 0
         ]
 
-        volatility = statistics.mean(price_changes) if price_changes else 0.0
+        atr_proxy = statistics.median(deltas) if deltas else 0.0
 
-        # --- Normalized momentum ---
-        raw_momentum = (
-            (last_price - first_price) / first_price
-            if first_price > 0
-            else 0.0
-        )
+        # --- VWAP PROXY ---
+        vwap = statistics.mean(prices)
+        median_price = statistics.median(prices)
 
-        norm_momentum = (
-            raw_momentum / volatility
-            if volatility > 0
-            else 0.0
-        )
+        raw_momentum = (last_price - first_price) / first_price
 
-        # --- 24h range approximation (trade-derived, safe) ---
+        # clamp normalization to avoid explosion
+        norm_momentum = raw_momentum / max(atr_proxy, 0.002)
+
         high_24h = max(prices)
         low_24h = min(prices)
 
@@ -61,23 +92,19 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             "price": last_price,
             "momentum_raw": raw_momentum,
             "momentum_norm": norm_momentum,
-            "volatility": volatility,
+            "volatility": atr_proxy,
+            "vwap": vwap,
+            "median_price": median_price,
             "trade_count": len(prices),
-
-            # NEW (required by strategy)
             "high_24h": high_24h,
             "low_24h": low_24h,
         }
 
         logger.info(
-            f"SNAPSHOT {symbol} | "
-            f"price={last_price:.4f} "
-            f"raw_mom={raw_momentum:.5f} "
-            f"norm_mom={norm_momentum:.3f} "
-            f"vol={volatility:.6f} "
-            f"trades={len(prices)} "
-            f"24h_low={low_24h:.4f} "
-            f"24h_high={high_24h:.4f}"
+            f"SNAPSHOT {symbol} | price={last_price:.5f} "
+            f"mom_raw={raw_momentum:.4f} mom_norm={norm_momentum:.3f} "
+            f"atr={atr_proxy:.5f} vwap={vwap:.5f} "
+            f"24h_low={low_24h:.5f} 24h_high={high_24h:.5f}"
         )
 
         return snapshot
@@ -85,6 +112,248 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
     except Exception as e:
         logger.exception(f"Market snapshot error for {symbol}: {e}")
         return None
+
+
+
+
+# import time
+# import statistics
+# from datetime import datetime
+# from api.revolut_trades import get_last_trades
+# from utils.logger import setup_logger
+
+# logger = setup_logger("market_data")
+
+# EPSILON = 1e-8
+# SECONDS_24H = 86400
+
+
+# def _parse_ts(trade: dict) -> float | None:
+#     """
+#     Convert Revolut ISO timestamp (tdt / pdt) to epoch seconds.
+#     """
+#     iso = trade.get("tdt") or trade.get("pdt")
+#     if not iso:
+#         return None
+#     try:
+#         return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
+#     except Exception:
+#         return None
+
+
+# def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
+#     try:
+#         asset = symbol.split("-")[0]
+#         lookback = cfg.get("lookback", 200)
+#         min_trades = cfg.get("min_trades", 3)
+
+#         logger.info(f"📘 Fetching last trades for {symbol}")
+#         trades = get_last_trades(symbol=symbol, limit=lookback)
+
+#         parsed = []
+#         for t in trades:
+#             if t.get("aid") != asset or "p" not in t:
+#                 continue
+
+#             ts = _parse_ts(t)
+#             if ts is None:
+#                 continue
+
+#             try:
+#                 price = float(t["p"])
+#                 if price <= 0:
+#                     continue
+#             except Exception:
+#                 continue
+
+#             parsed.append(
+#                 {
+#                     "price": price,
+#                     "ts": ts,
+#                 }
+#             )
+
+#         logger.info(f"{symbol} RAW TRADE SAMPLE: {parsed[:3]}")
+
+#         if len(parsed) < min_trades:
+#             logger.warning(
+#                 f"Not enough valid trades for {symbol} ({len(parsed)} < {min_trades})"
+#             )
+#             return None
+
+#         parsed.sort(key=lambda x: x["ts"], reverse=True)
+
+#         now = time.time()
+#         last_24h = [t for t in parsed if now - t["ts"] <= SECONDS_24H]
+
+#         if len(last_24h) < min_trades:
+#             logger.warning(f"Not enough 24h trades for {symbol}")
+#             return None
+
+#         prices = [t["price"] for t in last_24h]
+
+#         last_price = prices[0]
+#         first_price = prices[-1]
+
+#         pct_changes = [
+#             abs((prices[i] - prices[i + 1]) / prices[i + 1])
+#             for i in range(len(prices) - 1)
+#             if prices[i + 1] > 0
+#         ]
+
+#         volatility = statistics.mean(pct_changes) if pct_changes else 0.0
+#         raw_momentum = (last_price - first_price) / first_price
+#         norm_momentum = raw_momentum / (volatility + EPSILON)
+
+#         high_24h = max(prices)
+#         low_24h = min(prices)
+
+#         snapshot = {
+#             "symbol": symbol,
+#             "price": last_price,
+#             "momentum_raw": raw_momentum,
+#             "momentum_norm": norm_momentum,
+#             "volatility": volatility,
+#             "trade_count": len(prices),
+#             "high_24h": high_24h,
+#             "low_24h": low_24h,
+#         }
+
+#         logger.info(
+#             f"SNAPSHOT {symbol} | price={last_price:.4f} "
+#             f"raw_mom={raw_momentum:.5f} norm_mom={norm_momentum:.3f} "
+#             f"vol={volatility:.6f} trades={len(prices)} "
+#             f"24h_low={low_24h:.4f} 24h_high={high_24h:.4f}"
+#         )
+
+#         return snapshot
+
+#     except Exception as e:
+#         logger.exception(f"Market snapshot error for {symbol}: {e}")
+#         return None
+
+
+# import statistics
+# import time
+# from api.revolut_trades import get_last_trades
+# from utils.logger import setup_logger
+
+# logger = setup_logger("market")
+
+# EPSILON = 1e-8
+
+
+# def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
+#     try:
+#         lookback = cfg.get("lookback", 200)
+#         min_trades = cfg.get("min_trades", 3)
+#         EPSILON = 1e-8
+
+#         logger.info(f"📘 Fetching last trades for {symbol}")
+
+#         # 🔑 CRITICAL FIX: symbol-scoped request
+#         trades = get_last_trades(symbol=symbol, limit=lookback)
+
+#         if not trades:
+#             logger.warning(f"No trades returned from API for {symbol}")
+#             return None
+
+#         # Log raw diagnostics once
+#         logger.info(f"{symbol} RAW TRADE SAMPLE: {trades[:3]}")
+
+#         # Validate trade structure
+#         valid_trades = [
+#             t for t in trades
+#             if "p" in t and "ts" in t
+#         ]
+
+#         if len(valid_trades) < min_trades:
+#             logger.warning(
+#                 f"Not enough valid trades for {symbol} "
+#                 f"({len(valid_trades)} < {min_trades})"
+#             )
+#             return None
+
+#         # Sort newest → oldest
+#         valid_trades.sort(key=lambda x: x["ts"], reverse=True)
+
+#         # ⏱️ 24h window
+#         now = time.time()
+#         trades_24h = [
+#             t for t in valid_trades
+#             if now - t["ts"] <= 86400
+#         ]
+
+#         if len(trades_24h) < min_trades:
+#             logger.warning(
+#                 f"Not enough 24h trades for {symbol} "
+#                 f"({len(trades_24h)} < {min_trades})"
+#             )
+#             return None
+
+#         # Prices
+#         prices = []
+#         for t in trades_24h:
+#             try:
+#                 p = float(t["p"])
+#                 if p > 0:
+#                     prices.append(p)
+#             except Exception:
+#                 continue
+
+#         if len(prices) < min_trades:
+#             logger.warning(f"Invalid price data for {symbol}")
+#             return None
+
+#         last_price = prices[0]
+#         first_price = prices[-1]
+
+#         # 📊 Volatility (percentage change based)
+#         pct_changes = [
+#             abs((prices[i] - prices[i + 1]) / prices[i + 1])
+#             for i in range(len(prices) - 1)
+#             if prices[i + 1] > 0
+#         ]
+
+#         volatility = (
+#             statistics.mean(pct_changes)
+#             if pct_changes else 0.0
+#         )
+
+#         raw_momentum = (last_price - first_price) / first_price
+#         norm_momentum = raw_momentum / (volatility + EPSILON)
+
+#         high_24h = max(prices)
+#         low_24h = min(prices)
+
+#         snapshot = {
+#             "symbol": symbol,
+#             "price": last_price,
+#             "momentum_raw": raw_momentum,
+#             "momentum_norm": norm_momentum,
+#             "volatility": volatility,
+#             "trade_count": len(prices),
+#             "high_24h": high_24h,
+#             "low_24h": low_24h,
+#         }
+
+#         logger.info(
+#             f"SNAPSHOT {symbol} | "
+#             f"price={last_price:.4f} "
+#             f"raw_mom={raw_momentum:.5f} "
+#             f"norm_mom={norm_momentum:.3f} "
+#             f"vol={volatility:.6f} "
+#             f"trades={len(prices)} "
+#             f"24h_low={low_24h:.4f} "
+#             f"24h_high={high_24h:.4f}"
+#         )
+
+#         return snapshot
+
+#     except Exception as e:
+#         logger.exception(f"Market snapshot error for {symbol}: {e}")
+#         return None
+
 
 
 # from api.revolut_trades import get_last_trades

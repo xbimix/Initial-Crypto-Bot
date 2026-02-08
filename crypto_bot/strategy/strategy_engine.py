@@ -1,115 +1,183 @@
 from utils.logger import setup_logger
 
-logger = setup_logger("strategy_engine")
+logger = setup_logger("strategy")
 
-# --- Stateful memory (minimal & intentional) ---
-_last_signal = {}        # symbol -> "BUY" | "SELL" | None
-_last_sell_price = {}   # symbol -> float
+_last_signal = {}
+_last_sell_price = {}
+_profit_lock = {}
+_last_momentum = {}
 
 
-def evaluate_symbol(symbol: str, market: dict, cfg: dict) -> dict:
-    """
-    Regime-aware, trade-first strategy.
-    - Momentum persistence
-    - 24h range price gating
-    - No rebuy above last sell
-    - Revolut-native (no candles)
-    """
+def evaluate_symbol(snapshot: dict, cfg: dict) -> dict:
+    return generate_decision(snapshot, cfg)
 
-    price = market["price"]
-    trade_count = market.get("trade_count", 0)
-    volatility = market.get("volatility", 0.0)
-    momentum = market.get("momentum_norm", 0.0)
 
-    # Optional but REQUIRED for the new rule
-    high_24h = market.get("high_24h")
-    low_24h = market.get("low_24h")
+def generate_decision(snapshot: dict, cfg: dict) -> dict:
+    symbol = snapshot["symbol"]
+    price = snapshot["price"]
+    momentum = snapshot["momentum_norm"]
+    momentum_raw = snapshot["momentum_raw"]
+    trades = snapshot["trade_count"]
+    high_24h = snapshot["high_24h"]
+    low_24h = snapshot["low_24h"]
+    volatility = snapshot["volatility"]
 
-    # --- Config ---
-    min_trades = cfg.get("min_trades", 15)
-    min_volatility = cfg.get("min_volatility", 0.0001)
-    momentum_threshold = cfg.get("momentum_threshold", 0.7)
+    # REQUIRED for superior logic (already available in most pipelines)
+    vwap = snapshot.get("vwap")
+    atr = snapshot.get("atr")
 
-    action = "HOLD"
-    reason = "no_signal"
+    min_trades = cfg.get("min_trades", 3)
+    entry_price = cfg.get("entry_price", {}).get(symbol)
 
-    # --- Trade quality gate ---
-    if trade_count < min_trades:
-        reason = "low_trade_count"
-        logger.info(f"{symbol} HOLD | trades={trade_count} < {min_trades}")
-        return _decision(symbol, action, price, momentum, reason)
-
-    # --- Volatility gate ---
-    if volatility < min_volatility:
-        reason = "low_volatility"
-        logger.info(f"{symbol} HOLD | volatility={volatility:.6f} < {min_volatility}")
-        return _decision(symbol, action, price, momentum, reason)
-
-    # --- Raw momentum signal ---
-    signal = None
-    if momentum >= momentum_threshold:
-        signal = "BUY"
-    elif momentum <= -momentum_threshold:
-        signal = "SELL"
-
-    # --- Momentum persistence (2-tick confirmation) ---
     prev_signal = _last_signal.get(symbol)
+    last_sell = _last_sell_price.get(symbol)
+    prev_mom = _last_momentum.get(symbol)
 
-    if signal is None:
-        _last_signal[symbol] = None
-        return _decision(symbol, "HOLD", price, momentum, "no_momentum")
+    # --------------------------------------------------
+    # SAFETY GUARDS
+    # --------------------------------------------------
+    if (
+        trades < min_trades
+        or high_24h <= low_24h
+        or vwap is None
+        or atr is None
+        or atr <= 0
+    ):
+        _last_signal[symbol] = "HOLD"
+        return _decision(symbol, "HOLD", price, momentum, "insufficient_data")
 
-    if signal != prev_signal:
-        _last_signal[symbol] = signal
-        logger.info(f"{symbol} signal armed: {signal}")
-        return _decision(symbol, "HOLD", price, momentum, "signal_not_confirmed")
+    # --------------------------------------------------
+    # HARDCORE PRICE LOCATION RULE (ABSOLUTE)
+    # --------------------------------------------------
+    range_width = high_24h - low_24h
+    range_pos = (price - low_24h) / range_width
 
-    # Signal confirmed
-    _last_signal[symbol] = None
+    if range_pos > 0.30:
+        _last_signal[symbol] = "HOLD"
+        return _decision(symbol, "HOLD", price, momentum, "price_above_30pct_range")
 
-    # --- 24h range gate (BUY only near lows) ---
-    if signal == "BUY" and high_24h and low_24h and high_24h > low_24h:
-        range_pos = (price - low_24h) / (high_24h - low_24h)
+    # --------------------------------------------------
+    # VOLATILITY EXCURSION (MEAN REVERSION CORE)
+    # --------------------------------------------------
+    z_score = (price - vwap) / atr
 
-        if range_pos > 0.30:
-            reason = "price_too_high_in_24h_range"
-            logger.info(f"{symbol} BUY blocked | range_pos={range_pos:.2f}")
-            return _decision(symbol, "HOLD", price, momentum, reason)
+    # Require deep stretch in bear market
+    if z_score > -1.5:
+        _last_signal[symbol] = "HOLD"
+        return _decision(symbol, "HOLD", price, momentum, "insufficient_volatility_stretch")
 
-        if range_pos < 0.10:
-            reason = "falling_knife_risk"
-            logger.info(f"{symbol} BUY blocked | range_pos={range_pos:.2f}")
-            return _decision(symbol, "HOLD", price, momentum, reason)
+    # --------------------------------------------------
+    # MOMENTUM DECELERATION (NOT STRENGTH)
+    # --------------------------------------------------
+    if prev_mom is not None and momentum < prev_mom:
+        _last_signal[symbol] = "HOLD"
+        return _decision(symbol, "HOLD", price, momentum, "momentum_still_falling")
 
-    # --- No rebuy above last sell ---
-    if signal == "BUY":
-        last_sell = _last_sell_price.get(symbol)
-        if last_sell and price >= last_sell:
-            reason = "rebuy_above_last_sell"
-            logger.info(f"{symbol} BUY blocked | price={price} >= last_sell={last_sell}")
-            return _decision(symbol, "HOLD", price, momentum, reason)
+    _last_momentum[symbol] = momentum
 
-    # --- Final action ---
-    action = signal
-    reason = "strategy_buy" if signal == "BUY" else "strategy_sell"
+    # --------------------------------------------------
+    # BUY LOGIC — BEAR MARKET ONLY
+    # --------------------------------------------------
+    if entry_price is None and prev_signal != "BUY":
+        _last_signal[symbol] = "BUY"
+        _profit_lock[symbol] = None
 
-    if action == "SELL":
-        _last_sell_price[symbol] = price
+        _log_decision(
+            symbol, price, momentum_raw, momentum, volatility,
+            low_24h, high_24h,
+            range_pos, 0.20, 0.30,
+            prev_signal, last_sell,
+            "BUY", "bear_market_mean_reversion_buy"
+        )
+
+        return _decision(symbol, "BUY", price, momentum, "bear_market_mean_reversion_buy")
+
+    # --------------------------------------------------
+    # SELL LOGIC — PROFIT LOCK LADDER
+    # --------------------------------------------------
+    if entry_price is not None:
+        pnl_pct = (price - entry_price) / entry_price
+        current_lock = _profit_lock.get(symbol)
+
+        PROFIT_LOCKS = [
+            (0.02, 0.00),
+            (0.04, 0.02),
+            (0.06, 0.04),
+            (0.08, 0.06),
+        ]
+
+        for trigger, lock in PROFIT_LOCKS:
+            if pnl_pct >= trigger:
+                if current_lock is None or lock > current_lock:
+                    _profit_lock[symbol] = lock
+                    current_lock = lock
+
+        # EXIT ON PROFIT LOCK BREACH
+        if current_lock is not None and pnl_pct <= current_lock:
+            _last_signal[symbol] = "SELL"
+            _last_sell_price[symbol] = price
+            _profit_lock.pop(symbol, None)
+
+            _log_decision(
+                symbol, price, momentum_raw, momentum, volatility,
+                low_24h, high_24h,
+                range_pos, 0.20, 0.30,
+                prev_signal, last_sell,
+                "SELL", f"profit_lock_exit_{int(current_lock*100)}pct"
+            )
+
+            return _decision(
+                symbol,
+                "SELL",
+                price,
+                momentum,
+                f"profit_lock_exit_{int(current_lock*100)}pct"
+            )
+
+        # HARD STRUCTURAL FAILURE
+        if z_score < -3.0:
+            _last_signal[symbol] = "SELL"
+            _last_sell_price[symbol] = price
+            _profit_lock.pop(symbol, None)
+
+            return _decision(symbol, "SELL", price, momentum, "structural_break_exit")
+
+    # --------------------------------------------------
+    # FALLBACK
+    # --------------------------------------------------
+    _last_signal[symbol] = "HOLD"
+    return _decision(symbol, "HOLD", price, momentum, "neutral")
+
+
+def _log_decision(
+    symbol, price, mom_raw, mom_norm, vol,
+    low_24h, high_24h,
+    range_pos, lower_band, upper_band,
+    prev_signal, last_sell,
+    action, reason
+):
+    rp = f"{range_pos:.3f}" if range_pos is not None else "n/a"
+    bands = f"{lower_band:.2f}-{upper_band:.2f}"
 
     logger.info(
         f"DECISION {symbol} | "
-        f"action={action} "
-        f"price={price} "
-        f"momentum={momentum:.3f} "
-        f"vol={volatility:.6f} "
-        f"trades={trade_count} "
+        f"price={price:.5f} | "
+        f"mom_raw={mom_raw:.5f} | "
+        f"mom_norm={mom_norm:.5f} | "
+        f"vol={vol:.5f} | "
+        f"24h_low={low_24h:.5f} | "
+        f"24h_high={high_24h:.5f} | "
+        f"range_pos={rp} | "
+        f"bands={bands} | "
+        f"prev_signal={prev_signal} | "
+        f"last_sell={last_sell} | "
+        f"action={action} | "
         f"reason={reason}"
     )
 
-    return _decision(symbol, action, price, momentum, reason)
-
 
 def _decision(symbol, action, price, momentum, reason):
+    logger.info(f"{symbol} → {action} | reason={reason}")
     return {
         "symbol": symbol,
         "action": action,
@@ -118,6 +186,493 @@ def _decision(symbol, action, price, momentum, reason):
         "reason": reason,
     }
 
+
+# from utils.logger import setup_logger
+
+# logger = setup_logger("strategy")
+
+# _last_signal = {}
+# _last_sell_price = {}
+
+
+# def evaluate_symbol(snapshot: dict, cfg: dict) -> dict:
+#     return generate_decision(snapshot, cfg)
+
+
+# def generate_decision(snapshot: dict, cfg: dict) -> dict:
+#     symbol = snapshot["symbol"]
+#     price = snapshot["price"]
+#     momentum = snapshot["momentum_norm"]
+#     momentum_raw = snapshot["momentum_raw"]
+#     trades = snapshot["trade_count"]
+#     high_24h = snapshot["high_24h"]
+#     low_24h = snapshot["low_24h"]
+#     volatility = snapshot["volatility"]
+
+#     min_trades = cfg.get("min_trades", 1)
+#     mom_threshold = cfg.get("momentum_threshold", 0.15)
+
+#     prev_signal = _last_signal.get(symbol)
+#     last_sell = _last_sell_price.get(symbol)
+
+#     # ---------- EARLY EXIT: INSUFFICIENT TRADES ----------
+#     if trades < min_trades:
+#         _last_signal[symbol] = "HOLD"
+
+#         _log_decision(
+#             symbol, price, momentum_raw, momentum, volatility,
+#             low_24h, high_24h,
+#             None, None, None,
+#             prev_signal, last_sell,
+#             "HOLD", "insufficient_trades"
+#         )
+#         return _decision(symbol, "HOLD", price, momentum, "insufficient_trades")
+
+#     # ---------- RANGE CALCULATION ----------
+#     range_width = high_24h - low_24h
+#     if range_width <= 0:
+#         _last_signal[symbol] = "HOLD"
+
+#         _log_decision(
+#             symbol, price, momentum_raw, momentum, volatility,
+#             low_24h, high_24h,
+#             None, None, None,
+#             prev_signal, last_sell,
+#             "HOLD", "invalid_24h_range"
+#         )
+#         return _decision(symbol, "HOLD", price, momentum, "invalid_24h_range")
+
+#     range_pos = (price - low_24h) / range_width
+
+#     # ---------- SYMBOL-ADAPTIVE BANDS ----------
+#     lower_band = 0.15
+#     upper_band = 0.35
+
+#     if range_width / max(low_24h, 1e-8) > 0.25:
+#         lower_band = 0.15
+#         upper_band = 0.35
+
+#     # ---------- MOMENTUM SIGNAL ----------
+#     if momentum > mom_threshold:
+#         signal = "BUY"
+#     elif momentum < -mom_threshold:
+#         signal = "SELL"
+#     else:
+#         signal = "HOLD"
+
+#     _last_signal[symbol] = signal
+
+#     # ---------- CONFIRMATION RULE ----------
+#     if prev_signal is None or signal != prev_signal:
+#         _log_decision(
+#             symbol, price, momentum_raw, momentum, volatility,
+#             low_24h, high_24h,
+#             range_pos, lower_band, upper_band,
+#             prev_signal, last_sell,
+#             "HOLD", "signal_not_confirmed"
+#         )
+#         return _decision(symbol, "HOLD", price, momentum, "signal_not_confirmed")
+
+#     # ---------- BUY LOGIC ----------
+#     # if signal == "BUY":
+#     #     if range_pos > upper_band:
+#     #         action, reason = "HOLD", "price_too_high_24h"
+#     #     elif range_pos < lower_band:
+#     #         action, reason = "HOLD", "falling_knife_guard"
+#     #     elif last_sell is not None and price >= last_sell:
+#     #         action, reason = "HOLD", "rebuy_blocked"
+#     #     else:
+#     #         action, reason = "BUY", "strategy_buy"
+#     if signal == "BUY":
+#     # --- Momentum breakout BUY ---
+#       if range_pos > upper_band and momentum > mom_threshold * 1.5:
+#         action, reason = "BUY", "momentum_breakout"
+
+#     # --- Mean reversion BUY ---
+#       elif range_pos < lower_band and momentum > mom_threshold:
+#         action, reason = "BUY", "mean_reversion_buy"
+
+#     # --- Rebuy protection (soft) ---
+#       elif last_sell is not None and price >= last_sell * 1.002:
+#         action, reason = "HOLD", "rebuy_cooldown"
+
+#       else:
+#         action, reason = "HOLD", "buy_conditions_not_met"
+
+#         _log_decision(
+#             symbol, price, momentum_raw, momentum, volatility,
+#             low_24h, high_24h,
+#             range_pos, lower_band, upper_band,
+#             prev_signal, last_sell,
+#             action, reason
+#         )
+#         return _decision(symbol, action, price, momentum, reason)
+
+#     # ---------- SELL LOGIC ----------
+#     if signal == "SELL":
+#         _last_sell_price[symbol] = price
+
+#         _log_decision(
+#             symbol, price, momentum_raw, momentum, volatility,
+#             low_24h, high_24h,
+#             range_pos, lower_band, upper_band,
+#             prev_signal, last_sell,
+#             "SELL", "strategy_sell"
+#         )
+#         return _decision(symbol, "SELL", price, momentum, "strategy_sell")
+
+#     # ---------- FALLBACK ----------
+#     _log_decision(
+#         symbol, price, momentum_raw, momentum, volatility,
+#         low_24h, high_24h,
+#         range_pos, lower_band, upper_band,
+#         prev_signal, last_sell,
+#         "HOLD", "neutral"
+#     )
+#     return _decision(symbol, "HOLD", price, momentum, "neutral")
+
+
+# def _log_decision(
+#     symbol, price, mom_raw, mom_norm, vol,
+#     low_24h, high_24h,
+#     range_pos, lower_band, upper_band,
+#     prev_signal, last_sell,
+#     action, reason
+# ):
+#     rp = f"{range_pos:.3f}" if range_pos is not None else "n/a"
+#     bands = (
+#         f"{lower_band:.2f}-{upper_band:.2f}"
+#         if lower_band is not None else "n/a"
+#     )
+
+#     logger.info(
+#         f"DECISION {symbol} | "
+#         f"price={price:.5f} | "
+#         f"mom_raw={mom_raw:.5f} | "
+#         f"mom_norm={mom_norm:.5f} | "
+#         f"vol={vol:.5f} | "
+#         f"24h_low={low_24h:.5f} | "
+#         f"24h_high={high_24h:.5f} | "
+#         f"range_pos={rp} | "
+#         f"bands={bands} | "
+#         f"prev_signal={prev_signal} | "
+#         f"last_sell={last_sell} | "
+#         f"action={action} | "
+#         f"reason={reason}"
+#     )
+
+
+# def _decision(symbol, action, price, momentum, reason):
+#     logger.info(f"{symbol} → {action} | reason={reason}")
+#     return {
+#         "symbol": symbol,
+#         "action": action,
+#         "price": price,
+#         "momentum": momentum,
+#         "reason": reason,
+#     }
+
+
+
+
+# from utils.logger import setup_logger
+
+# logger = setup_logger("strategy")
+
+# _last_signal = {}
+# _last_sell_price = {}
+
+
+# def evaluate_symbol(snapshot: dict, cfg: dict) -> dict:
+#     return generate_decision(snapshot, cfg)
+
+
+# def generate_decision(snapshot: dict, cfg: dict) -> dict:
+#     symbol = snapshot["symbol"]
+#     price = snapshot["price"]
+#     momentum = snapshot["momentum_norm"]
+#     momentum_raw = snapshot["momentum_raw"]
+#     trades = snapshot["trade_count"]
+#     high_24h = snapshot["high_24h"]
+#     low_24h = snapshot["low_24h"]
+#     volatility = snapshot["volatility"]
+
+#     min_trades = cfg.get("min_trades", 5)
+#     mom_threshold = cfg.get("momentum_threshold", 0.15)
+
+#     prev_signal = _last_signal.get(symbol)
+#     last_sell = _last_sell_price.get(symbol)
+
+#     # ---------- Guard: insufficient trades ----------
+#     if trades < min_trades:
+#         _log_decision(
+#             symbol, price, momentum_raw, momentum, volatility,
+#             low_24h, high_24h, None,
+#             "HOLD", "insufficient_trades", prev_signal, last_sell
+#         )
+#         return _decision(symbol, "HOLD", price, momentum, "insufficient_trades")
+
+#     # ---------- Range calculation ----------
+#     range_width = high_24h - low_24h
+#     if range_width <= 0:
+#         _log_decision(
+#             symbol, price, momentum_raw, momentum, volatility,
+#             low_24h, high_24h, None,
+#             "HOLD", "invalid_range", prev_signal, last_sell
+#         )
+#         return _decision(symbol, "HOLD", price, momentum, "invalid_range")
+
+#     range_pos = (price - low_24h) / range_width
+
+#     # ---------- Symbol-adaptive bands ----------
+#     lower_band = 0.15
+#     upper_band = 0.35
+
+#     if range_width / low_24h > 0.25:
+#         lower_band = 0.15
+#         upper_band = 0.35
+
+#     # ---------- Momentum signal ----------
+#     if momentum > mom_threshold:
+#         signal = "BUY"
+#     elif momentum < -mom_threshold:
+#         signal = "SELL"
+#     else:
+#         signal = "HOLD"
+
+#     _last_signal[symbol] = signal
+
+#     # ---------- Confirmation gate ----------
+#     if signal != prev_signal:
+#         _log_decision(
+#             symbol, price, momentum_raw, momentum, volatility,
+#             low_24h, high_24h, range_pos,
+#             "HOLD", "signal_not_confirmed", prev_signal, last_sell,
+#             lower_band, upper_band
+#         )
+#         return _decision(symbol, "HOLD", price, momentum, "signal_not_confirmed")
+
+#     # ---------- BUY logic ----------
+#     if signal == "BUY":
+#         if range_pos > upper_band:
+#             reason = "price_too_high_24h"
+#             action = "HOLD"
+#         elif range_pos < lower_band:
+#             reason = "falling_knife_guard"
+#             action = "HOLD"
+#         elif last_sell and price >= last_sell:
+#             reason = "rebuy_blocked"
+#             action = "HOLD"
+#         else:
+#             reason = "strategy_buy"
+#             action = "BUY"
+
+#         _log_decision(
+#             symbol, price, momentum_raw, momentum, volatility,
+#             low_24h, high_24h, range_pos,
+#             action, reason, prev_signal, last_sell,
+#             lower_band, upper_band
+#         )
+#         return _decision(symbol, action, price, momentum, reason)
+
+#     # ---------- SELL logic ----------
+#     if signal == "SELL":
+#         _last_sell_price[symbol] = price
+
+#         _log_decision(
+#             symbol, price, momentum_raw, momentum, volatility,
+#             low_24h, high_24h, range_pos,
+#             "SELL", "strategy_sell", prev_signal, last_sell,
+#             lower_band, upper_band
+#         )
+#         return _decision(symbol, "SELL", price, momentum, "strategy_sell")
+
+#     # ---------- Neutral ----------
+#     _log_decision(
+#         symbol, price, momentum_raw, momentum, volatility,
+#         low_24h, high_24h, range_pos,
+#         "HOLD", "neutral", prev_signal, last_sell,
+#         lower_band, upper_band
+#     )
+#     return _decision(symbol, "HOLD", price, momentum, "neutral")
+
+
+# def _log_decision(
+#     symbol, price, mom_raw, mom_norm, vol,
+#     low_24h, high_24h, range_pos,
+#     action, reason, prev_signal, last_sell,
+#     lower_band=None, upper_band=None
+# ):
+#     rp = f"{range_pos:.3f}" if range_pos is not None else "N/A"
+#     bands = (
+#         f"{lower_band:.2f}-{upper_band:.2f}"
+#         if lower_band is not None and upper_band is not None
+#         else "N/A"
+#     )
+
+#     logger.info(
+#         f"DECISION {symbol} | "
+#         f"price={price:.5f} | "
+#         f"mom_raw={mom_raw:.5f} | "
+#         f"mom_norm={mom_norm:.5f} | "
+#         f"vol={vol:.5f} | "
+#         f"24h_low={low_24h:.5f} | "
+#         f"24h_high={high_24h:.5f} | "
+#         f"range_pos={rp} | "
+#         f"bands={bands} | "
+#         f"prev_signal={prev_signal} | "
+#         f"last_sell={last_sell} | "
+#         f"action={action} | "
+#         f"reason={reason}"
+#     )
+
+
+# def _decision(symbol, action, price, momentum, reason):
+#     logger.info(f"{symbol} → {action} | reason={reason}")
+#     return {
+#         "symbol": symbol,
+#         "action": action,
+#         "price": price,
+#         "momentum": momentum,
+#         "reason": reason,
+#     }
+
+
+
+# from utils.logger import setup_logger
+
+# logger = setup_logger("strategy")
+
+# # Persistent per-symbol memory
+# _last_signal = {}
+# _last_sell_price = {}
+
+
+# def evaluate_symbol(snapshot: dict, cfg: dict) -> dict:
+#     return generate_decision(snapshot, cfg)
+
+
+# def generate_decision(snapshot: dict, cfg: dict) -> dict:
+#     symbol = snapshot["symbol"]
+#     price = snapshot["price"]
+#     momentum = snapshot["momentum_norm"]
+#     momentum_raw = snapshot["momentum_raw"]
+#     trades = snapshot["trade_count"]
+#     high_24h = snapshot["high_24h"]
+#     low_24h = snapshot["low_24h"]
+#     volatility = snapshot["volatility"]
+
+#     min_trades = cfg.get("min_trades", 5)
+#     mom_threshold = cfg.get("momentum_threshold", 0.15)
+
+#     # ------------------------
+#     # Guardrails
+#     # ------------------------
+
+#     if trades < min_trades:
+#         return _decision(symbol, "HOLD", price, momentum, "insufficient_trades")
+
+#     range_width = high_24h - low_24h
+#     if range_width <= 0:
+#         return _decision(symbol, "HOLD", price, momentum, "invalid_24h_range")
+
+#     range_pos = (price - low_24h) / range_width
+
+#     # ------------------------
+#     # Symbol-adaptive range bands
+#     # ------------------------
+
+#     # Default safe zone: 15%–35%
+#     lower_band = 0.15
+#     upper_band = 0.35
+
+#     # Widen bands slightly for very volatile assets
+#     if range_width / low_24h > 0.25:
+#         lower_band = 0.10
+#         upper_band = 0.40
+
+#     # ------------------------
+#     # Momentum → signal
+#     # ------------------------
+
+#     if momentum > mom_threshold:
+#         signal = "BUY"
+#     elif momentum < -mom_threshold:
+#         signal = "SELL"
+#     else:
+#         signal = "HOLD"
+
+#     prev_signal = _last_signal.get(symbol)
+#     last_sell = _last_sell_price.get(symbol)
+
+#     # Store current signal
+#     _last_signal[symbol] = signal
+
+#     # ------------------------
+#     # Decision logging (FULL CONTEXT)
+#     # ------------------------
+
+#     logger.info(
+#         f"DECISION {symbol} | "
+#         f"price={price:.5f} | "
+#         f"mom_raw={momentum_raw:.5f} | "
+#         f"mom_norm={momentum:.5f} | "
+#         f"vol={volatility:.5f} | "
+#         f"24h_low={low_24h:.5f} | "
+#         f"24h_high={high_24h:.5f} | "
+#         f"range_pos={range_pos:.3f} | "
+#         f"bands={lower_band:.2f}-{upper_band:.2f} | "
+#         f"prev_signal={prev_signal} | "
+#         f"last_sell={last_sell}"
+#     )
+
+#     # ------------------------
+#     # Signal confirmation
+#     # ------------------------
+
+#     if signal != prev_signal:
+#         return _decision(symbol, "HOLD", price, momentum, "signal_not_confirmed")
+
+#     # ------------------------
+#     # BUY logic
+#     # ------------------------
+
+#     if signal == "BUY":
+#         if range_pos > upper_band:
+#             return _decision(symbol, "HOLD", price, momentum, "price_too_high_24h")
+
+#         if range_pos < lower_band:
+#             return _decision(symbol, "HOLD", price, momentum, "falling_knife_guard")
+
+#         if last_sell is not None and price >= last_sell:
+#             return _decision(symbol, "HOLD", price, momentum, "rebuy_blocked")
+
+#         return _decision(symbol, "BUY", price, momentum, "strategy_buy")
+
+#     # ------------------------
+#     # SELL logic
+#     # ------------------------
+
+#     if signal == "SELL":
+#         _last_sell_price[symbol] = price
+#         return _decision(symbol, "SELL", price, momentum, "strategy_sell")
+
+#     # ------------------------
+#     # Neutral
+#     # ------------------------
+
+#     return _decision(symbol, "HOLD", price, momentum, "neutral")
+
+
+# def _decision(symbol: str, action: str, price: float, momentum: float, reason: str) -> dict:
+#     logger.info(f"{symbol} → {action} | reason={reason}")
+#     return {
+#         "symbol": symbol,
+#         "action": action,
+#         "price": price,
+#         "momentum": momentum,
+#         "reason": reason,
+#     }
 
 
 
