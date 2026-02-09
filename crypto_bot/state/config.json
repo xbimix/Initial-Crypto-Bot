@@ -1,13 +1,13 @@
 {
   "enabled": true,
   "execution_mode": "paper",
-   "starting_balance": 10000,
+  "starting_balance": 10000,
+
   "symbols": [
     "BTC-USD",
     "ETH-USD",
     "SOL-USD",
     "BNB-USD",
-    "SOL-USD",
     "XRP-USD",
     "ADA-USD",
     "DOT-USD",
@@ -16,13 +16,8 @@
     "SEI-USD"
   ],
 
-  "interval": "10m",
   "lookback": 200,
-
-  "strategy": {
-    "buy_score": 70,
-    "sell_score": 60
-  },
+  "min_trades": 5,
 
   "risk": {
     "risk_percent": 0.02,
@@ -30,9 +25,14 @@
     "cooldown_seconds": 90
   },
 
-  "exits": {
-    "stop_loss": 0.015,
-    "take_profit": 0.03,
-    "trailing_stop": 0.012
+  "market_regime": {
+    "type": "bear",
+    "max_buy_range_pct": 0.30,
+    "preferred_buy_zone": [0.20, 0.30]
+  },
+
+  "profit_locks": {
+    "levels": [0.02, 0.04, 0.06, 0.08],
+    "floor_after_first": -0.01
   }
 }
