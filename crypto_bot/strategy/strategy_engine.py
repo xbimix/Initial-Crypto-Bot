@@ -26,7 +26,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     vwap = snapshot.get("vwap")
     atr = snapshot.get("atr")
 
-    min_trades = cfg.get("min_trades", 3)
+    min_trades = cfg.get("min_trades", 1)
     entry_price = cfg.get("entry_price", {}).get(symbol)
 
     prev_signal = _last_signal.get(symbol)

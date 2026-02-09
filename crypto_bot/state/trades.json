@@ -1,21 +1,2 @@
 [
-  {
-    "time": 1770007242.828356,
-    "symbol": "ETH-USDT",
-    "side": "BUY",
-    "price": 2255.57,
-    "size": 0.088669,
-    "balance": 9800.00086367,
-    "reason": "strategy_buy"
-  },
-  {
-    "time": 1770447144.6867888,
-    "symbol": "ETH-USD",
-    "side": "SELL",
-    "price": 1750.95,
-    "size": 0.056272,
-    "pnl": -18.058810239999985,
-    "balance": 5811.317483892969,
-    "reason": "stop_loss"
-  }
 ]
