@@ -24,7 +24,7 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
     try:
         asset = symbol.split("-")[0]
         lookback = cfg.get("lookback", 200)
-        min_trades = cfg.get("min_trades", 1)
+        min_trades = cfg.get("min_trades", 2)
 
         logger.info(f"📘 Fetching last trades for {symbol}")
         trades = get_last_trades(symbol=symbol, limit=lookback)

@@ -4,7 +4,7 @@ from utils.logger import setup_logger
 logger = setup_logger("revolut_trades")
 
 
-def get_last_trades(symbol: str, limit: int = 200):
+def get_last_trades(symbol: str, limit: int = 50):
     """
     Fetch latest public trades for a specific symbol from Revolut X.
     Returns raw trade list.
