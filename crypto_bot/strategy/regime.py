@@ -12,7 +12,7 @@ def detect_regime(momentum_norm, volatility, range_pos):
         return "spike"
 
     # Price near lows with stabilizing momentum → accumulation
-    if range_pos <= 0.30 and momentum_norm > -0.2:
+    if range_pos <= 0.30 and momentum_norm > -0.15:
         return "accumulation"
 
     # Everything else → chop / no trade

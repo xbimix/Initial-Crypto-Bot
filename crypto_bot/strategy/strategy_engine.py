@@ -30,7 +30,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     volatility = snapshot["volatility"]      # ATR proxy
     vwap = snapshot.get("vwap")
 
-    min_trades = cfg.get("min_trades", 2)
+    min_trades = cfg.get("min_trades", 3)
 
     prev_signal = _last_signal.get(symbol)
     last_sell = _last_sell_price.get(symbol)
@@ -60,9 +60,9 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         _last_signal[symbol] = "HOLD"
         return _decision(symbol, "HOLD", price, momentum, "price_above_30pct_range")
 
-    if range_pos < 0.20:
+    if range_pos < 0.15:
         _last_signal[symbol] = "HOLD"
-        return _decision(symbol, "HOLD", price, momentum, "price_below_20pct_range")
+        return _decision(symbol, "HOLD", price, momentum, "price_below_15pct_range")
 
     # --------------------------------------------------
     # VOLATILITY STRETCH (MEAN REVERSION CORE)

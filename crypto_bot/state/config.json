@@ -16,23 +16,43 @@
     "SEI-USD"
   ],
 
-  "lookback": 200,
-  "min_trades": 2,
 
+  "lookback": 200,
+  "min_trades": 3,
+
+  
   "risk": {
     "risk_percent": 0.02,
     "max_concurrent_trades": 1,
     "cooldown_seconds": 90
   },
 
+ 
   "market_regime": {
     "type": "bear",
+
+    
     "max_buy_range_pct": 0.30,
-    "preferred_buy_zone": [0.20, 0.30]
+
+    
+    "preferred_buy_zone": [0.15, 0.30],
+
+    
+    "min_z_score": -1.5
   },
+
 
   "profit_locks": {
     "levels": [0.02, 0.04, 0.06, 0.08],
-    "floor_after_first": -0.01
-  }
+
+   
+    "floor_after_first": -0.01,
+
+    
+    "max_negative_z_score": -3.0
+  },
+
+ 
+  "loop_sleep": 10,
+  "log_level": "INFO"
 }
