@@ -17,7 +17,7 @@
   ],
 
   "lookback": 200,
-  "min_trades": 5,
+  "min_trades": 2,
 
   "risk": {
     "risk_percent": 0.02,

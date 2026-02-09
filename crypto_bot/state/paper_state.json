@@ -1,4 +1,11 @@
 {
-  "balance": 5811.317483892969,
-  "positions": {}
+  "balance": 5695.091134644169,
+  "positions": {
+    "XRP-USD": {
+      "price": 1.4504,
+      "size": 80.133997,
+      "entry_time": 1770666725.5268607,
+      "reason": "bear_market_mean_reversion_buy"
+    }
+  }
 }

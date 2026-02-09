@@ -73,7 +73,8 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             if prices[i - 1] > 0
         ]
 
-        atr_proxy = statistics.median(deltas) if deltas else 0.0
+        atr_raw = statistics.median(deltas) if deltas else 0.0
+        atr = max(atr_raw, 0.002)
 
         # --- VWAP PROXY ---
         vwap = statistics.mean(prices)
@@ -82,7 +83,7 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
         raw_momentum = (last_price - first_price) / first_price
 
         # clamp normalization to avoid explosion
-        norm_momentum = raw_momentum / max(atr_proxy, 0.002)
+        norm_momentum = raw_momentum / atr
 
         high_24h = max(prices)
         low_24h = min(prices)
@@ -92,7 +93,8 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             "price": last_price,
             "momentum_raw": raw_momentum,
             "momentum_norm": norm_momentum,
-            "volatility": atr_proxy,
+            "volatility": atr,
+            "atr": atr,
             "vwap": vwap,
             "median_price": median_price,
             "trade_count": len(prices),
@@ -103,7 +105,7 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
         logger.info(
             f"SNAPSHOT {symbol} | price={last_price:.5f} "
             f"mom_raw={raw_momentum:.4f} mom_norm={norm_momentum:.3f} "
-            f"atr={atr_proxy:.5f} vwap={vwap:.5f} "
+            f"atr={atr_raw:.5f} vwap={vwap:.5f} "
             f"24h_low={low_24h:.5f} 24h_high={high_24h:.5f}"
         )
 
