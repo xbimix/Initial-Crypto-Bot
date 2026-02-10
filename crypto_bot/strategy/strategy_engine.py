@@ -120,7 +120,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         current_lock = _profit_lock.get(symbol, 0.0)
 
         PROFIT_LOCKS = [
-            (0.02, 0.02),
+            (0.02, -0.05),
             (0.04, 0.02),
             (0.06, 0.04),
             (0.08, 0.06),
