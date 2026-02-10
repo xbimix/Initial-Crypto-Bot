@@ -15,7 +15,9 @@
     "SUI-USD",
     "SEI-USD"
   ],
+   
 
+  
 
   "lookback": 200,
   "min_trades": 3,
@@ -50,6 +52,10 @@
 
     
     "max_negative_z_score": -3.0
+  },
+    "volatility_filters": {
+    "min_atr": 0.001,
+    "min_atr_pct": 0.0005
   },
 
  

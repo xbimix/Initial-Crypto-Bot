@@ -27,7 +27,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     high_24h = snapshot["high_24h"]
     low_24h = snapshot["low_24h"]
 
-    volatility = snapshot["volatility"]      # ATR proxy
+    atr = snapshot["atr"]
     vwap = snapshot.get("vwap")
 
     min_trades = cfg.get("min_trades", 3)
@@ -36,6 +36,14 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     last_sell = _last_sell_price.get(symbol)
     entry = _entry_price.get(symbol)
     prev_mom = _last_momentum.get(symbol)
+    
+    atr = snapshot.get("atr")
+
+    min_atr = cfg.get("market_regime", {}).get("min_atr", 0.003)
+
+    if atr is None or atr < min_atr:
+     _last_signal[symbol] = "HOLD"
+     return _decision(symbol, "HOLD", price, momentum, "atr_too_low")
 
     # --------------------------------------------------
     # SAFETY GUARDS
@@ -44,11 +52,14 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         trades < min_trades
         or high_24h <= low_24h
         or vwap is None
-        or volatility is None
-        or volatility <= 0
+        or atr is None
+        or atr <= 0
     ):
         _last_signal[symbol] = "HOLD"
         return _decision(symbol, "HOLD", price, momentum, "insufficient_data")
+     
+
+    
 
     # --------------------------------------------------
     # HARD PRICE LOCATION RULE (ABSOLUTE)
@@ -67,7 +78,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     # --------------------------------------------------
     # VOLATILITY STRETCH (MEAN REVERSION CORE)
     # --------------------------------------------------
-    z_score = (price - vwap) / volatility
+    z_score = (price - vwap) / atr
 
     if z_score > -1.5:
         _last_signal[symbol] = "HOLD"
@@ -92,7 +103,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         _last_signal[symbol] = "BUY"
 
         _log_decision(
-            symbol, price, momentum_raw, momentum, volatility,
+            symbol, price, momentum_raw, momentum, atr,
             low_24h, high_24h,
             range_pos, 0.20, 0.30,
             prev_signal, last_sell,
@@ -109,7 +120,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         current_lock = _profit_lock.get(symbol, 0.0)
 
         PROFIT_LOCKS = [
-            (0.02, 0.00),
+            (0.02, 0.02),
             (0.04, 0.02),
             (0.06, 0.04),
             (0.08, 0.06),

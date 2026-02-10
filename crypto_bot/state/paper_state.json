@@ -1,10 +1,22 @@
 {
-  "balance": 5695.091134644169,
+  "balance": 5432.114087398169,
   "positions": {
     "XRP-USD": {
       "price": 1.4504,
       "size": 80.133997,
       "entry_time": 1770666725.5268607,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "ETH-USD": {
+      "price": 2031.14,
+      "size": 0.055694,
+      "entry_time": 1770744053.1628952,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "BTC-USD": {
+      "price": 69171.64,
+      "size": 0.001603,
+      "entry_time": 1770752610.014637,
       "reason": "bear_market_mean_reversion_buy"
     }
   }

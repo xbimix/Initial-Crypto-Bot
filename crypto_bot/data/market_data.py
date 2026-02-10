@@ -8,6 +8,7 @@ logger = setup_logger("market_data")
 
 EPSILON = 1e-8
 SECONDS_24H = 86400
+ATR_FLOOR = 0.003   # 0.3% minimum effective volatility
 
 
 def _parse_ts(trade: dict) -> float | None:
@@ -74,7 +75,8 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
         ]
 
         atr_raw = statistics.median(deltas) if deltas else 0.0
-        atr = max(atr_raw, 0.002)
+        atr = max(atr_raw, ATR_FLOOR)
+
 
         # --- VWAP PROXY ---
         vwap = statistics.mean(prices)
@@ -93,8 +95,9 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             "price": last_price,
             "momentum_raw": raw_momentum,
             "momentum_norm": norm_momentum,
-            "volatility": atr,
-            "atr": atr,
+            
+            "atr": atr,           # effective ATR (used by strategy)
+            "atr_raw": atr_raw,   # real observed volatility (for analysis)
             "vwap": vwap,
             "median_price": median_price,
             "trade_count": len(prices),
