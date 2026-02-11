@@ -18,49 +18,96 @@ def main():
     last_heartbeat = 0
 
     while True:
-        try:
-            cfg = load_config()  # hot reload
+     try:
+        cfg = load_config()
 
-            if not cfg.get("enabled", False):
-                logger.info("Bot disabled — waiting")
-                time.sleep(5)
+        if not cfg.get("enabled", False):
+            logger.info("Bot disabled — waiting")
+            time.sleep(5)
+            continue
+
+        if executor is None:
+            executor = Executor(cfg)
+        else:
+            executor.update_config(cfg)
+
+        now = time.time()
+        if now - last_heartbeat > HEARTBEAT_INTERVAL:
+            logger.info("Heartbeat — bot running")
+            last_heartbeat = now
+
+        symbols = list(dict.fromkeys(cfg["symbols"]))
+
+        for symbol in symbols:
+
+            # POSITION-AWARE FILTER
+            if executor.has_open_position(symbol) and \
+               executor.open_positions_count() >= cfg["risk"]["max_concurrent_trades"]:
                 continue
 
-            if executor is None:
-                executor = Executor(cfg)
+            market = fetch_market_snapshot(symbol, cfg)
+            if market is None:
+                continue
 
-            now = time.time()
-            if now - last_heartbeat > HEARTBEAT_INTERVAL:
-                logger.info("Heartbeat — bot running")
-                last_heartbeat = now
+            decision = evaluate_symbol(market, cfg)
 
-            symbols = list(dict.fromkeys(cfg["symbols"]))  # de-duplicate
+            if decision["action"] != "HOLD":
+                executor.handle_decision(decision)
 
-            for symbol in symbols:
-                logger.info(f"Processing {symbol}")
+            time.sleep(0.2)
 
-                market = fetch_market_snapshot(symbol, cfg)
-                if market is None:
-                    logger.warning(f"No market data for {symbol}")
-                    continue
+        time.sleep(cfg.get("loop_sleep", 10))
 
-                decision = evaluate_symbol(market, cfg)
-
-                if decision["action"] != "HOLD":
-                    executor.handle_decision(decision)
-
-                time.sleep(0.2)  # API pacing
-
-            time.sleep(cfg.get("loop_sleep", 10))
-
-        except Exception as e:
-            logger.exception(f"Main loop error: {e}")
-            time.sleep(5)
-
-
+     except Exception as e:
+        logger.exception(f"Main loop error: {e}")
+        time.sleep(5)
 if __name__ == "__main__":
-    main()
+         main()
 
+#     while True:
+#         try:
+#             cfg = load_config()  # hot reload
+
+#             if not cfg.get("enabled", False):
+#                 logger.info("Bot disabled — waiting")
+#                 time.sleep(5)
+#                 continue
+
+#             if executor is None:
+#                 executor = Executor(cfg)
+
+#             now = time.time()
+#             if now - last_heartbeat > HEARTBEAT_INTERVAL:
+#                 logger.info("Heartbeat — bot running")
+#                 last_heartbeat = now
+
+#             symbols = list(dict.fromkeys(cfg["symbols"]))  # de-duplicate
+
+#             for symbol in symbols:
+#                 logger.info(f"Processing {symbol}")
+
+#                 market = fetch_market_snapshot(symbol, cfg)
+#                 if market is None:
+#                     logger.warning(f"No market data for {symbol}")
+#                     continue
+
+#                 decision = evaluate_symbol(market, cfg)
+
+#                 if decision["action"] != "HOLD":
+#                     executor.handle_decision(decision)
+
+#                 time.sleep(0.2)  # API pacing
+
+#             time.sleep(cfg.get("loop_sleep", 10))
+
+#         except Exception as e:
+#             logger.exception(f"Main loop error: {e}")
+#             time.sleep(5)
+
+
+# if __name__ == "__main__":
+#     main()
+#---------------------------LAST WORKING STATE---------------------------
 
 # main.py
 # import time

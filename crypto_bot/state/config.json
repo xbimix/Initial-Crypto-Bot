@@ -15,50 +15,39 @@
     "SUI-USD",
     "SEI-USD"
   ],
-   
-
-  
 
   "lookback": 200,
   "min_trades": 3,
 
-  
   "risk": {
     "risk_percent": 0.02,
     "max_concurrent_trades": 1,
     "cooldown_seconds": 90
   },
 
- 
   "market_regime": {
     "type": "bear",
-
-    
-    "max_buy_range_pct": 0.30,
-
-    
     "preferred_buy_zone": [0.15, 0.30],
-
-    
     "min_z_score": -1.5
   },
 
-
   "profit_locks": {
-    "levels": [0.02, 0.04, 0.06, 0.08],
-
-   
-    "floor_after_first": -0.01,
-
-    
-    "max_negative_z_score": -3.0
+    "first_activation": 0.02,
+    "initial_lock": 0.01,
+    "levels": [
+      [0.04, 0.03],
+      [0.05, 0.04],
+      [0.06, 0.05],
+      [0.08, 0.06]
+    ],
+    "max_negative_z_score": -3.5
   },
-    "volatility_filters": {
+
+  "volatility_filters": {
     "min_atr": 0.001,
     "min_atr_pct": 0.0005
   },
 
- 
   "loop_sleep": 10,
   "log_level": "INFO"
 }

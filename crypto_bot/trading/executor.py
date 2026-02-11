@@ -10,6 +10,10 @@ class Executor:
         self.cfg = cfg
         self.paper = PaperBroker(cfg["starting_balance"])
         self.risk = RiskManager(cfg)
+    def update_config(self, cfg: dict):
+        self.cfg = cfg
+    def has_open_position(self, symbol: str) -> bool:
+      return self.paper.has_position(symbol)
 
     def handle_decision(self, decision: dict):
         symbol = decision["symbol"]
