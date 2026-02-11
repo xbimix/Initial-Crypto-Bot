@@ -12,8 +12,13 @@ class Executor:
         self.risk = RiskManager(cfg)
     def update_config(self, cfg: dict):
         self.cfg = cfg
+        # ---------------- POSITION HELPERS ----------------
+
     def has_open_position(self, symbol: str) -> bool:
-      return self.paper.has_position(symbol)
+        return self.paper.has_position(symbol)
+
+    def open_positions_count(self) -> int:
+        return len(self.paper.positions)
 
     def handle_decision(self, decision: dict):
         symbol = decision["symbol"]

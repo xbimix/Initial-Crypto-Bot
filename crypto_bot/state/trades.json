@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "time": 1770818259.2752192,
+    "symbol": "SOL-USD",
+    "side": "BUY",
+    "price": 68.642,
+    "size": 2.913668,
+    "balance": 9800.000001144,
+    "reason": "bear_market_mean_reversion_buy"
+  }
+]

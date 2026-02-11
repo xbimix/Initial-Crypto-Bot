@@ -1,6 +1,11 @@
 {
-  "balance": 10000,
+  "balance": 9800.000001144,
   "positions": {
-   
+    "SOL-USD": {
+      "price": 68.642,
+      "size": 2.913668,
+      "entry_time": 1770818259.2752178,
+      "reason": "bear_market_mean_reversion_buy"
+    }
   }
 }
