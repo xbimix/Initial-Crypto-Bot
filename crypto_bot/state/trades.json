@@ -7,5 +7,23 @@
     "size": 2.913668,
     "balance": 9800.000001144,
     "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1770820414.4028208,
+    "symbol": "BTC-USD",
+    "side": "BUY",
+    "price": 67926.6,
+    "size": 0.002885,
+    "balance": 9604.031760144,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1770920154.3557897,
+    "symbol": "ETH-USD",
+    "side": "BUY",
+    "price": 1915.43,
+    "size": 0.100281,
+    "balance": 9411.950524314,
+    "reason": "bear_market_mean_reversion_buy"
   }
 ]

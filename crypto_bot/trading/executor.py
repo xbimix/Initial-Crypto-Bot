@@ -18,7 +18,7 @@ class Executor:
         return self.paper.has_position(symbol)
 
     def open_positions_count(self) -> int:
-        return len(self.paper.positions)
+        return len(getattr(self.paper, "positions", {}))
 
     def handle_decision(self, decision: dict):
         symbol = decision["symbol"]
@@ -59,6 +59,7 @@ class Executor:
         # ---------------- SELL ----------------
         elif action == "SELL":
             if not self.paper.has_position(symbol):
+                logger.warning(f"No open position to sell for {symbol}")
                 return
 
             if self.paper.sell(symbol, price, reason):
