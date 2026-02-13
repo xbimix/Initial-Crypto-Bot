@@ -21,11 +21,24 @@ def _parse_ts(trade: dict) -> float | None:
         return None
 
 
+def _ema(values, period):
+    if len(values) < period:
+        return None
+
+    k = 2 / (period + 1)
+    ema_val = values[0]
+
+    for price in values[1:]:
+        ema_val = price * k + ema_val * (1 - k)
+
+    return ema_val
+
+
 def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
     try:
         asset = symbol.split("-")[0]
         lookback = cfg.get("lookback", 200)
-        min_trades = cfg.get("min_trades", 2)
+        min_trades = cfg.get("min_trades", 3)
 
         logger.info(f"📘 Fetching last trades for {symbol}")
         trades = get_last_trades(symbol=symbol, limit=lookback)
@@ -52,7 +65,6 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             logger.warning(f"Not enough valid trades for {symbol}")
             return None
 
-        # --- SORT OLDEST → NEWEST ---
         parsed.sort(key=lambda x: x["ts"])
 
         now = time.time()
@@ -67,7 +79,9 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
         first_price = prices[0]
         last_price = prices[-1]
 
-        # --- ATR-LIKE VOLATILITY (ROBUST TO SPIKES) ---
+        # -------------------------------
+        # ATR-LIKE VOLATILITY
+        # -------------------------------
         deltas = [
             abs(prices[i] - prices[i - 1]) / prices[i - 1]
             for i in range(1, len(prices))
@@ -77,15 +91,33 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
         atr_raw = statistics.median(deltas) if deltas else 0.0
         atr = max(atr_raw, ATR_FLOOR)
 
-
-        # --- VWAP PROXY ---
+        # -------------------------------
+        # VWAP + MEDIAN
+        # -------------------------------
         vwap = statistics.mean(prices)
         median_price = statistics.median(prices)
 
-        raw_momentum = (last_price - first_price) / first_price
+        # -------------------------------
+        # MOMENTUM
+        # -------------------------------
+        raw_momentum = (last_price - first_price) / (first_price + EPSILON)
+        norm_momentum = raw_momentum / (atr + EPSILON)
 
-        # clamp normalization to avoid explosion
-        norm_momentum = raw_momentum / atr
+        # -------------------------------
+        # EMA CALCULATION
+        # -------------------------------
+        ema_50 = _ema(prices[-100:], 50)
+        ema_200 = _ema(prices[-250:], 200)
+
+        ema_50_prev = (
+            _ema(prices[-101:-1], 50)
+            if len(prices) > 101
+            else None
+        )
+
+        ema_50_slope = None
+        if ema_50 is not None and ema_50_prev is not None:
+            ema_50_slope = ema_50 - ema_50_prev
 
         high_24h = max(prices)
         low_24h = min(prices)
@@ -95,21 +127,33 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             "price": last_price,
             "momentum_raw": raw_momentum,
             "momentum_norm": norm_momentum,
-            
-            "atr": atr,           # effective ATR (used by strategy)
-            "atr_raw": atr_raw,   # real observed volatility (for analysis)
+
+            # Volatility
+            "atr": atr,
+            "atr_raw": atr_raw,
+            "volatility": atr,   # backward compatibility
+
+            # Location
             "vwap": vwap,
             "median_price": median_price,
-            "trade_count": len(prices),
             "high_24h": high_24h,
             "low_24h": low_24h,
+            "trade_count": len(prices),
+
+            # Trend detection
+            "ema_50": ema_50,
+            "ema_200": ema_200,
+            "ema_50_slope": ema_50_slope,
         }
 
         logger.info(
-            f"SNAPSHOT {symbol} | price={last_price:.5f} "
-            f"mom_raw={raw_momentum:.4f} mom_norm={norm_momentum:.3f} "
-            f"atr={atr_raw:.5f} vwap={vwap:.5f} "
-            f"24h_low={low_24h:.5f} 24h_high={high_24h:.5f}"
+            f"SNAPSHOT {symbol} | "
+            f"price={last_price:.5f} "
+            f"mom_norm={norm_momentum:.3f} "
+            f"atr_raw={atr_raw:.5f} "
+            f"vwap={vwap:.5f} "
+            f"24h_low={low_24h:.5f} "
+            f"24h_high={high_24h:.5f}"
         )
 
         return snapshot
@@ -117,7 +161,6 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
     except Exception as e:
         logger.exception(f"Market snapshot error for {symbol}: {e}")
         return None
-
 
 
 
