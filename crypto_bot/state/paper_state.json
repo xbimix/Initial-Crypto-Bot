@@ -1,5 +1,5 @@
 {
-  "balance": 9411.9192561208,
+  "balance": 9223.6807142728,
   "positions": {
     "ETH-USD": {
       "price": 2097.5,
@@ -17,6 +17,12 @@
       "price": 89.049,
       "size": 2.157014,
       "entry_time": 1771132372.3284376,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "BNB-USD": {
+      "price": 628.417,
+      "size": 0.299544,
+      "entry_time": 1771156570.3836274,
       "reason": "bear_market_mean_reversion_buy"
     }
   }

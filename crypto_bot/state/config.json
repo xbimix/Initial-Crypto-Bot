@@ -13,7 +13,12 @@
     "DOT-USD",
     "XLM-USD",
     "SUI-USD",
-    "SEI-USD"
+    "SEI-USD",
+    "POLS-USD",
+    "ASM-USD",
+    "LCX-USD",
+    "XCN-USD",
+    "ARPA-USD"
   ],
 
   "lookback": 200,

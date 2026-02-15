@@ -125,8 +125,10 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             if pnl_pct >= trigger:
                 current_lock = max(current_lock, lock)
 
-        _profit_lock[symbol] = current_lock
-        _save_strategy_state()
+        previous_lock = _profit_lock.get(symbol)
+        if previous_lock != current_lock:
+           _profit_lock[symbol] = current_lock
+           _save_strategy_state()
 
         logger.info(
             f"{symbol} PNL={pnl_pct:.4f} | lock={current_lock:.4f} | "
@@ -146,7 +148,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             )
 
         # 5️⃣ Structural break AFTER profit
-        if pnl_pct >= 0.02 and z_score < -3.0:
+        if current_lock == 0.01 and z_score < -3.0:
             _cleanup(symbol, price)
             _save_strategy_state()
             return _decision(symbol, "SELL", price, momentum, "structural_break_exit")

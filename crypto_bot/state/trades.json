@@ -25,5 +25,14 @@
     "size": 2.157014,
     "balance": 9411.9192561208,
     "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1771156570.3836288,
+    "symbol": "BNB-USD",
+    "side": "BUY",
+    "price": 628.417,
+    "size": 0.299544,
+    "balance": 9223.6807142728,
+    "reason": "bear_market_mean_reversion_buy"
   }
 ]
