@@ -1,4 +1,6 @@
 from utils.logger import setup_logger
+import os
+import json
 
 logger = setup_logger("strategy")
 
@@ -11,8 +13,41 @@ _entry_price = {}
 _profit_lock = {}
 _last_momentum = {}
 
+STATE_DIR = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "state")
+)
+STRATEGY_STATE_FILE = os.path.join(STATE_DIR, "strategy_state.json")
+PAPER_STATE_FILE = os.path.join(STATE_DIR, "paper_state.json")
+
+def _sync_with_broker_state():
+    """
+    On startup, align strategy state with PaperBroker positions.
+    """
+    if not os.path.exists(PAPER_STATE_FILE):
+        return
+
+    try:
+        with open(PAPER_STATE_FILE, "r") as f:
+            data = json.load(f)
+
+        positions = data.get("positions", {})
+
+        for symbol, pos in positions.items():
+            if symbol not in _entry_price:
+                _entry_price[symbol] = pos.get("price")
+                _profit_lock[symbol] = None
+                _last_signal[symbol] = "BUY"
+
+                logger.info(
+                    f"Strategy sync: restored {symbol} entry @ {pos.get('price')}"
+                )
+
+    except Exception as e:
+        logger.exception(f"Strategy state sync failed: {e}")
 
 def evaluate_symbol(snapshot: dict, cfg: dict) -> dict:
+   
+    _sync_with_broker_state()
     return generate_decision(snapshot, cfg)
 
 
@@ -101,7 +136,9 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         _entry_price[symbol] = price
         _profit_lock[symbol] = 0.0
         _last_signal[symbol] = "BUY"
-         
+        
+        _save_strategy_state()
+ 
         _log_decision(
             symbol, price, momentum_raw, momentum, atr,
             low_24h, high_24h,
@@ -112,29 +149,23 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
          
         return _decision(symbol, "BUY", price, momentum, "bear_market_mean_reversion_buy")
    #-----------------------------------------------------------------------------------
-# --------------------------------------------------
-# SELL LOGIC — PROFIT LOCK LADDER (STABLE VERSION)
+    # --------------------------------------------------
+# SELL LOGIC — PROFIT LOCK LADDER
 # --------------------------------------------------
     if entry is not None:
 
      pnl_pct = (price - entry) / entry
      current_lock = _profit_lock.get(symbol, None)
 
-    # ---------------------------------------
-    # 1️⃣ DO NOTHING until +2% is reached
-    # ---------------------------------------
+    # 1️⃣ Do nothing until +2%
     if pnl_pct < 0.02:
         return _decision(symbol, "HOLD", price, momentum, "waiting_for_first_lock")
 
-    # ---------------------------------------
-    # 2️⃣ Initialize first lock at +1%
-    # ---------------------------------------
+    # 2️⃣ Initialize first lock
     if current_lock is None:
         current_lock = 0.01
 
-    # ---------------------------------------
-    # 3️⃣ Progressive lock ladder
-    # ---------------------------------------
+    # 3️⃣ Progressive ladder
     PROFIT_LOCKS = [
         (0.04, 0.03),
         (0.05, 0.04),
@@ -147,12 +178,17 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             current_lock = max(current_lock, lock)
 
     _profit_lock[symbol] = current_lock
+    _save_strategy_state()
 
-    # ---------------------------------------
-    # 4️⃣ Exit only if price falls below locked level
-    # ---------------------------------------
+    logger.info(
+        f"{symbol} PNL={pnl_pct:.4f} | lock={current_lock:.4f} | "
+        f"lock_price={(entry * (1 + current_lock)):.2f}"
+    )
+
+    # 4️⃣ Exit on lock breach
     if pnl_pct <= current_lock:
         _cleanup(symbol, price)
+        _save_strategy_state()
         return _decision(
             symbol,
             "SELL",
@@ -161,11 +197,10 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             f"profit_lock_exit_{int(current_lock*100)}pct"
         )
 
-    # ---------------------------------------
-    # 5️⃣ Structural break ONLY after profit
-    # ---------------------------------------
+    # 5️⃣ Structural break (after profit)
     if pnl_pct >= 0.02 and z_score < -3.0:
         _cleanup(symbol, price)
+        _save_strategy_state()
         return _decision(
             symbol,
             "SELL",
@@ -173,6 +208,99 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             momentum,
             "structural_break_exit"
         )
+    
+    # --------------------------------------------------
+    # FALLBACK
+    # --------------------------------------------------
+    _last_signal[symbol] = "HOLD"
+    return _decision(symbol, "HOLD", price, momentum, "neutral")
+
+
+# --------------------------------------------------
+# STRATEGY STATE PERSISTENCE
+# --------------------------------------------------
+
+def _save_strategy_state():
+    os.makedirs(STATE_DIR, exist_ok=True)
+
+    state = {
+        "entry_price": _entry_price,
+        "profit_lock": _profit_lock,
+        "last_signal": _last_signal,
+        "last_momentum": _last_momentum,
+    }
+
+    with open(STRATEGY_STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
+
+
+def _load_strategy_state():
+    if not os.path.exists(STRATEGY_STATE_FILE):
+        return
+
+    try:
+        with open(STRATEGY_STATE_FILE, "r") as f:
+            state = json.load(f)
+
+        _entry_price.update(state.get("entry_price", {}))
+        _profit_lock.update(state.get("profit_lock", {}))
+        _last_signal.update(state.get("last_signal", {}))
+        _last_momentum.update(state.get("last_momentum", {}))
+
+        logger.info("Strategy state restored")
+
+    except Exception as e:
+        logger.error(f"Failed to load strategy state: {e}")
+
+
+# --------------------------------------------------
+# HELPERS
+# --------------------------------------------------
+
+def _cleanup(symbol, price):
+    _last_signal[symbol] = "SELL"
+    _last_sell_price[symbol] = price
+    _entry_price.pop(symbol, None)
+    _profit_lock.pop(symbol, None)
+    _last_momentum.pop(symbol, None)
+
+
+
+def _log_decision(
+    symbol, price, mom_raw, mom_norm, vol,
+    low_24h, high_24h,
+    range_pos, lower_band, upper_band,
+    prev_signal, last_sell,
+    action, reason
+):
+    logger.info(
+        f"DECISION {symbol} | "
+        f"price={price:.5f} | "
+        f"mom_raw={mom_raw:.5f} | "
+        f"mom_norm={mom_norm:.5f} | "
+        f"vol={vol:.5f} | "
+        f"24h_low={low_24h:.5f} | "
+        f"24h_high={high_24h:.5f} | "
+        f"range_pos={range_pos:.3f} | "
+        f"bands={lower_band:.2f}-{upper_band:.2f} | "
+        f"prev_signal={prev_signal} | "
+        f"last_sell={last_sell} | "
+        f"action={action} | "
+        f"reason={reason}"
+    )
+
+
+def _decision(symbol, action, price, momentum, reason):
+    logger.info(f"{symbol} → {action} | reason={reason}")
+    return {
+        "symbol": symbol,
+        "action": action,
+        "price": price,
+        "momentum": momentum,
+        "reason": reason,
+    }
+_load_strategy_state()
+
 
 
 
@@ -212,58 +340,8 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     #         _cleanup(symbol, price)
     #         return _decision(symbol, "SELL", price, momentum, "structural_break_exit")
 
-    # --------------------------------------------------
-    # FALLBACK
-    # --------------------------------------------------
-    _last_signal[symbol] = "HOLD"
-    return _decision(symbol, "HOLD", price, momentum, "neutral")
 
 
-# --------------------------------------------------
-# HELPERS
-# --------------------------------------------------
-
-def _cleanup(symbol, price):
-    _last_signal[symbol] = "SELL"
-    _last_sell_price[symbol] = price
-    _entry_price.pop(symbol, None)
-    _profit_lock.pop(symbol, None)
-    _last_momentum.pop(symbol, None)
-
-
-def _log_decision(
-    symbol, price, mom_raw, mom_norm, vol,
-    low_24h, high_24h,
-    range_pos, lower_band, upper_band,
-    prev_signal, last_sell,
-    action, reason
-):
-    logger.info(
-        f"DECISION {symbol} | "
-        f"price={price:.5f} | "
-        f"mom_raw={mom_raw:.5f} | "
-        f"mom_norm={mom_norm:.5f} | "
-        f"vol={vol:.5f} | "
-        f"24h_low={low_24h:.5f} | "
-        f"24h_high={high_24h:.5f} | "
-        f"range_pos={range_pos:.3f} | "
-        f"bands={lower_band:.2f}-{upper_band:.2f} | "
-        f"prev_signal={prev_signal} | "
-        f"last_sell={last_sell} | "
-        f"action={action} | "
-        f"reason={reason}"
-    )
-
-
-def _decision(symbol, action, price, momentum, reason):
-    logger.info(f"{symbol} → {action} | reason={reason}")
-    return {
-        "symbol": symbol,
-        "action": action,
-        "price": price,
-        "momentum": momentum,
-        "reason": reason,
-    }
 
 # ✅ 2) STRATEGY — Fully Config-Driven Version
 # 📁 strategy/strategy_engine.py

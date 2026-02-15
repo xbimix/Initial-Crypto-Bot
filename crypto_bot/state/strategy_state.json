@@ -1,0 +1,32 @@
+{
+  "entry_price": {
+    "ETH-USD": 2097.5,
+    "SOL-USD": 87.131,
+    "BTC-USD": 69791.0,
+    "XRP-USD": 1.2372
+  },
+  "profit_lock": {
+    "ETH-USD": 0.0,
+    "SOL-USD": 0.0,
+    "BTC-USD": 0.0,
+    "XRP-USD": 0.0
+  },
+  "last_signal": {
+    "BTC-USD": "HOLD",
+    "ETH-USD": "BUY",
+    "SOL-USD": "HOLD",
+    "XRP-USD": "BUY",
+    "ADA-USD": "HOLD",
+    "DOT-USD": "HOLD",
+    "SUI-USD": "HOLD",
+    "BNB-USD": "HOLD",
+    "XLM-USD": "HOLD",
+    "SEI-USD": "HOLD"
+  },
+  "last_momentum": {
+    "ETH-USD": 0.036555336752827954,
+    "SOL-USD": 0.06106034180555261,
+    "BTC-USD": -0.023305978009931786,
+    "XRP-USD": -12.448313164738577
+  }
+}

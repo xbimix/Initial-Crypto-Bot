@@ -17,8 +17,19 @@ class PaperBroker:
         self.positions = {}
 
         os.makedirs(STATE_DIR, exist_ok=True)
+        self._ensure_balance_file()
         self._load_state()
         self._ensure_trades_file()
+    
+    def _ensure_balance_file(self):
+     if not os.path.exists(BALANCE_FILE):
+        with open(BALANCE_FILE, "w") as f:
+            json.dump(
+                {"balance": self.starting_balance, "positions": {}},
+                f,
+                indent=2,
+            )
+
 
     # ---------- PUBLIC API ----------
 
