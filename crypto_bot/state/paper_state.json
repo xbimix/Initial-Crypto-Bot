@@ -1,5 +1,5 @@
 {
-  "balance": 9603.9991958068,
+  "balance": 9411.9192561208,
   "positions": {
     "ETH-USD": {
       "price": 2097.5,
@@ -11,6 +11,12 @@
       "price": 1.2372,
       "size": 158.422231,
       "entry_time": 1771101844.1845202,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "SOL-USD": {
+      "price": 89.049,
+      "size": 2.157014,
+      "entry_time": 1771132372.3284376,
       "reason": "bear_market_mean_reversion_buy"
     }
   }

@@ -9,7 +9,9 @@ class RiskManager:
         self.cfg = cfg
         self.last_trade_time = {}
         self.open_positions = {}
-
+    
+    def update_config(self, cfg: dict):
+        self.cfg = cfg
     # -------------------------
     # COOLDOWN
     # -------------------------
