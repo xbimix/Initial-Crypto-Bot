@@ -1,4 +1,5 @@
 from utils.logger import setup_logger
+from strategy.regime import detect_regime
 import os
 import json
 
@@ -12,6 +13,7 @@ _last_sell_price = {}
 _entry_price = {}
 _profit_lock = {}
 _last_momentum = {}
+_synced = False
 
 STATE_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "state")
@@ -49,8 +51,12 @@ def _sync_with_broker_state():
 
 
 def evaluate_symbol(snapshot: dict, cfg: dict) -> dict:
-    _sync_with_broker_state()
+    global _synced
+    if not _synced:
+        _sync_with_broker_state()
+        _synced = True
     return generate_decision(snapshot, cfg)
+
 
 
 # ============================================================
@@ -95,6 +101,13 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         return _decision(symbol, "HOLD", price, momentum, "atr_too_low")
 
     z_score = (price - vwap) / atr
+    
+    regime = detect_regime(snapshot)
+
+    if regime in ["dump", "spike", "chop"]:
+        return _decision(symbol, "HOLD", price, momentum, f"regime_{regime}")
+
+
 
     # ========================================================
     # ===================== SELL FIRST =======================
@@ -137,15 +150,31 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
 
         # 4️⃣ Exit on lock breach
         if pnl_pct <= current_lock:
+            if symbol not in _entry_price:
+               return _decision(symbol, "HOLD", price, momentum, "desync_protection")
+
             _cleanup(symbol, price)
             _save_strategy_state()
             return _decision(
-                symbol,
-                "SELL",
-                price,
-                momentum,
-                f"profit_lock_exit_{int(current_lock*100)}pct"
-            )
+               symbol,
+               "SELL",
+               price,
+               momentum,
+               f"profit_lock_exit_{int(current_lock*100)}pct"
+      )
+
+
+
+        # if pnl_pct <= current_lock:
+        #     _cleanup(symbol, price)
+        #     _save_strategy_state()
+        #     return _decision(
+        #         symbol,
+        #         "SELL",
+        #         price,
+        #         momentum,
+        #         f"profit_lock_exit_{int(current_lock*100)}pct"
+        #     )
 
         # 5️⃣ Structural break AFTER profit
         if current_lock == 0.01 and z_score < -3.0:

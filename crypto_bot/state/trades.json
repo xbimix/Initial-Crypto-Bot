@@ -1,38 +1,11 @@
 [
   {
-    "time": 1771070707.433001,
+    "time": 1771219148.9039812,
     "symbol": "ETH-USD",
     "side": "BUY",
-    "price": 2097.5,
-    "size": 0.095352,
-    "balance": 9799.99918,
-    "reason": "bear_market_mean_reversion_buy"
-  },
-  {
-    "time": 1771101844.1845217,
-    "symbol": "XRP-USD",
-    "side": "BUY",
-    "price": 1.2372,
-    "size": 158.422231,
-    "balance": 9603.9991958068,
-    "reason": "bear_market_mean_reversion_buy"
-  },
-  {
-    "time": 1771132372.3284388,
-    "symbol": "SOL-USD",
-    "side": "BUY",
-    "price": 89.049,
-    "size": 2.157014,
-    "balance": 9411.9192561208,
-    "reason": "bear_market_mean_reversion_buy"
-  },
-  {
-    "time": 1771156570.3836288,
-    "symbol": "BNB-USD",
-    "side": "BUY",
-    "price": 628.417,
-    "size": 0.299544,
-    "balance": 9223.6807142728,
+    "price": 1959.44,
+    "size": 0.10207,
+    "balance": 9799.9999592,
     "reason": "bear_market_mean_reversion_buy"
   }
 ]
