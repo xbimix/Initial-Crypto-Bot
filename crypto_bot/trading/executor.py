@@ -1,7 +1,7 @@
 from utils.logger import setup_logger
 from paper.paper_broker import PaperBroker
 from risk.risk_manager import RiskManager
-
+from strategy.strategy_engine import confirm_entry
 logger = setup_logger("executor")
 
 
@@ -94,6 +94,10 @@ class Executor:
                 "entry": price,
                 "size": size
             })
+             # --- NEW: confirm entry to strategy ---
+            
+            confirm_entry(symbol, price)
+
             return True
 
         return False

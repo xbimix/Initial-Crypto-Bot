@@ -1,22 +1,26 @@
 {
   "entry_price": {
     "ETH-USD": 1959.44,
-    "BTC-USD": 68839.18,
-    "SOL-USD": 72.471
+    "BTC-USD": 68853.93,
+    "SOL-USD": 86.201,
+    "BNB-USD": 456.996
   },
   "profit_lock": {
     "ETH-USD": null,
     "BTC-USD": null,
-    "SOL-USD": 0.06
+    "SOL-USD": null,
+    "BNB-USD": 0.06
   },
   "last_signal": {
     "ETH-USD": "BUY",
     "SOL-USD": "BUY",
-    "BTC-USD": "BUY"
+    "BTC-USD": "BUY",
+    "BNB-USD": "BUY"
   },
   "last_momentum": {
     "ETH-USD": -0.011907699147069684,
-    "BTC-USD": 0.05336945065690667,
-    "SOL-USD": 0.04140087217602934
+    "BTC-USD": -0.37360805013194176,
+    "SOL-USD": -0.5905902447444554,
+    "BNB-USD": -0.16913460145645653
   }
 }

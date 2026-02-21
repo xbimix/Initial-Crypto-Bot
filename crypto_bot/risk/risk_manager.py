@@ -66,9 +66,10 @@ class RiskManager:
     # POSITION LIMIT CONTROL
     # =====================================================
 
-    def can_open_position(self):
+    def can_open_position(self, current_open_positions: int):
         max_trades = self.cfg["risk"]["max_concurrent_trades"]
-        return len(self.open_positions) < max_trades
+        return current_open_positions < max_trades
+
 
     def register_position(self, symbol, position):
         self.open_positions[symbol] = position

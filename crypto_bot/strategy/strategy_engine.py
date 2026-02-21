@@ -85,31 +85,6 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     min_atr = cfg.get("market_regime", {}).get("min_atr", 0.003)
 
     # ========================================================
-    # BASIC SAFETY CHECKS
-    # ========================================================
-
-    if (
-        trades < min_trades
-        or high_24h <= low_24h
-        or vwap is None
-        or atr is None
-        or atr <= 0
-    ):
-        return _decision(symbol, "HOLD", price, momentum, "insufficient_data")
-
-    if atr < min_atr:
-        return _decision(symbol, "HOLD", price, momentum, "atr_too_low")
-
-    z_score = (price - vwap) / atr
-    
-    regime = detect_regime(snapshot)
-
-    if regime in ["dump", "spike", "chop"]:
-        return _decision(symbol, "HOLD", price, momentum, f"regime_{regime}")
-
-
-
-    # ========================================================
     # ===================== SELL FIRST =======================
     # ========================================================
 
@@ -185,6 +160,32 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         return _decision(symbol, "HOLD", price, momentum, "in_position")
 
     # ========================================================
+    # BASIC SAFETY CHECKS
+    # ========================================================
+
+    if (
+        trades < min_trades
+        or high_24h <= low_24h
+        or vwap is None
+        or atr is None
+        or atr <= 0
+    ):
+        return _decision(symbol, "HOLD", price, momentum, "insufficient_data")
+
+    if atr < min_atr:
+        return _decision(symbol, "HOLD", price, momentum, "atr_too_low")
+
+    z_score = (price - vwap) / atr
+    
+    regime = detect_regime(snapshot)
+
+    if regime in ["dump", "spike", "chop"]:
+        return _decision(symbol, "HOLD", price, momentum, f"regime_{regime}")
+
+
+
+
+    # ========================================================
     # ===================== BUY LOGIC ========================
     # ========================================================
 
@@ -206,11 +207,11 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
 
     _last_momentum[symbol] = momentum
 
-    _entry_price[symbol] = price
-    _profit_lock[symbol] = None
-    _last_signal[symbol] = "BUY"
+    # _entry_price[symbol] = price
+    # _profit_lock[symbol] = None
+    # _last_signal[symbol] = "BUY"
 
-    _save_strategy_state()
+    # _save_strategy_state()
 
     return _decision(symbol, "BUY", price, momentum, "bear_market_mean_reversion_buy")
 
@@ -255,6 +256,12 @@ def _load_strategy_state():
 # ============================================================
 # HELPERS
 # ============================================================
+def confirm_entry(symbol: str, price: float):
+    _entry_price[symbol] = price
+    _profit_lock[symbol] = None
+    _last_signal[symbol] = "BUY"
+    _save_strategy_state()
+
 
 def _cleanup(symbol, price):
     _last_signal[symbol] = "SELL"
