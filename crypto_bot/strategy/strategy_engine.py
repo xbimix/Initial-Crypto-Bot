@@ -182,9 +182,6 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     if regime in ["dump", "spike", "chop"]:
         return _decision(symbol, "HOLD", price, momentum, f"regime_{regime}")
 
-
-
-
     # ========================================================
     # ===================== BUY LOGIC ========================
     # ========================================================

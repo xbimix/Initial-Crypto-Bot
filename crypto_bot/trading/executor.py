@@ -116,7 +116,7 @@ class Executor:
         # Execute sell
         if self.paper.sell(symbol, price, reason):
             self.risk.mark_trade(symbol)
-            self.risk.close_position(symbol)
+           # self.risk.close_position(symbol)
             return True
 
         return False
