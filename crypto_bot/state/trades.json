@@ -1,11 +1,11 @@
 [
   {
-    "time": 1771219148.9039812,
-    "symbol": "ETH-USD",
+    "time": 1771712427.5623724,
+    "symbol": "BTC-USD",
     "side": "BUY",
-    "price": 1959.44,
-    "size": 0.10207,
-    "balance": 9799.9999592,
+    "price": 68285.58,
+    "size": 0.002929,
+    "balance": 9799.99153618,
     "reason": "bear_market_mean_reversion_buy"
   }
 ]

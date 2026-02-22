@@ -90,10 +90,10 @@ class Executor:
         # Execute buy
         if self.paper.buy(symbol, price, size, reason):
             self.risk.mark_trade(symbol)
-            self.risk.register_position(symbol, {
-                "entry": price,
-                "size": size
-            })
+            # self.risk.register_position(symbol, {
+            #     "entry": price,
+            #     "size": size
+            # })
              # --- NEW: confirm entry to strategy ---
             
             confirm_entry(symbol, price)

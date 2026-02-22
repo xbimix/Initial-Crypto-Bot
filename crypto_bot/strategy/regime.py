@@ -33,29 +33,35 @@ def detect_regime(snapshot: dict):
     # 2️⃣ TREND DOWN (structure aware)
     # ================================
     if (
-        ema_50 and ema_200 and ema_50_slope
-        and price < ema_50
-        and ema_50 < ema_200
-        and ema_50_slope < 0
-    ):
+    ema_50 is not None and
+    ema_200 is not None and
+    ema_50_slope is not None and
+    price < ema_50 and
+    ema_50 < ema_200 and
+    ema_50_slope < 0
+  ):
         return "trend_down"
 
     # ================================
     # 3️⃣ TREND UP
     # ================================
     if (
-        ema_50 and ema_200 and ema_50_slope
-        and price > ema_50
-        and ema_50 > ema_200
-        and ema_50_slope > 0
+    ema_50 is not None and
+    ema_200 is not None and
+    ema_50_slope is not None and
+    price > ema_50 and
+    ema_50 > ema_200 and
+    ema_50_slope > 0
     ):
         return "trend_up"
 
     # ================================
     # 4️⃣ VOLATILE SPIKE
     # ================================
-    if atr > 0.02 and range_pos > 0.4:
-        return "spike"
+    atr_pct = atr / price if price > 0 else 0
+
+    if atr_pct > 0.015 and range_pos > 0.4:
+       return "spike"
 
     # ================================
     # 5️⃣ ACCUMULATION (your alpha)

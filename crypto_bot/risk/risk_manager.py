@@ -15,8 +15,8 @@ class RiskManager:
     def __init__(self, cfg):
         self.cfg = cfg
         self.last_trade_time = {}
-        self.open_positions = {}
-        self._sync_with_broker_state()
+      #  self.open_positions = {}
+       # self._sync_with_broker_state()
 
     # =====================================================
     # SYNC OPEN POSITIONS FROM PAPER STATE (RESTART SAFE)
@@ -32,11 +32,11 @@ class RiskManager:
 
             positions = data.get("positions", {})
 
-            for symbol, pos in positions.items():
-                self.open_positions[symbol] = {
-                    "entry": pos.get("price"),
-                    "size": pos.get("size"),
-                }
+            # for symbol, pos in positions.items():
+            #     self.open_positions[symbol] = {
+            #         "entry": pos.get("price"),
+            #         "size": pos.get("size"),
+            #     }
 
             logger.info("RiskManager synced open positions from broker")
 
@@ -71,11 +71,11 @@ class RiskManager:
         return current_open_positions < max_trades
 
 
-    def register_position(self, symbol, position):
-        self.open_positions[symbol] = position
+    # def register_position(self, symbol, position):
+    #     self.open_positions[symbol] = position
 
-    def close_position(self, symbol):
-        self.open_positions.pop(symbol, None)
+    # def close_position(self, symbol):
+    #     self.open_positions.pop(symbol, None)
 
     # =====================================================
     # POSITION SIZING
