@@ -77,92 +77,137 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
 
     atr = snapshot["atr"]
     vwap = snapshot.get("vwap")
+    z_score = None
+    if vwap is not None and atr is not None and atr > 0:
+        z_score = (price - vwap) / atr
 
     entry = _entry_price.get(symbol)
     prev_mom = _last_momentum.get(symbol)
 
     min_trades = cfg.get("min_trades", 3)
-    min_atr = cfg.get("market_regime", {}).get("min_atr", 0.003)
+    regime_cfg = cfg.get("market_regime", {})
+    min_atr = regime_cfg.get("min_atr", 0.003)
+    buy_zone_low, buy_zone_high = regime_cfg.get("preferred_buy_zone", [0.05, 0.30])
+    min_z_score = regime_cfg.get("min_z_score", -1.5)
+    max_negative_z_score = regime_cfg.get("max_negative_z_score", -3.0)
+    blocked_regimes = set(
+        regime_cfg.get(
+            "hard_blocked_regimes",
+            regime_cfg.get("blocked_regimes", ["unknown"]),
+        )
+    )
 
-    # ========================================================
-    # ===================== SELL FIRST =======================
-    # ========================================================
+    sell_signal = _evaluate_sell(
+        symbol=symbol,
+        price=price,
+        momentum=momentum,
+        entry=entry,
+        z_score=z_score,
+        max_negative_z_score=max_negative_z_score,
+    )
 
-    if entry is not None:
+    # SELL is always allowed to fire while in a position.
+    if sell_signal is not None:
+        if sell_signal["action"] == "SELL":
+            return sell_signal
+        return sell_signal
 
-        pnl_pct = (price - entry) / entry
-        current_lock = _profit_lock.get(symbol)
+    return _evaluate_buy(
+        snapshot=snapshot,
+        cfg=cfg,
+        symbol=symbol,
+        price=price,
+        momentum=momentum,
+        trades=trades,
+        high_24h=high_24h,
+        low_24h=low_24h,
+        atr=atr,
+        vwap=vwap,
+        z_score=z_score,
+        prev_mom=prev_mom,
+        min_trades=min_trades,
+        min_atr=min_atr,
+        buy_zone_low=buy_zone_low,
+        buy_zone_high=buy_zone_high,
+        min_z_score=min_z_score,
+        regime_cfg=regime_cfg,
+        blocked_regimes=blocked_regimes,
+    )
 
-        # 1️⃣ Wait until +2%
-        if pnl_pct < 0.02:
-            return _decision(symbol, "HOLD", price, momentum, "waiting_for_first_lock")
 
-        # 2️⃣ Initialize first lock
-        if current_lock is None:
-            current_lock = 0.01
+def _evaluate_sell(symbol, price, momentum, entry, z_score, max_negative_z_score):
+    if entry is None:
+        return None
 
-        # 3️⃣ Progressive ladder
-        PROFIT_LOCKS = [
-            (0.04, 0.03),
-            (0.05, 0.04),
-            (0.06, 0.05),
-            (0.08, 0.06),
-        ]
+    pnl_pct = (price - entry) / entry
+    current_lock = _profit_lock.get(symbol)
 
-        for trigger, lock in PROFIT_LOCKS:
-            if pnl_pct >= trigger:
-                current_lock = max(current_lock, lock)
+    if pnl_pct < 0.02:
+        return _decision(symbol, "HOLD", price, momentum, "waiting_for_first_lock")
 
-        previous_lock = _profit_lock.get(symbol)
-        if previous_lock != current_lock:
-           _profit_lock[symbol] = current_lock
-           _save_strategy_state()
+    if current_lock is None:
+        current_lock = 0.01
 
-        logger.info(
-            f"{symbol} PNL={pnl_pct:.4f} | lock={current_lock:.4f} | "
-            f"lock_price={(entry * (1 + current_lock)):.2f}"
+    profit_locks = [
+        (0.04, 0.03),
+        (0.05, 0.04),
+        (0.06, 0.05),
+        (0.08, 0.06),
+    ]
+
+    for trigger, lock in profit_locks:
+        if pnl_pct >= trigger:
+            current_lock = max(current_lock, lock)
+
+    previous_lock = _profit_lock.get(symbol)
+    if previous_lock != current_lock:
+        _profit_lock[symbol] = current_lock
+        _save_strategy_state()
+
+    logger.info(
+        f"{symbol} PNL={pnl_pct:.4f} | lock={current_lock:.4f} | "
+        f"lock_price={(entry * (1 + current_lock)):.2f}"
+    )
+
+    if pnl_pct <= current_lock:
+        if symbol not in _entry_price:
+            return _decision(symbol, "HOLD", price, momentum, "desync_protection")
+
+        return _decision(
+            symbol,
+            "SELL",
+            price,
+            momentum,
+            f"profit_lock_exit_{int(current_lock*100)}pct",
         )
 
-        # 4️⃣ Exit on lock breach
-        if pnl_pct <= current_lock:
-            if symbol not in _entry_price:
-               return _decision(symbol, "HOLD", price, momentum, "desync_protection")
+    if z_score is not None and current_lock == 0.01 and z_score < max_negative_z_score:
+        return _decision(symbol, "SELL", price, momentum, "structural_break_exit")
 
-            _cleanup(symbol, price)
-            _save_strategy_state()
-            return _decision(
-               symbol,
-               "SELL",
-               price,
-               momentum,
-               f"profit_lock_exit_{int(current_lock*100)}pct"
-      )
+    return _decision(symbol, "HOLD", price, momentum, "in_position")
 
 
-
-        # if pnl_pct <= current_lock:
-        #     _cleanup(symbol, price)
-        #     _save_strategy_state()
-        #     return _decision(
-        #         symbol,
-        #         "SELL",
-        #         price,
-        #         momentum,
-        #         f"profit_lock_exit_{int(current_lock*100)}pct"
-        #     )
-
-        # 5️⃣ Structural break AFTER profit
-        if current_lock == 0.01 and z_score < -3.0:
-            _cleanup(symbol, price)
-            _save_strategy_state()
-            return _decision(symbol, "SELL", price, momentum, "structural_break_exit")
-
-        return _decision(symbol, "HOLD", price, momentum, "in_position")
-
-    # ========================================================
-    # BASIC SAFETY CHECKS
-    # ========================================================
-
+def _evaluate_buy(
+    snapshot,
+    cfg,
+    symbol,
+    price,
+    momentum,
+    trades,
+    high_24h,
+    low_24h,
+    atr,
+    vwap,
+    z_score,
+    prev_mom,
+    min_trades,
+    min_atr,
+    buy_zone_low,
+    buy_zone_high,
+    min_z_score,
+    regime_cfg,
+    blocked_regimes,
+):
     if (
         trades < min_trades
         or high_24h <= low_24h
@@ -175,27 +220,24 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     if atr < min_atr:
         return _decision(symbol, "HOLD", price, momentum, "atr_too_low")
 
-    z_score = (price - vwap) / atr
-    
-    regime = detect_regime(snapshot)
+    if z_score is None:
+        z_score = (price - vwap) / atr
 
-    if regime in ["dump", "spike", "chop"]:
+    # Regime is advisory for entries unless explicitly hard-blocked in config.
+    regime = detect_regime(snapshot, regime_cfg)
+    if regime in blocked_regimes:
         return _decision(symbol, "HOLD", price, momentum, f"regime_{regime}")
-
-    # ========================================================
-    # ===================== BUY LOGIC ========================
-    # ========================================================
 
     range_width = high_24h - low_24h
     range_pos = (price - low_24h) / range_width
 
-    if range_pos > 0.30:
-        return _decision(symbol, "HOLD", price, momentum, "price_above_30pct_range")
+    if range_pos > buy_zone_high:
+        return _decision(symbol, "HOLD", price, momentum, "price_above_buy_zone")
 
-    if range_pos < 0.15:
-        return _decision(symbol, "HOLD", price, momentum, "price_below_15pct_range")
+    if range_pos < buy_zone_low:
+        return _decision(symbol, "HOLD", price, momentum, "price_below_buy_zone")
 
-    if z_score > -1.5:
+    if z_score > min_z_score:
         return _decision(symbol, "HOLD", price, momentum, "insufficient_volatility_stretch")
 
     if prev_mom is not None and momentum < prev_mom:
@@ -203,13 +245,6 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         return _decision(symbol, "HOLD", price, momentum, "momentum_still_falling")
 
     _last_momentum[symbol] = momentum
-
-    # _entry_price[symbol] = price
-    # _profit_lock[symbol] = None
-    # _last_signal[symbol] = "BUY"
-
-    # _save_strategy_state()
-
     return _decision(symbol, "BUY", price, momentum, "bear_market_mean_reversion_buy")
 
 
@@ -257,6 +292,11 @@ def confirm_entry(symbol: str, price: float):
     _entry_price[symbol] = price
     _profit_lock[symbol] = None
     _last_signal[symbol] = "BUY"
+    _save_strategy_state()
+
+
+def confirm_exit(symbol: str, price: float):
+    _cleanup(symbol, price)
     _save_strategy_state()
 
 
@@ -814,4 +854,5 @@ _load_strategy_state()
 #         "momentum": momentum,
 #         "reason": reason,
 #     }
+
 

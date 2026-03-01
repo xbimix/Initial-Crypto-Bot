@@ -40,11 +40,6 @@ def main():
 
         for symbol in symbols:
 
-            # POSITION-AWARE FILTER
-            if executor.has_open_position(symbol) and \
-               executor.open_positions_count() >= cfg["risk"]["max_concurrent_trades"]:
-                continue
-
             market = fetch_market_snapshot(symbol, cfg)
             if market is None:
                 continue

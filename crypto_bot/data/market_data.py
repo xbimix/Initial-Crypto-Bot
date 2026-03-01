@@ -8,7 +8,7 @@ logger = setup_logger("market_data")
 
 EPSILON = 1e-8
 SECONDS_24H = 86400
-ATR_FLOOR = 0.003   # 0.3% minimum effective volatility
+DEFAULT_ATR_FLOOR = 0.0
 
 
 def _parse_ts(trade: dict) -> float | None:
@@ -34,18 +34,59 @@ def _ema(values, period):
     return ema_val
 
 
+def _parse_size(trade: dict) -> float:
+    for key in ("q", "s", "sz", "size", "amount", "v"):
+        raw = trade.get(key)
+        if raw is None:
+            continue
+        try:
+            size = float(raw)
+            if size > 0:
+                return size
+        except (TypeError, ValueError):
+            continue
+    return 1.0
+
+
+def _matches_asset(trade: dict, symbol: str, asset: str) -> bool:
+    asset_u = asset.upper()
+
+    aid = trade.get("aid")
+    if aid is not None:
+        return str(aid).upper() == asset_u
+
+    trade_symbol = trade.get("symbol") or trade.get("sid")
+    if trade_symbol is None:
+        return True
+
+    trade_symbol_u = str(trade_symbol).upper()
+    return trade_symbol_u == symbol.upper() or trade_symbol_u.startswith(f"{asset_u}-")
+
+
+def _weighted_average(prices, sizes):
+    total_size = sum(sizes)
+    if total_size <= 0:
+        return statistics.mean(prices)
+    return sum(p * s for p, s in zip(prices, sizes)) / total_size
+
+
 def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
     try:
         asset = symbol.split("-")[0]
         lookback = cfg.get("lookback", 200)
         min_trades = cfg.get("min_trades", 3)
+        volatility_cfg = cfg.get("volatility_filters", {})
+        atr_floor = volatility_cfg.get("atr_floor", cfg.get("atr_floor", DEFAULT_ATR_FLOOR))
 
-        logger.info(f"📘 Fetching last trades for {symbol}")
+        logger.info(f"Fetching last trades for {symbol}")
         trades = get_last_trades(symbol=symbol, limit=lookback)
+        if not isinstance(trades, list):
+            logger.warning(f"Unexpected trades payload for {symbol}: {type(trades).__name__}")
+            return None
 
         parsed = []
         for t in trades:
-            if t.get("aid") != asset or "p" not in t:
+            if not _matches_asset(t, symbol, asset) or "p" not in t:
                 continue
 
             ts = _parse_ts(t)
@@ -59,7 +100,8 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             except Exception:
                 continue
 
-            parsed.append({"price": price, "ts": ts})
+            size = _parse_size(t)
+            parsed.append({"price": price, "ts": ts, "size": size})
 
         if len(parsed) < min_trades:
             logger.warning(f"Not enough valid trades for {symbol}")
@@ -68,13 +110,14 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
         parsed.sort(key=lambda x: x["ts"])
 
         now = time.time()
-        last_24h = [t for t in parsed if now - t["ts"] <= SECONDS_24H]
+        last_24h = [t for t in parsed if 0 <= (now - t["ts"]) <= SECONDS_24H]
 
         if len(last_24h) < min_trades:
             logger.warning(f"Not enough 24h trades for {symbol}")
             return None
 
         prices = [t["price"] for t in last_24h]
+        sizes = [t["size"] for t in last_24h]
 
         first_price = prices[0]
         last_price = prices[-1]
@@ -89,12 +132,12 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
         ]
 
         atr_raw = statistics.median(deltas) if deltas else 0.0
-        atr = max(atr_raw, ATR_FLOOR)
+        atr = max(atr_raw, atr_floor)
 
         # -------------------------------
         # VWAP + MEDIAN
         # -------------------------------
-        vwap = statistics.mean(prices)
+        vwap = _weighted_average(prices, sizes)
         median_price = statistics.median(prices)
 
         # -------------------------------
@@ -131,7 +174,7 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             # Volatility
             "atr": atr,
             "atr_raw": atr_raw,
-            "volatility": atr,   # backward compatibility
+            "volatility": atr,
 
             # Location
             "vwap": vwap,
@@ -161,8 +204,6 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
     except Exception as e:
         logger.exception(f"Market snapshot error for {symbol}: {e}")
         return None
-
-
 
 # import time
 # import statistics
@@ -525,3 +566,4 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
 
 #     logger.info(f"📊 Built {len(candles)} candles for {symbol}")
 #     return candles
+

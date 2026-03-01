@@ -1,7 +1,7 @@
 from utils.logger import setup_logger
 from paper.paper_broker import PaperBroker
 from risk.risk_manager import RiskManager
-from strategy.strategy_engine import confirm_entry
+from strategy.strategy_engine import confirm_entry, confirm_exit
 logger = setup_logger("executor")
 
 
@@ -10,6 +10,7 @@ class Executor:
         self.cfg = cfg
         self.paper = PaperBroker(cfg["starting_balance"])
         self.risk = RiskManager(cfg)
+        self._sync_risk_with_broker()
 
     # --------------------------------------------------
     # HOT RELOAD SUPPORT
@@ -43,12 +44,22 @@ class Executor:
         Returns True if trade executed.
         Returns False otherwise.
         """
-        symbol = decision["symbol"]
-        action = decision["action"]
-        price = decision["price"]
+        symbol = decision.get("symbol")
+        action = decision.get("action")
+        price = decision.get("price")
         reason = decision.get("reason")
 
-        logger.info(f"Executor: {symbol} → {action} @ {price} | {reason}")
+        if not symbol or action not in {"BUY", "SELL", "HOLD"}:
+            logger.warning(f"Invalid decision payload: {decision}")
+            return False
+
+        try:
+            price = float(price)
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid decision price for {symbol}: {price}")
+            return False
+
+        logger.info(f"Executor: {symbol} -> {action} @ {price} | {reason}")
 
         if action == "BUY":
             return self._handle_buy(symbol, price, reason)
@@ -57,7 +68,24 @@ class Executor:
             return self._handle_sell(symbol, price, reason)
 
         return False
+    def _sync_risk_with_broker(self):
+        """
+        Keep RiskManager in sync with restored broker positions when supported.
+        """
+        if not hasattr(self.risk, "register_position"):
+            return
 
+        for symbol, pos in self.paper.positions.items():
+            self.risk.register_position(
+                symbol,
+                {
+                    "entry": pos.get("price"),
+                    "size": pos.get("size"),
+                },
+            )
+
+        if self.paper.positions:
+            logger.info("Executor sync: RiskManager aligned with broker state")
     # --------------------------------------------------
     # BUY HANDLER
     # --------------------------------------------------
@@ -67,11 +95,6 @@ class Executor:
         # Cooldown protection
         if not self.risk.can_trade(symbol):
             logger.info(f"Cooldown active for {symbol}")
-            return False
-
-        # Max concurrent trades protection
-        if not self.risk.can_open_position(len(self.paper.positions)):
-            logger.info("Max concurrent trades reached")
             return False
 
         # Already holding protection
@@ -111,12 +134,16 @@ class Executor:
         # Must have position
         if not self.paper.has_position(symbol):
             logger.warning(f"No open position to sell for {symbol}")
+            # Heal stale strategy state if broker is already flat.
+            confirm_exit(symbol, price)
             return False
 
         # Execute sell
         if self.paper.sell(symbol, price, reason):
             self.risk.mark_trade(symbol)
-           # self.risk.close_position(symbol)
+            if hasattr(self.risk, "close_position"):
+                self.risk.close_position(symbol)
+            confirm_exit(symbol, price)
             return True
 
         return False
@@ -338,5 +365,7 @@ class Executor:
 #         # ---------------- HOLD ----------------
 #         else:
 #             return
+
+
 
 
