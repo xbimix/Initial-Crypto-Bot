@@ -1,0 +1,23 @@
+{
+  "entry_price": {
+    "XRP-USD": 1.1496,
+    "DOT-USD": 1.54135
+  },
+  "profit_lock": {
+    "XRP-USD": 0.06,
+    "DOT-USD": 0.01
+  },
+  "last_signal": {
+    "BTC-USD": "SELL",
+    "XRP-USD": "BUY",
+    "SOL-USD": "SELL",
+    "ETH-USD": "SELL",
+    "BNB-USD": "SELL",
+    "DOT-USD": "BUY",
+    "ADA-USD": "SELL"
+  },
+  "last_momentum": {
+    "XRP-USD": -3.7035868616283505,
+    "DOT-USD": -4.532035463618803
+  }
+}

@@ -38,7 +38,8 @@ def detect_regime(snapshot: dict, regime_cfg: dict = None) -> str:
     raw_range_pos = (price - low) / range_width
     range_pos = max(0.0, min(1.0, raw_range_pos))
     range_pct = range_width / price
-    atr_pct = atr / price if atr and atr > 0 else 0.0
+    # `atr` is already a relative move ratio in this bot, not an absolute price distance.
+    atr_pct = atr if atr and atr > 0 else 0.0
 
     if momentum < dump_momentum:
         return "dump"

@@ -86,7 +86,13 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
 
     min_trades = cfg.get("min_trades", 3)
     regime_cfg = cfg.get("market_regime", {})
-    min_atr = regime_cfg.get("min_atr", 0.003)
+    volatility_cfg = cfg.get("volatility_filters", {})
+    min_atr = volatility_cfg.get(
+        "min_atr",
+        regime_cfg.get("min_atr", cfg.get("min_atr", 0.003)),
+    )
+    min_atr_pct = volatility_cfg.get("min_atr_pct", min_atr)
+    effective_min_atr = max(min_atr, min_atr_pct)
     buy_zone_low, buy_zone_high = regime_cfg.get("preferred_buy_zone", [0.05, 0.30])
     min_z_score = regime_cfg.get("min_z_score", -1.5)
     max_negative_z_score = regime_cfg.get("max_negative_z_score", -3.0)
@@ -126,7 +132,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         z_score=z_score,
         prev_mom=prev_mom,
         min_trades=min_trades,
-        min_atr=min_atr,
+        min_atr=effective_min_atr,
         buy_zone_low=buy_zone_low,
         buy_zone_high=buy_zone_high,
         min_z_score=min_z_score,
@@ -208,6 +214,15 @@ def _evaluate_buy(
     regime_cfg,
     blocked_regimes,
 ):
+    if not snapshot.get("data_quality_ok", True):
+        return _decision(
+            symbol,
+            "HOLD",
+            price,
+            momentum,
+            snapshot.get("data_quality_reason", "data_quality_failed"),
+        )
+
     if (
         trades < min_trades
         or high_24h <= low_24h

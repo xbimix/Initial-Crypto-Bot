@@ -1,1 +1,115 @@
-[]
+[
+  {
+    "time": 1772408405.1359985,
+    "symbol": "BTC-USD",
+    "side": "BUY",
+    "price": 65853.3,
+    "size": 0.003037,
+    "balance": 9800.0035279,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1772408529.8617816,
+    "symbol": "XRP-USD",
+    "side": "BUY",
+    "price": 1.1496,
+    "size": 170.494146,
+    "balance": 9604.0034576584,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1772409183.4082565,
+    "symbol": "SOL-USD",
+    "side": "BUY",
+    "price": 83.605,
+    "size": 2.297471,
+    "balance": 9411.9233947034,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1772409229.0259442,
+    "symbol": "ETH-USD",
+    "side": "BUY",
+    "price": 1938.93,
+    "size": 0.097084,
+    "balance": 9223.684314583401,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1772413633.3262963,
+    "symbol": "BNB-USD",
+    "side": "BUY",
+    "price": 619.019,
+    "size": 0.29801,
+    "balance": 9039.210462393401,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1772429021.8468962,
+    "symbol": "DOT-USD",
+    "side": "BUY",
+    "price": 1.54135,
+    "size": 117.289525,
+    "balance": 8858.426253034651,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1772432660.9015212,
+    "symbol": "ADA-USD",
+    "side": "BUY",
+    "price": 0.27137500000000003,
+    "size": 652.854998,
+    "balance": 8681.257727952401,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1772469107.9956164,
+    "symbol": "ADA-USD",
+    "side": "SELL",
+    "price": 0.284855,
+    "size": 652.854998,
+    "pnl": 8.800485373039995,
+    "balance": 8867.226738407691,
+    "reason": "profit_lock_exit_5pct"
+  },
+  {
+    "time": 1772472506.0887597,
+    "symbol": "SOL-USD",
+    "side": "SELL",
+    "price": 87.7405,
+    "size": 2.297471,
+    "pnl": 9.501191320499984,
+    "balance": 9068.80799268319,
+    "reason": "profit_lock_exit_5pct"
+  },
+  {
+    "time": 1772473098.2951157,
+    "symbol": "BTC-USD",
+    "side": "SELL",
+    "price": 69133.57,
+    "size": 0.003037,
+    "pnl": 9.962179990000013,
+    "balance": 9278.76664477319,
+    "reason": "profit_lock_exit_5pct"
+  },
+  {
+    "time": 1772473422.4329987,
+    "symbol": "ETH-USD",
+    "side": "SELL",
+    "price": 2033.0500000000002,
+    "size": 0.097084,
+    "pnl": 9.137546080000012,
+    "balance": 9476.14327097319,
+    "reason": "profit_lock_exit_5pct"
+  },
+  {
+    "time": 1772473423.4019632,
+    "symbol": "BNB-USD",
+    "side": "SELL",
+    "price": 643.023,
+    "size": 0.29801,
+    "pnl": 7.1534320400000055,
+    "balance": 9667.770555203191,
+    "reason": "profit_lock_exit_4pct"
+  }
+]

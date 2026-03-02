@@ -49,8 +49,17 @@
   },
 
   "volatility_filters": {
-    "min_atr": 0.001,
-    "min_atr_pct": 0.0005
+    "min_atr": 0.0003,
+    "min_atr_pct": 0.0003,
+    "max_trade_jump_pct": 0.12
+  },
+
+  "market_data": {
+    "history_seconds": 86400,
+    "min_history_points": 8,
+    "max_spread_bps": 150,
+    "max_book_trade_gap_pct": 0.02,
+    "trade_confirmation_limit": 100
   },
 
   "loop_sleep": 10,
