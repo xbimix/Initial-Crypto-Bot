@@ -45,6 +45,9 @@
       [0.06, 0.05],
       [0.08, 0.06]
     ],
+    "trailing_activation": 0.10,
+    "trailing_gap": 0.02,
+    "reset_below_activation": true,
     "max_negative_z_score": -3.5
   },
 

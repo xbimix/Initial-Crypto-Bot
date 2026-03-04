@@ -1,5 +1,5 @@
 {
-  "balance": 9667.770555203191,
+  "balance": 8753.737634930414,
   "positions": {
     "XRP-USD": {
       "price": 1.1496,
@@ -11,6 +11,36 @@
       "price": 1.54135,
       "size": 117.289525,
       "entry_time": 1772429021.8468947,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "SUI-USD": {
+      "price": 0.9136,
+      "size": 211.641212,
+      "entry_time": 1772514303.4991457,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "ETH-USD": {
+      "price": 1994.76,
+      "size": 0.094993,
+      "entry_time": 1772514353.8867776,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "ADA-USD": {
+      "price": 0.27161,
+      "size": 670.021601,
+      "entry_time": 1772516040.0918114,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "POLS-USD": {
+      "price": 0.0577,
+      "size": 3090.899057,
+      "entry_time": 1772562626.3249598,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "XLM-USD": {
+      "price": 0.15016649999999998,
+      "size": 1163.894598,
+      "entry_time": 1772571767.1083086,
       "reason": "bear_market_mean_reversion_buy"
     }
   }

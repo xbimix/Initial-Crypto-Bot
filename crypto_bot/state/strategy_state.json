@@ -1,23 +1,47 @@
 {
   "entry_price": {
     "XRP-USD": 1.1496,
-    "DOT-USD": 1.54135
+    "DOT-USD": 1.54135,
+    "SUI-USD": 0.9136,
+    "ETH-USD": 1994.76,
+    "ADA-USD": 0.27161,
+    "POLS-USD": 0.0577,
+    "XLM-USD": 0.15016649999999998
   },
   "profit_lock": {
-    "XRP-USD": 0.06,
-    "DOT-USD": 0.01
+    "XRP-USD": 0.17028357689631177,
+    "DOT-USD": null,
+    "SUI-USD": null,
+    "ETH-USD": null,
+    "ADA-USD": null,
+    "POLS-USD": null,
+    "XLM-USD": null
+  },
+  "peak_pnl": {
+    "XRP-USD": 0.19028357689631176,
+    "DOT-USD": 0.0024004930742531137,
+    "SUI-USD": 0.000328371278458808,
+    "ETH-USD": 0.0015816439070364219,
+    "ADA-USD": 0.0,
+    "POLS-USD": 0.0,
+    "XLM-USD": 0.014583811968714897
   },
   "last_signal": {
-    "BTC-USD": "SELL",
     "XRP-USD": "BUY",
-    "SOL-USD": "SELL",
-    "ETH-USD": "SELL",
-    "BNB-USD": "SELL",
+    "ETH-USD": "BUY",
     "DOT-USD": "BUY",
-    "ADA-USD": "SELL"
+    "ADA-USD": "BUY",
+    "SUI-USD": "BUY",
+    "POLS-USD": "BUY",
+    "XLM-USD": "BUY"
   },
   "last_momentum": {
     "XRP-USD": -3.7035868616283505,
-    "DOT-USD": -4.532035463618803
+    "DOT-USD": -4.532035463618803,
+    "SUI-USD": -4.002282737176083,
+    "ETH-USD": -6.9543422132792925,
+    "ADA-USD": 3.31677346505837,
+    "POLS-USD": -42.10483929252272,
+    "XLM-USD": -43.12375074787811
   }
 }

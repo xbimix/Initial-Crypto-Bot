@@ -12,6 +12,7 @@ _last_signal = {}
 _last_sell_price = {}
 _entry_price = {}
 _profit_lock = {}
+_peak_pnl = {}
 _last_momentum = {}
 _synced = False
 
@@ -38,13 +39,65 @@ def _sync_with_broker_state():
             data = json.load(f)
 
         positions = data.get("positions", {})
+        broker_symbols = set(positions)
+        state_changed = False
+
+        # Paper broker state is the source of truth for which positions are open.
+        for symbol in list(_entry_price.keys()):
+            if symbol not in broker_symbols:
+                _entry_price.pop(symbol, None)
+                _profit_lock.pop(symbol, None)
+                _peak_pnl.pop(symbol, None)
+                _last_momentum.pop(symbol, None)
+                _last_signal.pop(symbol, None)
+                state_changed = True
+                logger.info(f"Strategy sync: removed stale state for {symbol}")
+
+        for symbol in list(_profit_lock.keys()):
+            if symbol not in broker_symbols:
+                _profit_lock.pop(symbol, None)
+                state_changed = True
+
+        for symbol in list(_peak_pnl.keys()):
+            if symbol not in broker_symbols:
+                _peak_pnl.pop(symbol, None)
+                state_changed = True
+
+        for symbol in list(_last_momentum.keys()):
+            if symbol not in broker_symbols:
+                _last_momentum.pop(symbol, None)
+                state_changed = True
+
+        for symbol in list(_last_signal.keys()):
+            if symbol not in broker_symbols:
+                _last_signal.pop(symbol, None)
+                state_changed = True
 
         for symbol, pos in positions.items():
+            entry_price = pos.get("price")
             if symbol not in _entry_price:
-                _entry_price[symbol] = pos.get("price")
+                _entry_price[symbol] = entry_price
                 _profit_lock[symbol] = None
                 _last_signal[symbol] = "BUY"
-                logger.info(f"Strategy sync: restored {symbol} @ {pos.get('price')}")
+                state_changed = True
+                logger.info(f"Strategy sync: restored {symbol} @ {entry_price}")
+            elif _entry_price.get(symbol) != entry_price:
+                _entry_price[symbol] = entry_price
+                state_changed = True
+                logger.info(f"Strategy sync: reconciled {symbol} entry to {entry_price}")
+
+            if symbol not in _profit_lock:
+                _profit_lock[symbol] = None
+                state_changed = True
+            if symbol not in _peak_pnl:
+                _peak_pnl[symbol] = 0.0
+                state_changed = True
+            if _last_signal.get(symbol) != "BUY":
+                _last_signal[symbol] = "BUY"
+                state_changed = True
+
+        if state_changed:
+            _save_strategy_state()
 
     except Exception as e:
         logger.exception(f"Strategy state sync failed: {e}")
@@ -87,6 +140,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     min_trades = cfg.get("min_trades", 3)
     regime_cfg = cfg.get("market_regime", {})
     volatility_cfg = cfg.get("volatility_filters", {})
+    profit_cfg = cfg.get("profit_locks", {})
     min_atr = volatility_cfg.get(
         "min_atr",
         regime_cfg.get("min_atr", cfg.get("min_atr", 0.003)),
@@ -95,7 +149,10 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     effective_min_atr = max(min_atr, min_atr_pct)
     buy_zone_low, buy_zone_high = regime_cfg.get("preferred_buy_zone", [0.05, 0.30])
     min_z_score = regime_cfg.get("min_z_score", -1.5)
-    max_negative_z_score = regime_cfg.get("max_negative_z_score", -3.0)
+    max_negative_z_score = profit_cfg.get(
+        "max_negative_z_score",
+        regime_cfg.get("max_negative_z_score", -3.0),
+    )
     blocked_regimes = set(
         regime_cfg.get(
             "hard_blocked_regimes",
@@ -109,6 +166,20 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         momentum=momentum,
         entry=entry,
         z_score=z_score,
+        first_activation=profit_cfg.get("first_activation", 0.02),
+        initial_lock=profit_cfg.get("initial_lock", 0.01),
+        profit_levels=profit_cfg.get(
+            "levels",
+            [
+                [0.04, 0.03],
+                [0.05, 0.04],
+                [0.06, 0.05],
+                [0.08, 0.06],
+            ],
+        ),
+        trailing_activation=profit_cfg.get("trailing_activation", 0.10),
+        trailing_gap=profit_cfg.get("trailing_gap", 0.02),
+        reset_below_activation=profit_cfg.get("reset_below_activation", True),
         max_negative_z_score=max_negative_z_score,
     )
 
@@ -141,33 +212,61 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     )
 
 
-def _evaluate_sell(symbol, price, momentum, entry, z_score, max_negative_z_score):
+def _evaluate_sell(
+    symbol,
+    price,
+    momentum,
+    entry,
+    z_score,
+    first_activation,
+    initial_lock,
+    profit_levels,
+    trailing_activation,
+    trailing_gap,
+    reset_below_activation,
+    max_negative_z_score,
+):
     if entry is None:
         return None
 
     pnl_pct = (price - entry) / entry
     current_lock = _profit_lock.get(symbol)
+    saved_peak = _peak_pnl.get(symbol)
+    peak_pnl = pnl_pct if saved_peak is None else max(saved_peak, pnl_pct)
+    state_changed = False
 
-    if pnl_pct < 0.02:
+    if pnl_pct < first_activation:
+        reset_peak = max(pnl_pct, 0.0) if reset_below_activation else peak_pnl
+        if _peak_pnl.get(symbol) != reset_peak:
+            _peak_pnl[symbol] = reset_peak
+            state_changed = True
+        if reset_below_activation and current_lock is not None:
+            _profit_lock[symbol] = None
+            state_changed = True
+        if state_changed:
+            _save_strategy_state()
         return _decision(symbol, "HOLD", price, momentum, "waiting_for_first_lock")
 
+    if _peak_pnl.get(symbol) != peak_pnl:
+        _peak_pnl[symbol] = peak_pnl
+        state_changed = True
+
     if current_lock is None:
-        current_lock = 0.01
+        current_lock = initial_lock
 
-    profit_locks = [
-        (0.04, 0.03),
-        (0.05, 0.04),
-        (0.06, 0.05),
-        (0.08, 0.06),
-    ]
-
-    for trigger, lock in profit_locks:
+    for trigger, lock in profit_levels:
         if pnl_pct >= trigger:
             current_lock = max(current_lock, lock)
+
+    if peak_pnl >= trailing_activation:
+        current_lock = max(current_lock, peak_pnl - trailing_gap)
 
     previous_lock = _profit_lock.get(symbol)
     if previous_lock != current_lock:
         _profit_lock[symbol] = current_lock
+        state_changed = True
+
+    if state_changed:
         _save_strategy_state()
 
     logger.info(
@@ -273,6 +372,7 @@ def _save_strategy_state():
     state = {
         "entry_price": _entry_price,
         "profit_lock": _profit_lock,
+        "peak_pnl": _peak_pnl,
         "last_signal": _last_signal,
         "last_momentum": _last_momentum,
     }
@@ -291,6 +391,7 @@ def _load_strategy_state():
 
         _entry_price.update(state.get("entry_price", {}))
         _profit_lock.update(state.get("profit_lock", {}))
+        _peak_pnl.update(state.get("peak_pnl", {}))
         _last_signal.update(state.get("last_signal", {}))
         _last_momentum.update(state.get("last_momentum", {}))
 
@@ -306,6 +407,7 @@ def _load_strategy_state():
 def confirm_entry(symbol: str, price: float):
     _entry_price[symbol] = price
     _profit_lock[symbol] = None
+    _peak_pnl[symbol] = 0.0
     _last_signal[symbol] = "BUY"
     _save_strategy_state()
 
@@ -316,10 +418,11 @@ def confirm_exit(symbol: str, price: float):
 
 
 def _cleanup(symbol, price):
-    _last_signal[symbol] = "SELL"
     _last_sell_price[symbol] = price
     _entry_price.pop(symbol, None)
     _profit_lock.pop(symbol, None)
+    _peak_pnl.pop(symbol, None)
+    _last_signal.pop(symbol, None)
     _last_momentum.pop(symbol, None)
 
 

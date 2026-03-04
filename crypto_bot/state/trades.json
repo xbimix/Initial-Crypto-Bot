@@ -111,5 +111,69 @@
     "pnl": 7.1534320400000055,
     "balance": 9667.770555203191,
     "reason": "profit_lock_exit_4pct"
+  },
+  {
+    "time": 1772514303.4991472,
+    "symbol": "SUI-USD",
+    "side": "BUY",
+    "price": 0.9136,
+    "size": 211.641212,
+    "balance": 9474.41514391999,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1772514353.8867788,
+    "symbol": "ETH-USD",
+    "side": "BUY",
+    "price": 1994.76,
+    "size": 0.094993,
+    "balance": 9284.926907239991,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1772514354.3803387,
+    "symbol": "SOL-USD",
+    "side": "BUY",
+    "price": 85.66550000000001,
+    "size": 2.167717,
+    "balance": 9099.22834657649,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1772516040.0918126,
+    "symbol": "ADA-USD",
+    "side": "BUY",
+    "price": 0.27161,
+    "size": 670.021601,
+    "balance": 8917.24377952888,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1772562626.324961,
+    "symbol": "POLS-USD",
+    "side": "BUY",
+    "price": 0.0577,
+    "size": 3090.899057,
+    "balance": 8738.89890393998,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1772571767.1083093,
+    "symbol": "XLM-USD",
+    "side": "BUY",
+    "price": 0.15016649999999998,
+    "size": 1163.894598,
+    "balance": 8564.120925789413,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1772588151.4880812,
+    "symbol": "SOL-USD",
+    "side": "SELL",
+    "price": 87.473,
+    "size": 2.167717,
+    "pnl": 3.918148477499979,
+    "balance": 8753.737634930414,
+    "reason": "structural_break_exit"
   }
 ]
