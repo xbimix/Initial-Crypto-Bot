@@ -5,23 +5,34 @@ MIN_COOLDOWN_SECONDS = 60
 MAX_COOLDOWN_SECONDS = 3600
 
 SUPPORTED_SYMBOLS = {
-    "BTC/USDT",
+   "BTC/USDT",
     "ETH/USDT",
-    "BNB/USDT",
     "SOL/USDT",
+    "BNB/USDT",
     "XRP/USDT",
     "ADA/USDT",
-    "DOGE/USDT",
     "DOT/USDT",
-    "LTC/USDT",
-    "LINK/USDT",
-    "UNI/USDT",
-    "ATOM/USDT",
     "XLM/USDT",
-    "AVAX/USDT",
-    "MATIC/USDT",
     "SUI/USDT",
-    "SEI/USDT"
+    "SEI/USDT",
+    "POLS/USDT",
+    "ASM/USDT",
+    "LCX/USDT",
+    "XCN/USDT",
+    "PONKE/USDT",
+    "ACH/USDT",
+    "IMX/USDT",
+    "GST/USDT",
+    "API3/USDT",
+    "CRV/USDT",
+    "TAI/USDT",
+    "SPA/USDT",
+    "PRIME/USDT",
+    "BLZ/USDT",
+    "ACX/USDT",
+    "HOPR/USDT",
+    "PERP/USDT",
+    "ARPA/USDT"
 }
 
 
