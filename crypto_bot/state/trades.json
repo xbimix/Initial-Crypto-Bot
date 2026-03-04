@@ -175,5 +175,23 @@
     "pnl": 3.918148477499979,
     "balance": 8753.737634930414,
     "reason": "structural_break_exit"
+  },
+  {
+    "time": 1772590554.7405112,
+    "symbol": "SOL-USD",
+    "side": "BUY",
+    "price": 86.974,
+    "size": 2.012955,
+    "balance": 8578.662886760414,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1772590589.772025,
+    "symbol": "BTC-USD",
+    "side": "BUY",
+    "price": 68138.57500000001,
+    "size": 0.002518,
+    "balance": 8407.089954910414,
+    "reason": "bear_market_mean_reversion_buy"
   }
 ]

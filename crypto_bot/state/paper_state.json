@@ -1,5 +1,5 @@
 {
-  "balance": 8753.737634930414,
+  "balance": 8407.089954910414,
   "positions": {
     "XRP-USD": {
       "price": 1.1496,
@@ -41,6 +41,18 @@
       "price": 0.15016649999999998,
       "size": 1163.894598,
       "entry_time": 1772571767.1083086,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "SOL-USD": {
+      "price": 86.974,
+      "size": 2.012955,
+      "entry_time": 1772590554.7405102,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "BTC-USD": {
+      "price": 68138.57500000001,
+      "size": 0.002518,
+      "entry_time": 1772590589.772023,
       "reason": "bear_market_mean_reversion_buy"
     }
   }

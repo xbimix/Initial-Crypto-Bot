@@ -10,8 +10,17 @@
 import { useEffect, useState } from "react";
 import SymbolSelector from "./SymbolSelector";
 
+type DashboardConfig = {
+  strategy: {
+    buy_score_threshold: number;
+  };
+  cooldown_seconds: number;
+  symbols: string[];
+  [key: string]: unknown;
+};
+
 export default function ConfigForm() {
-  const [config, setConfig] = useState<any>(null);
+  const [config, setConfig] = useState<DashboardConfig | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -21,7 +30,7 @@ export default function ConfigForm() {
       if (!text) throw new Error("Empty response from backend");
 
       try {
-        setConfig(JSON.parse(text));
+        setConfig(JSON.parse(text) as DashboardConfig);
       } catch {
         console.error("Invalid JSON:", text);
       }

@@ -21,9 +21,11 @@ export async function GET() {
       status: res.status,
       headers: { "Content-Type": "application/json" },
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : "Unknown backend error";
     return NextResponse.json(
-      { error: err.message },
+      { error: message },
       { status: 500 }
     );
   }
@@ -52,9 +54,11 @@ export async function POST(req: Request) {
       status: res.status,
       headers: { "Content-Type": "application/json" },
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error ? err.message : "Unknown backend error";
     return NextResponse.json(
-      { error: err.message },
+      { error: message },
       { status: 500 }
     );
   }

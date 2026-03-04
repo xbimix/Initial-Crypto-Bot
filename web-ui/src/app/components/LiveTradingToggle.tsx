@@ -1,10 +1,12 @@
 "use client";
 
+import type { ChangeEvent } from "react";
+
 export default function LiveTradingToggle() {
-  async function toggle(e: any) {
+  async function toggle(event: ChangeEvent<HTMLInputElement>) {
     await fetch("/api/live", {
       method: "POST",
-      body: JSON.stringify({ enabled: e.target.checked }),
+      body: JSON.stringify({ enabled: event.target.checked }),
     });
   }
 

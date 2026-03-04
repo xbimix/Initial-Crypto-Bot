@@ -1,7 +1,9 @@
+import type { Metadata } from "next";
 import "./globals.css";
 
-export const metadata = {
-  title: "RevBot Dashboard",
+export const metadata: Metadata = {
+  title: "RevBot Portfolio Monitor",
+  description: "A live paper-trading dashboard for the RevBot workspace.",
 };
 
 export default function RootLayout({
@@ -11,7 +13,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className="p-6">{children}</body>
+      <body>{children}</body>
     </html>
   );
 }

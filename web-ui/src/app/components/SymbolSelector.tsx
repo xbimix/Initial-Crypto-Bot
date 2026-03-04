@@ -26,19 +26,24 @@ const ALL_SYMBOLS = [
   "SEI/USDT",
 ];
 
-export default function SymbolSelector({
+type ConfigWithSymbols = {
+  symbols: string[];
+  [key: string]: unknown;
+};
+
+export default function SymbolSelector<T extends ConfigWithSymbols>({
   config,
   setConfig,
 }: {
-  config: any;
-  setConfig: (cfg: any) => void;
+  config: T;
+  setConfig: (cfg: T) => void;
 }) {
   function toggle(symbol: string) {
     const next = config.symbols.includes(symbol)
       ? config.symbols.filter((s: string) => s !== symbol)
       : [...config.symbols, symbol];
 
-    setConfig({ ...config, symbols: next });
+    setConfig({ ...config, symbols: next } as T);
   }
 
   return (

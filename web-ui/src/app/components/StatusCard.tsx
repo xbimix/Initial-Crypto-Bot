@@ -2,8 +2,14 @@
 
 import { useEffect, useState } from "react";
 
+type StatusData = {
+  enabled: boolean;
+  cooldown: number;
+  symbols: string[];
+};
+
 export default function StatusCard() {
-  const [status, setStatus] = useState<any>(null);
+  const [status, setStatus] = useState<StatusData | null>(null);
 
   useEffect(() => {
     fetch("/api/status").then(r => r.json()).then(setStatus);
