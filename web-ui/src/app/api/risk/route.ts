@@ -1,42 +1,45 @@
 import { NextResponse } from "next/server";
 import {
-  applyControlLocal,
   formatRouteError,
   shouldUseLocalFallback,
+  updateRiskLocal,
 } from "../_lib/stateFallback";
 
-const BASE = "http://127.0.0.1:8001";
+const BACKEND = "http://127.0.0.1:8001";
 
 export async function POST(req: Request) {
-  const payload = (await req.json()) as { action?: unknown; reason?: unknown };
+  const body = (await req.json()) as {
+    maxConcurrentTrades?: unknown;
+    tradeAmountUsd?: unknown;
+  };
 
   try {
-    const res = await fetch(`${BASE}/control`, {
+    const response = await fetch(`${BACKEND}/risk`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
 
-    const text = await res.text();
-    if (res.ok && text.trim()) {
+    const text = await response.text();
+    if (response.ok && text.trim()) {
       return new NextResponse(text, {
-        status: res.status,
+        status: response.status,
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    if (shouldUseLocalFallback(res.status)) {
-      const fallback = await applyControlLocal(payload);
+    if (shouldUseLocalFallback(response.status)) {
+      const fallback = await updateRiskLocal(body);
       return NextResponse.json(fallback);
     }
 
     return NextResponse.json(
-      { error: text.trim() ? text : `Control request failed (${res.status})` },
-      { status: res.status || 500 },
+      { error: text.trim() ? text : `Risk update failed (${response.status})` },
+      { status: response.status || 500 },
     );
   } catch {
     try {
-      const fallback = await applyControlLocal(payload);
+      const fallback = await updateRiskLocal(body);
       return NextResponse.json(fallback);
     } catch (error: unknown) {
       const formatted = formatRouteError(error);

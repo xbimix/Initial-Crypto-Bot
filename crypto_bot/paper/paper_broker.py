@@ -1,13 +1,14 @@
-import json
-import os
 import time
+from pathlib import Path
+
 from utils.logger import setup_logger
+from utils.state_io import read_json_file, state_transaction_lock, write_json_file
 
 logger = setup_logger("paper")
 
-STATE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "state"))
-BALANCE_FILE = os.path.join(STATE_DIR, "paper_state.json")
-TRADES_FILE = os.path.join(STATE_DIR, "trades.json")
+STATE_DIR = Path(__file__).resolve().parent.parent / "state"
+BALANCE_FILE = STATE_DIR / "paper_state.json"
+TRADES_FILE = STATE_DIR / "trades.json"
 
 
 class PaperBroker:
@@ -15,23 +16,43 @@ class PaperBroker:
         self.starting_balance = starting_balance
         self.balance = starting_balance
         self.positions = {}
+        self._state_mtime = None
 
-        os.makedirs(STATE_DIR, exist_ok=True)
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
         self._ensure_balance_file()
-        self._load_state()
         self._ensure_trades_file()
-    
+        self._load_state()
+
     def _ensure_balance_file(self):
-     if not os.path.exists(BALANCE_FILE):
-        with open(BALANCE_FILE, "w") as f:
-            json.dump(
+        if not BALANCE_FILE.exists():
+            write_json_file(
+                BALANCE_FILE,
                 {"balance": self.starting_balance, "positions": {}},
-                f,
-                indent=2,
             )
+            self._state_mtime = self._get_state_mtime()
 
+    def _ensure_trades_file(self):
+        if not TRADES_FILE.exists():
+            write_json_file(TRADES_FILE, [])
 
-    # ---------- PUBLIC API ----------
+    def _get_state_mtime(self):
+        try:
+            return BALANCE_FILE.stat().st_mtime
+        except OSError:
+            return None
+
+    def refresh_from_disk(self, force: bool = False) -> bool:
+        current_mtime = self._get_state_mtime()
+        if (
+            not force
+            and self._state_mtime is not None
+            and current_mtime is not None
+            and current_mtime == self._state_mtime
+        ):
+            return False
+
+        self._load_state()
+        return True
 
     def get_balance(self) -> float:
         return self.balance
@@ -42,227 +63,115 @@ class PaperBroker:
     def get_position(self, symbol: str):
         return self.positions.get(symbol)
 
-    # ---------- PERSISTENCE ----------
-
-    def _ensure_trades_file(self):
-        if not os.path.exists(TRADES_FILE):
-            with open(TRADES_FILE, "w") as f:
-                json.dump([], f)
-
-    def _record_trade(self, trade: dict):
+    def _record_trade(self, trade: dict, *, use_lock: bool = True):
         try:
-            if not os.path.exists(TRADES_FILE):
-                with open(TRADES_FILE, "w") as f:
-                    json.dump([], f)
-
-            with open(TRADES_FILE, "r+") as f:
-                try:
-                    data = json.load(f)
-                    if not isinstance(data, list):
-                        data = []
-                except json.JSONDecodeError:
-                    data = []
-
-                data.append(trade)
-
-                f.seek(0)
-                f.truncate()
-                json.dump(data, f, indent=2)
-
-        except Exception as e:
-            logger.error(f"Failed to record trade: {e}")
+            data = read_json_file(TRADES_FILE, default=[])
+            if not isinstance(data, list):
+                data = []
+            data.append(trade)
+            write_json_file(TRADES_FILE, data, use_lock=use_lock)
+        except Exception as exc:
+            logger.error(f"Failed to record trade: {exc}")
 
     def _load_state(self):
-        if os.path.exists(BALANCE_FILE):
-            try:
-                with open(BALANCE_FILE, "r") as f:
-                    data = json.load(f)
-                    self.balance = data.get("balance", self.starting_balance)
-                    self.positions = data.get("positions", {})
-            except Exception as e:
-                logger.error(f"Failed to load paper state: {e}")
-
-    def _save_state(self):
         try:
-            with open(BALANCE_FILE, "w") as f:
-                json.dump(
-                    {"balance": self.balance, "positions": self.positions},
-                    f,
-                    indent=2,
-                )
-        except Exception as e:
-            logger.error(f"Failed to save paper state: {e}")
+            data = read_json_file(
+                BALANCE_FILE,
+                default={"balance": self.starting_balance, "positions": {}},
+            )
+            if not isinstance(data, dict):
+                data = {"balance": self.starting_balance, "positions": {}}
 
-    # ---------- TRADING ----------
+            balance = data.get("balance", self.starting_balance)
+            positions = data.get("positions", {})
+
+            try:
+                self.balance = float(balance)
+            except (TypeError, ValueError):
+                self.balance = float(self.starting_balance)
+
+            self.positions = positions if isinstance(positions, dict) else {}
+            self._state_mtime = self._get_state_mtime()
+        except Exception as exc:
+            logger.error(f"Failed to load paper state: {exc}")
+
+    def _save_state(self, *, use_lock: bool = True):
+        try:
+            write_json_file(
+                BALANCE_FILE,
+                {"balance": self.balance, "positions": self.positions},
+                use_lock=use_lock,
+            )
+            self._state_mtime = self._get_state_mtime()
+        except Exception as exc:
+            logger.error(f"Failed to save paper state: {exc}")
 
     def buy(self, symbol: str, price: float, size: float, reason: str):
-        cost = price * size
-        if cost > self.balance:
-            logger.warning(f"BUY rejected — insufficient balance for {symbol}")
-            return False
+        with state_transaction_lock(STATE_DIR):
+            self._load_state()
 
-        self.balance -= cost
-        self.positions[symbol] = {
-            "price": price,
-            "size": size,
-            "entry_time": time.time(),
-            "reason": reason,
-        }
+            cost = price * size
+            if cost > self.balance:
+                logger.warning(f"BUY rejected - insufficient balance for {symbol}")
+                return False
 
-        self._record_trade({
-            "time": time.time(),
-            "symbol": symbol,
-            "side": "BUY",
-            "price": price,
-            "size": size,
-            "balance": self.balance,
-            "reason": reason,
-        })
+            self.balance -= cost
+            self.positions[symbol] = {
+                "price": price,
+                "size": size,
+                "entry_time": time.time(),
+                "reason": reason,
+            }
 
-        self._save_state()
+            self._record_trade(
+                {
+                    "time": time.time(),
+                    "symbol": symbol,
+                    "side": "BUY",
+                    "price": price,
+                    "size": size,
+                    "balance": self.balance,
+                    "reason": reason,
+                },
+                use_lock=False,
+            )
+
+            self._save_state(use_lock=False)
+
         logger.info(f"Paper BUY {symbol} @ {price} size={size}")
         return True
 
     def sell(self, symbol: str, price: float, reason: str):
-        pos = self.positions.get(symbol)
-        if not pos:
-            logger.warning(f"SELL rejected — no open position for {symbol}")
-            return False
+        with state_transaction_lock(STATE_DIR):
+            self._load_state()
 
-        size = pos["size"]
-        entry_price = pos["price"]
-        pnl = (price - entry_price) * size
+            pos = self.positions.get(symbol)
+            if not pos:
+                logger.warning(f"SELL rejected - no open position for {symbol}")
+                return False
 
-        self.balance += price * size
-        del self.positions[symbol]
+            size = pos["size"]
+            entry_price = pos["price"]
+            pnl = (price - entry_price) * size
 
-        self._record_trade({
-            "time": time.time(),
-            "symbol": symbol,
-            "side": "SELL",
-            "price": price,
-            "size": size,
-            "pnl": pnl,
-            "balance": self.balance,
-            "reason": reason,
-        })
+            self.balance += price * size
+            del self.positions[symbol]
 
-        self._save_state()
+            self._record_trade(
+                {
+                    "time": time.time(),
+                    "symbol": symbol,
+                    "side": "SELL",
+                    "price": price,
+                    "size": size,
+                    "pnl": pnl,
+                    "balance": self.balance,
+                    "reason": reason,
+                },
+                use_lock=False,
+            )
+
+            self._save_state(use_lock=False)
+
         logger.info(f"Paper SELL {symbol} @ {price} pnl={pnl:.2f}")
         return True
-
-
-
-# import json
-# import os
-# import time
-# from utils.logger import setup_logger
-
-# logger = setup_logger("paper")
-
-# STATE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "state"))
-# BALANCE_FILE = os.path.join(STATE_DIR, "paper_state.json")
-# TRADES_FILE = os.path.join(STATE_DIR, "trades.json")
-
-
-# class PaperBroker:
-#     def __init__(self, starting_balance: float):
-#         self.starting_balance = starting_balance
-#         self.balance = starting_balance
-#         self.positions = {}
-
-#         os.makedirs(STATE_DIR, exist_ok=True)
-#         self._load_state()
-#         self._ensure_trades_file()
-
-#     # ---------- PUBLIC API ----------
-
-#     def get_balance(self) -> float:
-#         return self.balance
-
-#     def has_position(self, symbol: str) -> bool:
-#         return symbol in self.positions
-
-#     def get_position(self, symbol: str):
-#         return self.positions.get(symbol)
-
-#     # ---------- PERSISTENCE ----------
-
-#     def _ensure_trades_file(self):
-#         if not os.path.exists(TRADES_FILE):
-#             with open(TRADES_FILE, "w") as f:
-#                 json.dump([], f)
-
-#     def _record_trade(self, trade: dict):
-#         with open(TRADES_FILE, "r+") as f:
-#             data = json.load(f)
-#             data.append(trade)
-#             f.seek(0)
-#             json.dump(data, f, indent=2)
-
-#     def _load_state(self):
-#         if os.path.exists(BALANCE_FILE):
-#             with open(BALANCE_FILE, "r") as f:
-#                 data = json.load(f)
-#                 self.balance = data.get("balance", self.starting_balance)
-#                 self.positions = data.get("positions", {})
-
-#     def _save_state(self):
-#         with open(BALANCE_FILE, "w") as f:
-#             json.dump(
-#                 {"balance": self.balance, "positions": self.positions},
-#                 f,
-#                 indent=2,
-#             )
-
-#     # ---------- TRADING ----------
-
-#     def buy(self, symbol: str, price: float, size: float, reason: str):
-#         cost = price * size
-#         if cost > self.balance:
-#             return False
-
-#         self.balance -= cost
-#         self.positions[symbol] = {"price": price, "size": size}
-
-#         self._record_trade({
-#             "time": time.time(),
-#             "symbol": symbol,
-#             "side": "BUY",
-#             "price": price,
-#             "size": size,
-#             "balance": self.balance,
-#             "reason": reason,
-#         })
-
-#         self._save_state()
-#         logger.info(f"Paper BUY {symbol} @ {price}")
-#         return True
-
-#     def sell(self, symbol: str, price: float, reason: str):
-#         pos = self.positions.get(symbol)
-#         if not pos:
-#             return False
-
-#         size = pos["size"]
-#         entry = pos["price"]
-#         pnl = (price - entry) * size
-
-#         self.balance += price * size
-#         del self.positions[symbol]
-
-#         self._record_trade({
-#             "time": time.time(),
-#             "symbol": symbol,
-#             "side": "SELL",
-#             "price": price,
-#             "size": size,
-#             "pnl": pnl,
-#             "balance": self.balance,
-#             "reason": reason,
-#         })
-
-#         self._save_state()
-#         logger.info(f"Paper SELL {symbol} @ {price} pnl={pnl:.2f}")
-#         return True
-

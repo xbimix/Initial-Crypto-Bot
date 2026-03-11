@@ -1,58 +1,82 @@
 {
-  "balance": 8407.089954910414,
+  "balance": 7990.923546419046,
   "positions": {
-    "XRP-USD": {
-      "price": 1.1496,
-      "size": 170.494146,
-      "entry_time": 1772408529.8617797,
-      "reason": "bear_market_mean_reversion_buy"
-    },
     "DOT-USD": {
       "price": 1.54135,
       "size": 117.289525,
       "entry_time": 1772429021.8468947,
       "reason": "bear_market_mean_reversion_buy"
     },
-    "SUI-USD": {
-      "price": 0.9136,
-      "size": 211.641212,
-      "entry_time": 1772514303.4991457,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "ETH-USD": {
-      "price": 1994.76,
-      "size": 0.094993,
-      "entry_time": 1772514353.8867776,
+    "CRV-USD": {
+      "price": 0.25637,
+      "size": 763.467196,
+      "entry_time": 1772664289.4589665,
       "reason": "bear_market_mean_reversion_buy"
     },
     "ADA-USD": {
-      "price": 0.27161,
-      "size": 670.021601,
-      "entry_time": 1772516040.0918114,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "POLS-USD": {
-      "price": 0.0577,
-      "size": 3090.899057,
-      "entry_time": 1772562626.3249598,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "XLM-USD": {
-      "price": 0.15016649999999998,
-      "size": 1163.894598,
-      "entry_time": 1772571767.1083086,
+      "price": 0.27124,
+      "size": 707.179927,
+      "entry_time": 1772699830.0046887,
       "reason": "bear_market_mean_reversion_buy"
     },
     "SOL-USD": {
-      "price": 86.974,
-      "size": 2.012955,
-      "entry_time": 1772590554.7405102,
+      "price": 90.337,
+      "size": 2.080866,
+      "entry_time": 1772700490.3338902,
       "reason": "bear_market_mean_reversion_buy"
     },
-    "BTC-USD": {
-      "price": 68138.57500000001,
-      "size": 0.002518,
-      "entry_time": 1772590589.772023,
+    "XRP-USD": {
+      "price": 1.4250500000000001,
+      "size": 126.686922,
+      "entry_time": 1772720276.2524233,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "ETH-USD": {
+      "price": 2105.455,
+      "size": 0.084031,
+      "entry_time": 1772721574.1915956,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "API3-USD": {
+      "price": 0.281,
+      "size": 592.597643,
+      "entry_time": 1772727212.0838406,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "PONKE-USD": {
+      "price": 0.029525,
+      "size": 5533.930552,
+      "entry_time": 1772790249.8796015,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "IMX-USD": {
+      "price": 0.1578,
+      "size": 1036.332033,
+      "entry_time": 1772805617.2997787,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "PERP-USD": {
+      "price": 0.052000000000000005,
+      "size": 3023.852329,
+      "entry_time": 1772953757.0136933,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "POLS-USD": {
+      "price": 0.0606,
+      "size": 2567.713441,
+      "entry_time": 1773090512.9295073,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "SEI-USD": {
+      "price": 0.06455,
+      "size": 2413.648982,
+      "entry_time": 1773127369.2873042,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "SUI-USD": {
+      "price": 0.95845,
+      "size": 166.739515,
+      "entry_time": 1773171378.827073,
       "reason": "bear_market_mean_reversion_buy"
     }
   }

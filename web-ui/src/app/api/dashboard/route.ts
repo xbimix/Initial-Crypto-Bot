@@ -7,10 +7,16 @@ type ConfigState = {
   execution_mode?: string;
   starting_balance?: number;
   symbols?: string[];
+  symbol_enabled?: Record<string, boolean>;
+  symbol_buy_enabled?: Record<string, boolean>;
+  symbol_sell_enabled?: Record<string, boolean>;
   lookback?: number;
   min_trades?: number;
   loop_sleep?: number;
   risk?: {
+    risk_percent?: number;
+    max_concurrent_trades?: number;
+    trade_amount_usd?: number;
     cooldown_seconds?: number;
   };
   profit_locks?: {
@@ -67,6 +73,13 @@ type PositionRow = {
   status: string;
   entryTime: number | null;
   thesis: string;
+};
+
+type SymbolControl = {
+  symbol: string;
+  buyEnabled: boolean;
+  sellEnabled: boolean;
+  hasOpenPosition: boolean;
 };
 
 const STATE_DIR = path.resolve(process.cwd(), "..", "crypto_bot", "state");
@@ -164,6 +177,72 @@ function sum(values: number[]) {
   return values.reduce((total, value) => total + value, 0);
 }
 
+function normalizeSymbol(value: unknown) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim().toUpperCase();
+}
+
+function normalizeSymbols(values: unknown) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const symbols: string[] = [];
+
+  for (const value of values) {
+    const symbol = normalizeSymbol(value);
+    if (!symbol || seen.has(symbol)) {
+      continue;
+    }
+
+    seen.add(symbol);
+    symbols.push(symbol);
+  }
+
+  return symbols;
+}
+
+function parseEnabledMap(values: unknown) {
+  if (!values || typeof values !== "object" || Array.isArray(values)) {
+    return {};
+  }
+
+  const enabled: Record<string, boolean> = {};
+  for (const [rawSymbol, rawValue] of Object.entries(
+    values as Record<string, unknown>,
+  )) {
+    const symbol = normalizeSymbol(rawSymbol);
+    if (!symbol) {
+      continue;
+    }
+    enabled[symbol] = rawValue !== false;
+  }
+
+  return enabled;
+}
+
+function uniqueSymbols(...collections: Array<readonly string[]>) {
+  const seen = new Set<string>();
+  const output: string[] = [];
+
+  for (const collection of collections) {
+    for (const rawSymbol of collection) {
+      const symbol = normalizeSymbol(rawSymbol);
+      if (!symbol || seen.has(symbol)) {
+        continue;
+      }
+
+      seen.add(symbol);
+      output.push(symbol);
+    }
+  }
+
+  return output;
+}
+
 function buildEquityCurve(
   startingBalance: number,
   trades: TradeEntry[],
@@ -202,8 +281,36 @@ export async function GET() {
   ]);
 
   const positions = paper.positions ?? {};
-  const symbols = Object.keys(positions);
-  const { prices, lastSnapshotAt } = await readLatestPrices(symbols);
+  const positionSymbols = Object.keys(positions);
+  const configuredSymbols = normalizeSymbols(config.symbols);
+  const legacyMap = parseEnabledMap(config.symbol_enabled);
+  const buyMap = parseEnabledMap(config.symbol_buy_enabled);
+  const sellMap = parseEnabledMap(config.symbol_sell_enabled);
+  const allSymbols = uniqueSymbols(
+    configuredSymbols,
+    Object.keys(legacyMap),
+    Object.keys(buyMap),
+    Object.keys(sellMap),
+    positionSymbols,
+  );
+
+  const symbolControls: SymbolControl[] = allSymbols.map((symbol) => ({
+    symbol,
+    buyEnabled: buyMap[symbol] ?? legacyMap[symbol] ?? true,
+    sellEnabled: sellMap[symbol] ?? legacyMap[symbol] ?? true,
+    hasOpenPosition: symbol in positions,
+  }));
+  const buyEnabledSymbolsCount = symbolControls.filter(
+    (control) => control.buyEnabled,
+  ).length;
+  const sellEnabledSymbolsCount = symbolControls.filter(
+    (control) => control.sellEnabled,
+  ).length;
+  const buyDisabledSymbolsCount = symbolControls.length - buyEnabledSymbolsCount;
+  const sellDisabledSymbolsCount =
+    symbolControls.length - sellEnabledSymbolsCount;
+
+  const { prices, lastSnapshotAt } = await readLatestPrices(positionSymbols);
 
   const firstActivation = Number(
     config.profit_locks?.first_activation ?? 0.02,
@@ -213,7 +320,7 @@ export async function GET() {
   );
   const trailingGap = Number(config.profit_locks?.trailing_gap ?? 0.02);
 
-  const draftRows = symbols.map((symbol) => {
+  const draftRows = positionSymbols.map((symbol) => {
     const position = positions[symbol] ?? {};
     const entryPrice = Number(
       strategy.entry_price?.[symbol] ?? position.price ?? 0,
@@ -275,6 +382,14 @@ export async function GET() {
     trades.map((trade) => Number(trade.pnl ?? 0)),
   );
   const startingBalance = Number(config.starting_balance ?? 10000);
+  const riskPercent = Number(config.risk?.risk_percent ?? 0.02);
+  const defaultTradeAmount = startingBalance * riskPercent;
+  const tradeAmountUsd = Number(
+    config.risk?.trade_amount_usd ?? defaultTradeAmount,
+  );
+  const maxConcurrentTrades = Number(
+    config.risk?.max_concurrent_trades ?? 1,
+  );
   const totalEquity = cashBalance + openValue;
   const netPnl = realizedPnl + unrealizedPnl;
   const netReturnPct =
@@ -294,10 +409,17 @@ export async function GET() {
     summary: {
       enabled: Boolean(config.enabled),
       executionMode: config.execution_mode ?? "paper",
-      trackedSymbols: config.symbols?.length ?? 0,
+      trackedSymbols: symbolControls.length,
+      activeSymbols: buyEnabledSymbolsCount,
+      disabledSymbols: buyDisabledSymbolsCount,
+      sellEnabledSymbols: sellEnabledSymbolsCount,
+      sellDisabledSymbols: sellDisabledSymbolsCount,
       cooldownSeconds: Number(
         config.risk?.cooldown_seconds ?? 0,
       ),
+      maxConcurrentTrades: round(maxConcurrentTrades, 0),
+      tradeAmountUsd: round(tradeAmountUsd, 2),
+      riskPercent: round(riskPercent * 100, 2),
       loopSeconds: Number(config.loop_sleep ?? 0),
       lookback: Number(config.lookback ?? 0),
       minTrades: Number(config.min_trades ?? 0),
@@ -322,6 +444,7 @@ export async function GET() {
       buyCount,
       sellCount,
     },
+    symbolControls,
     chart: {
       points: chartPoints,
       min: round(Math.min(...chartPoints), 2),

@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useCallback, useEffect, useState } from "react";
 
 type DashboardPayload = {
   generatedAt: string;
@@ -8,7 +8,14 @@ type DashboardPayload = {
     enabled: boolean;
     executionMode: string;
     trackedSymbols: number;
+    activeSymbols: number;
+    disabledSymbols: number;
+    sellEnabledSymbols: number;
+    sellDisabledSymbols: number;
     cooldownSeconds: number;
+    maxConcurrentTrades: number;
+    tradeAmountUsd: number;
+    riskPercent: number;
     loopSeconds: number;
     lookback: number;
     minTrades: number;
@@ -32,6 +39,12 @@ type DashboardPayload = {
     buyCount: number;
     sellCount: number;
   };
+  symbolControls: Array<{
+    symbol: string;
+    buyEnabled: boolean;
+    sellEnabled: boolean;
+    hasOpenPosition: boolean;
+  }>;
   chart: {
     points: number[];
     min: number;
@@ -264,8 +277,16 @@ export default function RevbotDashboard() {
   const [error, setError] = useState<string | null>(null);
   const [range, setRange] = useState<RangeId>("session");
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [busySymbol, setBusySymbol] = useState<string | null>(null);
+  const [busyManualSell, setBusyManualSell] = useState<string | null>(null);
+  const [riskDraft, setRiskDraft] = useState<{
+    maxConcurrentTrades: number;
+    tradeAmountUsd: number;
+  } | null>(null);
+  const [riskDirty, setRiskDirty] = useState(false);
+  const [savingRisk, setSavingRisk] = useState(false);
 
-  async function loadDashboard() {
+  const loadDashboard = useCallback(async () => {
     try {
       const response = await fetch("/api/dashboard", { cache: "no-store" });
       if (!response.ok) {
@@ -277,6 +298,13 @@ export default function RevbotDashboard() {
         setData(payload);
         setError(null);
       });
+
+      if (!riskDirty) {
+        setRiskDraft({
+          maxConcurrentTrades: payload.summary.maxConcurrentTrades,
+          tradeAmountUsd: payload.summary.tradeAmountUsd,
+        });
+      }
     } catch (requestError) {
       const message =
         requestError instanceof Error
@@ -284,7 +312,7 @@ export default function RevbotDashboard() {
           : "Unable to load dashboard";
       setError(message);
     }
-  }
+  }, [riskDirty]);
 
   async function runAction(action: "start" | "stop" | "kill" | "refresh") {
     if (action === "refresh") {
@@ -323,6 +351,123 @@ export default function RevbotDashboard() {
     }
   }
 
+  async function setSymbolAutoTrade(
+    symbol: string,
+    side: "buy" | "sell",
+    enabled: boolean,
+  ) {
+    setBusySymbol(`${symbol}:${side}`);
+
+    try {
+      const response = await fetch("/api/symbols", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol, side, enabled }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Symbol update failed (${response.status})`);
+      }
+
+      await loadDashboard();
+    } catch (requestError) {
+      const message =
+        requestError instanceof Error
+          ? requestError.message
+          : "Symbol update failed";
+      setError(message);
+    } finally {
+      setBusySymbol(null);
+    }
+  }
+
+  async function saveRiskSettings() {
+    if (!riskDraft) {
+      return;
+    }
+
+    const maxConcurrentTrades = Math.max(
+      1,
+      Math.floor(Number(riskDraft.maxConcurrentTrades) || 1),
+    );
+    const tradeAmountUsd = Math.max(1, Number(riskDraft.tradeAmountUsd) || 1);
+
+    setSavingRisk(true);
+    try {
+      const response = await fetch("/api/risk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          maxConcurrentTrades,
+          tradeAmountUsd,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Risk settings update failed (${response.status})`);
+      }
+
+      setRiskDirty(false);
+      await loadDashboard();
+    } catch (requestError) {
+      const message =
+        requestError instanceof Error
+          ? requestError.message
+          : "Risk settings update failed";
+      setError(message);
+    } finally {
+      setSavingRisk(false);
+    }
+  }
+
+  async function manualSell(position: DashboardPayload["positions"][number]) {
+    const directionLabel = position.unrealizedValue >= 0 ? "Estimated profit" : "Estimated loss";
+    const currentPriceLabel =
+      position.currentPrice === null
+        ? "Unavailable (entry fallback may be used)"
+        : formatCurrency(position.currentPrice);
+
+    const confirmationText = [
+      `Manual SELL ${position.symbol}?`,
+      "",
+      `Current price: ${currentPriceLabel}`,
+      `Entry price: ${formatCurrency(position.entryPrice)}`,
+      `Position value: ${formatCurrency(position.marketValue)}`,
+      `${directionLabel}: ${formatCurrency(position.unrealizedValue)} (${formatPercent(position.unrealizedPct)})`,
+      "",
+      "This will close the position immediately.",
+    ].join("\n");
+
+    const approved = window.confirm(confirmationText);
+    if (!approved) {
+      return;
+    }
+
+    setBusyManualSell(position.symbol);
+    try {
+      const response = await fetch("/api/manual-sell", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: position.symbol }),
+      });
+
+      if (!response.ok) {
+        const details = await response.text();
+        throw new Error(`Manual sell failed (${response.status})${details ? `: ${details}` : ""}`);
+      }
+
+      await loadDashboard();
+    } catch (requestError) {
+      const message =
+        requestError instanceof Error
+          ? requestError.message
+          : "Manual sell failed";
+      setError(message);
+    } finally {
+      setBusyManualSell(null);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -341,7 +486,7 @@ export default function RevbotDashboard() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [loadDashboard]);
 
   if (!data) {
     return (
@@ -378,6 +523,12 @@ export default function RevbotDashboard() {
       .filter((position) => position.unrealizedValue > 0)
       .sort((left, right) => right.unrealizedValue - left.unrealizedValue)[0]
       ?.symbol ?? null;
+  const sortedSymbolControls = [...data.symbolControls].sort((left, right) => {
+    if (left.hasOpenPosition !== right.hasOpenPosition) {
+      return left.hasOpenPosition ? -1 : 1;
+    }
+    return left.symbol.localeCompare(right.symbol);
+  });
   const comparisonRows = [
     {
       metric: "Runtime",
@@ -385,7 +536,7 @@ export default function RevbotDashboard() {
         data.summary.executionMode,
       ).toUpperCase()}`,
       accountTone: data.summary.enabled ? "text-emerald-300" : "text-rose-300",
-      configValue: `${data.summary.cooldownSeconds}s cool | ${data.summary.loopSeconds}s loop`,
+      configValue: `${data.summary.cooldownSeconds}s cool | ${data.summary.maxConcurrentTrades} max | ${formatCurrency(data.summary.tradeAmountUsd)} size`,
       configTone: "text-amber-200",
       stateValue: formatSnapshotTime(data.summary.lastSnapshotAt),
       stateTone: "text-sky-200",
@@ -405,7 +556,7 @@ export default function RevbotDashboard() {
       metric: "Activity",
       accountValue: `${data.summary.buyCount} buys | ${data.summary.sellCount} sells`,
       accountTone: "text-white",
-      configValue: `${data.summary.trackedSymbols} tracked | ${data.summary.openPositions} open`,
+      configValue: `${data.summary.activeSymbols} buy on | ${data.summary.sellEnabledSymbols} sell on | ${data.summary.openPositions} open`,
       configTone: "text-white",
       stateValue: formatRelativeTime(data.summary.lastTradeAt),
       stateTone: "text-slate-200",
@@ -519,6 +670,185 @@ export default function RevbotDashboard() {
               {error}
             </div>
           ) : null}
+
+          <section className="rounded-[30px] border border-white/8 bg-[linear-gradient(160deg,rgba(9,14,24,0.94),rgba(4,8,14,0.96))] p-5 sm:p-6">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  Token controls
+                </p>
+                <h2 className="mt-1.5 text-2xl font-semibold tracking-tight text-white">
+                  Auto-trade by symbol
+                </h2>
+                <p className="mt-2 text-sm text-slate-400">
+                  Turning a symbol off keeps scanning live but blocks BUY and SELL execution.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]">
+                <span className="rounded-full border border-emerald-500 bg-emerald-600 px-3 py-1.5 text-white">
+                  BUY on: {data.summary.activeSymbols}
+                </span>
+                <span className="rounded-full border border-rose-500 bg-rose-600 px-3 py-1.5 text-white">
+                  BUY off: {data.summary.disabledSymbols}
+                </span>
+                <span className="rounded-full border border-emerald-500 bg-emerald-600 px-3 py-1.5 text-white">
+                  SELL on: {data.summary.sellEnabledSymbols}
+                </span>
+                <span className="rounded-full border border-rose-500 bg-rose-600 px-3 py-1.5 text-white">
+                  SELL off: {data.summary.sellDisabledSymbols}
+                </span>
+                <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-300">
+                  {data.summary.trackedSymbols} total
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-4 overflow-x-auto rounded-2xl border border-white/8 bg-black/20">
+              <div className="min-w-[860px]">
+                <div className="grid grid-cols-[190px_minmax(220px,1fr)_220px_220px] border-b border-white/8 bg-white/[0.04] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                  <span>Token</span>
+                  <span>Execution Status</span>
+                  <span className="text-center">BUY</span>
+                  <span className="text-center">SELL</span>
+                </div>
+
+                <div className="max-h-[360px] overflow-y-auto">
+                  {sortedSymbolControls.map((control) => {
+                    const busyBuy = busySymbol === `${control.symbol}:buy`;
+                    const busySell = busySymbol === `${control.symbol}:sell`;
+                    const modeLabel = control.buyEnabled && control.sellEnabled
+                      ? "BUY + SELL enabled"
+                      : control.buyEnabled
+                        ? "BUY only"
+                        : control.sellEnabled
+                          ? "SELL only"
+                          : "Execution paused";
+
+                    const buyOn = control.buyEnabled;
+                    const sellOn = control.sellEnabled;
+
+                    return (
+                      <div
+                        key={control.symbol}
+                        className="grid grid-cols-[190px_minmax(220px,1fr)_220px_220px] items-center gap-3 border-b border-white/6 px-4 py-2.5 last:border-b-0"
+                      >
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-semibold uppercase tracking-[0.08em] text-slate-100">
+                            {control.symbol}
+                          </p>
+                          {control.hasOpenPosition ? (
+                            <span className="inline-flex rounded-full border border-sky-400/25 bg-sky-500/12 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-200">
+                              OPEN
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <p className="truncate text-sm font-medium text-slate-300">
+                          {modeLabel}
+                        </p>
+
+                        <div className="flex items-center justify-center gap-3">
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                            BUY
+                          </span>
+                          <button
+                            onClick={() =>
+                              setSymbolAutoTrade(
+                                control.symbol,
+                                "buy",
+                                !control.buyEnabled,
+                              )
+                            }
+                            disabled={busyAction !== null || busyBuy || savingRisk}
+                            className="min-w-[76px] rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] disabled:cursor-not-allowed disabled:opacity-60"
+                            style={{
+                              backgroundColor: buyOn ? "#16a34a" : "#dc2626",
+                              borderColor: buyOn ? "#16a34a" : "#dc2626",
+                              color: "#ffffff",
+                            }}
+                          >
+                            {busyBuy ? "Saving..." : buyOn ? "ON" : "OFF"}
+                          </button>
+                        </div>
+
+                        <div className="flex items-center justify-center gap-3">
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                            SELL
+                          </span>
+                          <button
+                            onClick={() =>
+                              setSymbolAutoTrade(
+                                control.symbol,
+                                "sell",
+                                !control.sellEnabled,
+                              )
+                            }
+                            disabled={busyAction !== null || busySell || savingRisk}
+                            className="min-w-[76px] rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] disabled:cursor-not-allowed disabled:opacity-60"
+                            style={{
+                              backgroundColor: sellOn ? "#16a34a" : "#dc2626",
+                              borderColor: sellOn ? "#16a34a" : "#dc2626",
+                              color: "#ffffff",
+                            }}
+                          >
+                            {busySell ? "Saving..." : sellOn ? "ON" : "OFF"}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 grid gap-3 rounded-2xl border border-white/8 bg-black/20 p-4 sm:grid-cols-[1fr_1fr_auto]">
+              <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                Max Concurrent Trades
+                <input
+                  type="number"
+                  min={1}
+                  value={riskDraft?.maxConcurrentTrades ?? ""}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    setRiskDraft((prev) => ({
+                      maxConcurrentTrades: Number.isFinite(value) ? value : 1,
+                      tradeAmountUsd: prev?.tradeAmountUsd ?? data.summary.tradeAmountUsd,
+                    }));
+                    setRiskDirty(true);
+                  }}
+                  className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white outline-none ring-sky-300/40 focus:ring-2"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                Trade Amount (USD)
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={riskDraft?.tradeAmountUsd ?? ""}
+                  onChange={(event) => {
+                    const value = Number(event.target.value);
+                    setRiskDraft((prev) => ({
+                      maxConcurrentTrades:
+                        prev?.maxConcurrentTrades ?? data.summary.maxConcurrentTrades,
+                      tradeAmountUsd: Number.isFinite(value) ? value : 0,
+                    }));
+                    setRiskDirty(true);
+                  }}
+                  className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white outline-none ring-sky-300/40 focus:ring-2"
+                />
+              </label>
+
+              <button
+                onClick={saveRiskSettings}
+                disabled={!riskDirty || savingRisk || busyAction !== null || busySymbol !== null}
+                className="self-end rounded-full border border-sky-400/25 bg-sky-500/12 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.14em] text-sky-100 transition hover:bg-sky-500/18 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {savingRisk ? "Saving..." : "Save Risk"}
+              </button>
+            </div>
+          </section>
 
           <section className="space-y-6">
             <div className="rounded-[36px] border border-white/8 bg-[linear-gradient(135deg,rgba(15,23,42,0.94),rgba(9,9,11,0.96))] p-5 shadow-[0_20px_90px_rgba(0,0,0,0.35)] sm:p-6">
@@ -698,7 +1028,7 @@ export default function RevbotDashboard() {
                       {data.summary.openPositions} open positions
                     </span>
                     <span className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5 text-slate-300">
-                      {data.summary.trackedSymbols} tracked symbols
+                      BUY on {data.summary.activeSymbols} / {data.summary.trackedSymbols}
                     </span>
                   </div>
                 </div>
@@ -726,7 +1056,7 @@ export default function RevbotDashboard() {
                   {data.summary.openPositions} open positions
                 </span>
                 <span className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-slate-300">
-                  {data.summary.trackedSymbols} tracked symbols
+                  BUY on {data.summary.activeSymbols} / {data.summary.trackedSymbols}
                 </span>
               </div>
             </div>
@@ -762,20 +1092,26 @@ export default function RevbotDashboard() {
                     <th className="w-[12%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-emerald-300">
                       P&L
                     </th>
+                    <th className="w-[10%] px-4 py-3.5 text-center text-sm font-semibold uppercase tracking-[0.18em] text-rose-300">
+                      Manual
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/6">
-                  {data.positions.map((position) => (
-                    <tr
-                      key={position.symbol}
-                      className={`text-[14px] text-slate-200 transition hover:bg-white/[0.045] ${
-                        position.symbol === topWinnerSymbol
-                          ? "bg-emerald-500/[0.04]"
-                          : position.symbol === topExposureSymbol
-                            ? "bg-sky-500/[0.035]"
-                            : "bg-white/[0.025]"
-                      }`}
-                    >
+                  {data.positions.map((position) => {
+                    const manualSellOnProfit = position.unrealizedValue >= 0;
+
+                    return (
+                      <tr
+                        key={position.symbol}
+                        className={`text-[14px] text-slate-200 transition hover:bg-white/[0.045] ${
+                          position.symbol === topWinnerSymbol
+                            ? "bg-emerald-500/[0.04]"
+                            : position.symbol === topExposureSymbol
+                              ? "bg-sky-500/[0.035]"
+                              : "bg-white/[0.025]"
+                        }`}
+                      >
                       <td className="px-4 py-3 align-middle">
                         <div className="flex items-center gap-3">
                           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[linear-gradient(135deg,rgba(248,250,252,0.16),rgba(59,130,246,0.22))] text-xs font-semibold text-white">
@@ -865,8 +1201,28 @@ export default function RevbotDashboard() {
                           {formatPercent(position.unrealizedPct)}
                         </p>
                       </td>
-                    </tr>
-                  ))}
+                        <td className="px-4 py-3 text-center">
+                        <button
+                          onClick={() => manualSell(position)}
+                          disabled={
+                            busyAction !== null ||
+                            busyManualSell !== null ||
+                            busySymbol !== null ||
+                            savingRisk
+                          }
+                          className="rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition disabled:cursor-not-allowed"
+                          style={{
+                            backgroundColor: manualSellOnProfit ? "#16a34a" : "#dc2626",
+                            borderColor: manualSellOnProfit ? "#16a34a" : "#dc2626",
+                            color: "#ffffff",
+                          }}
+                        >
+                          {busyManualSell === position.symbol ? "Selling..." : "Sell"}
+                        </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -21,6 +21,10 @@ class Executor:
         Allows dynamic config reload without restarting bot.
         """
         self.cfg = cfg
+        if hasattr(self.paper, "refresh_from_disk"):
+            if self.paper.refresh_from_disk():
+                logger.info("Executor sync: refreshed paper state from disk")
+                self._sync_risk_with_broker()
         if hasattr(self.risk, "update_config"):
             self.risk.update_config(cfg)
 
@@ -30,6 +34,9 @@ class Executor:
 
     def has_open_position(self, symbol: str) -> bool:
         return self.paper.has_position(symbol)
+
+    def open_symbols(self) -> list[str]:
+        return list(self.paper.positions.keys())
 
     def open_positions_count(self) -> int:
         return len(self.paper.positions)
@@ -95,6 +102,11 @@ class Executor:
         # Cooldown protection
         if not self.risk.can_trade(symbol):
             logger.info(f"Cooldown active for {symbol}")
+            return False
+
+        # Maximum open trades protection
+        if not self.risk.can_open_position(self.open_positions_count()):
+            logger.info("Max concurrent trades reached")
             return False
 
         # Already holding protection
