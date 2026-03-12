@@ -7,6 +7,12 @@ type ConfigState = {
   execution_mode?: string;
   starting_balance?: number;
   symbols?: string[];
+  symbol_strategies?: Record<string, unknown>;
+  strategy_overrides?: Record<string, unknown>;
+  volatility_scalper?: {
+    enabled?: boolean;
+    symbols?: string[];
+  };
   symbol_enabled?: Record<string, boolean>;
   symbol_buy_enabled?: Record<string, boolean>;
   symbol_sell_enabled?: Record<string, boolean>;
@@ -23,6 +29,10 @@ type ConfigState = {
     first_activation?: number;
     trailing_activation?: number;
     trailing_gap?: number;
+  };
+  market_regime?: {
+    preferred_buy_zone?: [number, number];
+    min_z_score?: number;
   };
 };
 
@@ -44,6 +54,9 @@ type StrategyState = {
   peak_pnl?: Record<string, number>;
   last_signal?: Record<string, string>;
   last_momentum?: Record<string, number>;
+  last_regime?: Record<string, string>;
+  last_score?: Record<string, number>;
+  last_volatility?: Record<string, number>;
 };
 
 type TradeEntry = {
@@ -80,6 +93,22 @@ type SymbolControl = {
   buyEnabled: boolean;
   sellEnabled: boolean;
   hasOpenPosition: boolean;
+  scalperEnabled: boolean;
+  regime: string | null;
+  volatilityPct: number | null;
+  strategyScorePct: number | null;
+  buyOpportunityPct: number | null;
+};
+
+type SnapshotMetrics = {
+  price: number | null;
+  vwap: number | null;
+  atrRaw: number | null;
+  momNorm: number | null;
+  low24h: number | null;
+  high24h: number | null;
+  spreadBps: number | null;
+  quality: string | null;
 };
 
 const STATE_DIR = path.resolve(process.cwd(), "..", "crypto_bot", "state");
@@ -126,19 +155,47 @@ async function readLogTail(filePath: string, bytes: number): Promise<string> {
   }
 }
 
-async function readLatestPrices(symbols: string[]) {
-  const prices: Record<string, number> = {};
+function parseSnapshotMetrics(rawFields: string): SnapshotMetrics {
+  const values: Record<string, string> = {};
+  const fieldPattern = /([a-z0-9_]+)=([^\s]+)/gi;
+
+  for (const match of rawFields.matchAll(fieldPattern)) {
+    values[match[1]] = match[2];
+  }
+
+  const asNumber = (value: string | undefined): number | null => {
+    if (!value) {
+      return null;
+    }
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+
+  return {
+    price: asNumber(values.price),
+    vwap: asNumber(values.vwap),
+    atrRaw: asNumber(values.atr_raw),
+    momNorm: asNumber(values.mom_norm),
+    low24h: asNumber(values["24h_low"]),
+    high24h: asNumber(values["24h_high"]),
+    spreadBps: asNumber(values.spread_bps),
+    quality: values.quality ?? null,
+  };
+}
+
+async function readLatestSnapshots(symbols: string[]) {
+  const snapshots: Record<string, SnapshotMetrics> = {};
   let lastSnapshotAt: string | null = null;
   const wanted = new Set(symbols);
 
   if (wanted.size === 0) {
-    return { prices, lastSnapshotAt };
+    return { snapshots, lastSnapshotAt };
   }
 
   const tail = await readLogTail(LOG_PATH, LOG_TAIL_BYTES);
   const lines = tail.split(/\r?\n/);
   const snapshotPattern =
-    /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+\s+\|\s+INFO\s+\|\s+SNAPSHOT\s+([A-Z0-9-]+)\s+\|\s+price=([0-9.]+)/;
+    /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+\s+\|\s+INFO\s+\|\s+SNAPSHOT\s+([A-Z0-9-]+)\s+\|\s+(.+)$/;
 
   for (let index = lines.length - 1; index >= 0; index -= 1) {
     const match = lines[index].match(snapshotPattern);
@@ -151,18 +208,130 @@ async function readLatestPrices(symbols: string[]) {
     }
 
     const symbol = match[2];
-    if (!wanted.has(symbol) || symbol in prices) {
+    if (!wanted.has(symbol) || symbol in snapshots) {
       continue;
     }
 
-    prices[symbol] = Number(match[3]);
+    snapshots[symbol] = parseSnapshotMetrics(match[3]);
 
-    if (Object.keys(prices).length >= wanted.size) {
+    if (Object.keys(snapshots).length >= wanted.size) {
       break;
     }
   }
 
-  return { prices, lastSnapshotAt };
+  return { snapshots, lastSnapshotAt };
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function computeBuyOpportunityPct(
+  snapshot: SnapshotMetrics | null,
+  config: ConfigState,
+) {
+  if (!snapshot || snapshot.price === null || snapshot.price <= 0) {
+    return null;
+  }
+
+  let buyZoneLow = 0.05;
+  let buyZoneHigh = 0.3;
+  const configuredZone = config.market_regime?.preferred_buy_zone;
+  if (Array.isArray(configuredZone) && configuredZone.length === 2) {
+    const low = Number(configuredZone[0]);
+    const high = Number(configuredZone[1]);
+    if (Number.isFinite(low) && Number.isFinite(high) && low < high) {
+      buyZoneLow = clamp(low, 0, 1);
+      buyZoneHigh = clamp(high, 0, 1);
+    }
+  }
+
+  const minZScore = Number(config.market_regime?.min_z_score ?? -1.5);
+  const price = snapshot.price;
+  const low24h = snapshot.low24h;
+  const high24h = snapshot.high24h;
+  const vwap = snapshot.vwap;
+  const atrRaw = snapshot.atrRaw;
+  const momNorm = snapshot.momNorm;
+
+  let rangePos: number | null = null;
+  if (
+    low24h !== null
+    && high24h !== null
+    && Number.isFinite(low24h)
+    && Number.isFinite(high24h)
+    && high24h > low24h
+  ) {
+    rangePos = (price - low24h) / (high24h - low24h);
+  }
+
+  let zoneScore = 10;
+  if (rangePos !== null) {
+    if (rangePos >= buyZoneLow && rangePos <= buyZoneHigh) {
+      const zoneCenter = (buyZoneLow + buyZoneHigh) / 2;
+      const zoneHalfWidth = Math.max((buyZoneHigh - buyZoneLow) / 2, 0.0001);
+      const proximity = 1 - clamp(Math.abs(rangePos - zoneCenter) / zoneHalfWidth, 0, 1);
+      zoneScore = 35 + proximity * 20;
+    } else if (rangePos < buyZoneLow) {
+      const distanceBelow = clamp(
+        (buyZoneLow - rangePos) / Math.max(buyZoneLow, 0.0001),
+        0,
+        1,
+      );
+      zoneScore = 20 * (1 - distanceBelow);
+    } else {
+      zoneScore = 0;
+    }
+  }
+
+  let zScore: number | null = null;
+  if (vwap !== null && atrRaw !== null && atrRaw > 0) {
+    zScore = (price - vwap) / atrRaw;
+  }
+
+  let stretchScore = 15;
+  if (zScore !== null) {
+    if (zScore <= minZScore) {
+      const extraStretch = clamp(Math.abs(zScore - minZScore) / 2.5, 0, 1);
+      stretchScore = 35 + extraStretch * 25;
+    } else {
+      const missAmount = clamp((zScore - minZScore) / 3, 0, 1);
+      stretchScore = 20 * (1 - missAmount);
+    }
+  }
+
+  let momentumScore = 7;
+  if (momNorm !== null && Number.isFinite(momNorm)) {
+    if (momNorm <= 0) {
+      momentumScore = clamp(Math.abs(momNorm) / 4, 0, 1) * 15;
+    } else {
+      momentumScore = 15 - clamp(momNorm / 4, 0, 1) * 15;
+    }
+  }
+
+  const quality = (snapshot.quality ?? "ok").toLowerCase();
+  let penalty = 0;
+  if (quality !== "ok") {
+    if (quality.includes("spread_too_wide")) {
+      penalty += 20;
+    }
+    if (quality.includes("order_book_tape_mismatch")) {
+      penalty += 15;
+    }
+    if (quality.includes("warming_up_history")) {
+      penalty += 10;
+    }
+    if (penalty === 0) {
+      penalty += 8;
+    }
+  }
+
+  if (snapshot.spreadBps !== null && snapshot.spreadBps > 150) {
+    penalty += 8;
+  }
+
+  const score = clamp(zoneScore + stretchScore + momentumScore - penalty, 0, 100);
+  return score;
 }
 
 function round(value: number, digits = 2) {
@@ -222,6 +391,159 @@ function parseEnabledMap(values: unknown) {
   }
 
   return enabled;
+}
+
+function asFiniteNumber(value: unknown): number | null {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function parseStringMap(values: unknown) {
+  if (!values || typeof values !== "object" || Array.isArray(values)) {
+    return {};
+  }
+
+  const output: Record<string, string> = {};
+  for (const [rawSymbol, rawValue] of Object.entries(
+    values as Record<string, unknown>,
+  )) {
+    const symbol = normalizeSymbol(rawSymbol);
+    if (!symbol || typeof rawValue !== "string") {
+      continue;
+    }
+
+    const regime = rawValue.trim().toLowerCase();
+    if (!regime) {
+      continue;
+    }
+    output[symbol] = regime;
+  }
+
+  return output;
+}
+
+function normalizeStrategyName(value: unknown) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "volatility_scalper" || raw === "vol_scalper" || raw === "scalper") {
+    return "volatility_scalper";
+  }
+  return "mean_reversion";
+}
+
+function parseStrategyMap(values: unknown) {
+  if (!values || typeof values !== "object" || Array.isArray(values)) {
+    return {};
+  }
+
+  const output: Record<string, string> = {};
+  for (const [rawSymbol, rawValue] of Object.entries(
+    values as Record<string, unknown>,
+  )) {
+    const symbol = normalizeSymbol(rawSymbol);
+    if (!symbol) {
+      continue;
+    }
+
+    let mode: unknown = rawValue;
+    if (rawValue && typeof rawValue === "object" && !Array.isArray(rawValue)) {
+      const row = rawValue as Record<string, unknown>;
+      mode = row.strategy ?? row.mode ?? rawValue;
+    }
+
+    output[symbol] = normalizeStrategyName(mode);
+  }
+
+  return output;
+}
+
+function parseNumberMap(values: unknown) {
+  if (!values || typeof values !== "object" || Array.isArray(values)) {
+    return {};
+  }
+
+  const output: Record<string, number> = {};
+  for (const [rawSymbol, rawValue] of Object.entries(
+    values as Record<string, unknown>,
+  )) {
+    const symbol = normalizeSymbol(rawSymbol);
+    const numeric = asFiniteNumber(rawValue);
+    if (!symbol || numeric === null) {
+      continue;
+    }
+    output[symbol] = numeric;
+  }
+
+  return output;
+}
+
+function parseScalperSymbolSet(config: ConfigState) {
+  const scalperCfg = config.volatility_scalper;
+  const enabled = scalperCfg?.enabled !== false;
+  if (!enabled) {
+    return new Set<string>();
+  }
+
+  return new Set(normalizeSymbols(scalperCfg?.symbols));
+}
+
+function resolveStrategyMode(
+  symbol: string,
+  symbolStrategies: Record<string, string>,
+  strategyOverrides: Record<string, string>,
+  scalperSymbols: Set<string>,
+) {
+  if (symbol in symbolStrategies) {
+    return symbolStrategies[symbol];
+  }
+  if (symbol in strategyOverrides) {
+    return strategyOverrides[symbol];
+  }
+  if (scalperSymbols.has(symbol)) {
+    return "volatility_scalper";
+  }
+  return "mean_reversion";
+}
+
+function deriveRegimeFromSnapshot(snapshot: SnapshotMetrics | null): string | null {
+  if (!snapshot) {
+    return null;
+  }
+
+  const momentum = snapshot.momNorm;
+  const price = snapshot.price;
+  const vwap = snapshot.vwap;
+
+  if (momentum !== null && momentum <= -1.2) {
+    return "dump";
+  }
+  if (momentum !== null && momentum >= 1.2) {
+    return "spike";
+  }
+
+  if (price !== null && vwap !== null) {
+    if (price > vwap && (momentum ?? 0) > 0.2) {
+      return "trend_up";
+    }
+    if (price < vwap && (momentum ?? 0) < -0.2) {
+      return "trend_down";
+    }
+  }
+
+  if (momentum !== null && Math.abs(momentum) < 0.35) {
+    return "range";
+  }
+
+  return "chop";
+}
+
+function formatRegimeLabel(value: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  return value
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function uniqueSymbols(...collections: Array<readonly string[]>) {
@@ -286,20 +608,53 @@ export async function GET() {
   const legacyMap = parseEnabledMap(config.symbol_enabled);
   const buyMap = parseEnabledMap(config.symbol_buy_enabled);
   const sellMap = parseEnabledMap(config.symbol_sell_enabled);
+  const symbolStrategies = parseStrategyMap(config.symbol_strategies);
+  const strategyOverrides = parseStrategyMap(config.strategy_overrides);
+  const scalperSymbols = parseScalperSymbolSet(config);
+  const regimeMap = parseStringMap(strategy.last_regime);
+  const scoreMap = parseNumberMap(strategy.last_score);
+  const volatilityMap = parseNumberMap(strategy.last_volatility);
   const allSymbols = uniqueSymbols(
     configuredSymbols,
     Object.keys(legacyMap),
     Object.keys(buyMap),
     Object.keys(sellMap),
+    Object.keys(symbolStrategies),
+    Object.keys(strategyOverrides),
+    Array.from(scalperSymbols),
     positionSymbols,
   );
 
-  const symbolControls: SymbolControl[] = allSymbols.map((symbol) => ({
-    symbol,
-    buyEnabled: buyMap[symbol] ?? legacyMap[symbol] ?? true,
-    sellEnabled: sellMap[symbol] ?? legacyMap[symbol] ?? true,
-    hasOpenPosition: symbol in positions,
-  }));
+  const { snapshots, lastSnapshotAt } = await readLatestSnapshots(allSymbols);
+
+  const symbolControls: SymbolControl[] = allSymbols.map((symbol) => {
+    const snapshot = snapshots[symbol] ?? null;
+    const regimeRaw = regimeMap[symbol] ?? deriveRegimeFromSnapshot(snapshot);
+    const score = scoreMap[symbol] ?? null;
+    const volatilityRaw = volatilityMap[symbol] ?? snapshot?.atrRaw ?? null;
+    const strategyMode = resolveStrategyMode(
+      symbol,
+      symbolStrategies,
+      strategyOverrides,
+      scalperSymbols,
+    );
+
+    return {
+      symbol,
+      buyEnabled: buyMap[symbol] ?? legacyMap[symbol] ?? true,
+      sellEnabled: sellMap[symbol] ?? legacyMap[symbol] ?? true,
+      hasOpenPosition: symbol in positions,
+      scalperEnabled: strategyMode === "volatility_scalper",
+      regime: formatRegimeLabel(regimeRaw),
+      volatilityPct:
+        volatilityRaw === null ? null : Number(volatilityRaw) * 100,
+      strategyScorePct: score,
+      buyOpportunityPct: computeBuyOpportunityPct(
+        snapshot,
+        config,
+      ),
+    };
+  });
   const buyEnabledSymbolsCount = symbolControls.filter(
     (control) => control.buyEnabled,
   ).length;
@@ -310,7 +665,16 @@ export async function GET() {
   const sellDisabledSymbolsCount =
     symbolControls.length - sellEnabledSymbolsCount;
 
-  const { prices, lastSnapshotAt } = await readLatestPrices(positionSymbols);
+  const bestBuyCandidate = symbolControls
+    .filter((control) => (
+      control.buyEnabled
+      && !control.hasOpenPosition
+      && control.buyOpportunityPct !== null
+    ))
+    .sort(
+      (left, right) =>
+        Number(right.buyOpportunityPct ?? 0) - Number(left.buyOpportunityPct ?? 0),
+    )[0] ?? null;
 
   const firstActivation = Number(
     config.profit_locks?.first_activation ?? 0.02,
@@ -326,7 +690,7 @@ export async function GET() {
       strategy.entry_price?.[symbol] ?? position.price ?? 0,
     );
     const units = Number(position.size ?? 0);
-    const currentPrice = symbol in prices ? prices[symbol] : null;
+    const currentPrice = snapshots[symbol]?.price ?? null;
     const costBasis = entryPrice * units;
     const marketValue = (currentPrice ?? entryPrice) * units;
     const unrealizedValue =
@@ -443,8 +807,27 @@ export async function GET() {
       lastSnapshotAt,
       buyCount,
       sellCount,
+      bestBuySymbol: bestBuyCandidate?.symbol ?? null,
+      bestBuyOpportunityPct:
+        bestBuyCandidate?.buyOpportunityPct === null
+          ? null
+          : round(Number(bestBuyCandidate?.buyOpportunityPct ?? 0), 1),
     },
-    symbolControls,
+    symbolControls: symbolControls.map((control) => ({
+      ...control,
+      volatilityPct:
+        control.volatilityPct === null
+          ? null
+          : round(control.volatilityPct, 3),
+      strategyScorePct:
+        control.strategyScorePct === null
+          ? null
+          : round(control.strategyScorePct, 1),
+      buyOpportunityPct:
+        control.buyOpportunityPct === null
+          ? null
+          : round(control.buyOpportunityPct, 1),
+    })),
     chart: {
       points: chartPoints,
       min: round(Math.min(...chartPoints), 2),

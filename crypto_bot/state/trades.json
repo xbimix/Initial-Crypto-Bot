@@ -628,5 +628,45 @@
     "pnl": 1.1644028549999825,
     "balance": 7990.923546419046,
     "reason": "manual_user_sell"
+  },
+  {
+    "time": 1773226351.0525167,
+    "symbol": "IMX-USD",
+    "side": "SELL",
+    "price": 0.1625,
+    "size": 1036.332033,
+    "pnl": 4.870760555100009,
+    "balance": 8159.327501781546,
+    "reason": "profit_lock_exit_3pct"
+  },
+  {
+    "time": 1773237218.6755066,
+    "symbol": "POLS-USD",
+    "side": "SELL",
+    "price": 0.062400000000000004,
+    "size": 2567.713441,
+    "pnl": 4.621884193800008,
+    "balance": 8319.552820499946,
+    "reason": "profit_lock_exit_3pct"
+  },
+  {
+    "time": 1773259514.6165774,
+    "symbol": "SUI-USD",
+    "side": "SELL",
+    "price": 0.98595,
+    "size": 166.739515,
+    "pnl": 4.585336662499995,
+    "balance": 8483.949645314196,
+    "reason": "profit_lock_exit_3pct"
+  },
+  {
+    "time": 1773259635.8889577,
+    "symbol": "API3-USD",
+    "side": "SELL",
+    "price": 0.29500000000000004,
+    "size": 592.597643,
+    "pnl": 8.296367002000007,
+    "balance": 8658.765949999197,
+    "reason": "profit_lock_exit_5pct"
   }
 ]

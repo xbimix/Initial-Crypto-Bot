@@ -1,5 +1,5 @@
 {
-  "balance": 7990.923546419046,
+  "balance": 8658.765949999197,
   "positions": {
     "DOT-USD": {
       "price": 1.54135,
@@ -37,22 +37,10 @@
       "entry_time": 1772721574.1915956,
       "reason": "bear_market_mean_reversion_buy"
     },
-    "API3-USD": {
-      "price": 0.281,
-      "size": 592.597643,
-      "entry_time": 1772727212.0838406,
-      "reason": "bear_market_mean_reversion_buy"
-    },
     "PONKE-USD": {
       "price": 0.029525,
       "size": 5533.930552,
       "entry_time": 1772790249.8796015,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "IMX-USD": {
-      "price": 0.1578,
-      "size": 1036.332033,
-      "entry_time": 1772805617.2997787,
       "reason": "bear_market_mean_reversion_buy"
     },
     "PERP-USD": {
@@ -61,22 +49,10 @@
       "entry_time": 1772953757.0136933,
       "reason": "bear_market_mean_reversion_buy"
     },
-    "POLS-USD": {
-      "price": 0.0606,
-      "size": 2567.713441,
-      "entry_time": 1773090512.9295073,
-      "reason": "bear_market_mean_reversion_buy"
-    },
     "SEI-USD": {
       "price": 0.06455,
       "size": 2413.648982,
       "entry_time": 1773127369.2873042,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "SUI-USD": {
-      "price": 0.95845,
-      "size": 166.739515,
-      "entry_time": 1773171378.827073,
       "reason": "bear_market_mean_reversion_buy"
     }
   }

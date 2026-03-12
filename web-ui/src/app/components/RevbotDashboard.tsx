@@ -38,12 +38,19 @@ type DashboardPayload = {
     lastSnapshotAt: string | null;
     buyCount: number;
     sellCount: number;
+    bestBuySymbol: string | null;
+    bestBuyOpportunityPct: number | null;
   };
   symbolControls: Array<{
     symbol: string;
     buyEnabled: boolean;
     sellEnabled: boolean;
     hasOpenPosition: boolean;
+    scalperEnabled: boolean;
+    regime: string | null;
+    volatilityPct: number | null;
+    strategyScorePct: number | null;
+    buyOpportunityPct: number | null;
   }>;
   chart: {
     points: number[];
@@ -183,6 +190,144 @@ function compareTone(current: number | null, basis: number) {
   return "text-slate-200";
 }
 
+function formatOpportunity(value: number | null) {
+  if (value === null) {
+    return "N/A";
+  }
+
+  return `${value.toFixed(1)}%`;
+}
+
+function opportunityStyle(value: number | null) {
+  if (value === null) {
+    return {
+      backgroundColor: "rgba(148, 163, 184, 0.14)",
+      borderColor: "rgba(148, 163, 184, 0.35)",
+      color: "#cbd5e1",
+    };
+  }
+
+  if (value >= 70) {
+    return {
+      backgroundColor: "#16a34a",
+      borderColor: "#16a34a",
+      color: "#ffffff",
+    };
+  }
+
+  if (value >= 45) {
+    return {
+      backgroundColor: "#0284c7",
+      borderColor: "#0284c7",
+      color: "#ffffff",
+    };
+  }
+
+  if (value >= 25) {
+    return {
+      backgroundColor: "#d97706",
+      borderColor: "#d97706",
+      color: "#ffffff",
+    };
+  }
+
+  return {
+    backgroundColor: "#dc2626",
+    borderColor: "#dc2626",
+    color: "#ffffff",
+  };
+}
+
+function regimeStyle(value: string | null) {
+  const regime = (value ?? "").toLowerCase();
+
+  if (regime.includes("trend up") || regime.includes("accumulation")) {
+    return {
+      backgroundColor: "#16a34a",
+      borderColor: "#16a34a",
+      color: "#ffffff",
+    };
+  }
+
+  if (regime.includes("trend down") || regime.includes("dump")) {
+    return {
+      backgroundColor: "#dc2626",
+      borderColor: "#dc2626",
+      color: "#ffffff",
+    };
+  }
+
+  if (regime.includes("spike")) {
+    return {
+      backgroundColor: "#d97706",
+      borderColor: "#d97706",
+      color: "#ffffff",
+    };
+  }
+
+  if (regime.includes("range") || regime.includes("chop")) {
+    return {
+      backgroundColor: "#0284c7",
+      borderColor: "#0284c7",
+      color: "#ffffff",
+    };
+  }
+
+  return {
+    backgroundColor: "rgba(148, 163, 184, 0.14)",
+    borderColor: "rgba(148, 163, 184, 0.35)",
+    color: "#cbd5e1",
+  };
+}
+
+function formatVolatility(value: number | null) {
+  if (value === null) {
+    return "N/A";
+  }
+
+  return `${value.toFixed(3)}%`;
+}
+
+function volatilityStyle(value: number | null) {
+  if (value === null) {
+    return {
+      backgroundColor: "rgba(148, 163, 184, 0.14)",
+      borderColor: "rgba(148, 163, 184, 0.35)",
+      color: "#cbd5e1",
+    };
+  }
+
+  if (value >= 1.2) {
+    return {
+      backgroundColor: "#dc2626",
+      borderColor: "#dc2626",
+      color: "#ffffff",
+    };
+  }
+
+  if (value >= 0.6) {
+    return {
+      backgroundColor: "#d97706",
+      borderColor: "#d97706",
+      color: "#ffffff",
+    };
+  }
+
+  if (value >= 0.25) {
+    return {
+      backgroundColor: "#0284c7",
+      borderColor: "#0284c7",
+      color: "#ffffff",
+    };
+  }
+
+  return {
+    backgroundColor: "#16a34a",
+    borderColor: "#16a34a",
+    color: "#ffffff",
+  };
+}
+
 function MiniChart({
   points,
   min,
@@ -278,6 +423,7 @@ export default function RevbotDashboard() {
   const [range, setRange] = useState<RangeId>("session");
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [busySymbol, setBusySymbol] = useState<string | null>(null);
+  const [busyScalper, setBusyScalper] = useState<string | null>(null);
   const [busyManualSell, setBusyManualSell] = useState<string | null>(null);
   const [riskDraft, setRiskDraft] = useState<{
     maxConcurrentTrades: number;
@@ -378,6 +524,32 @@ export default function RevbotDashboard() {
       setError(message);
     } finally {
       setBusySymbol(null);
+    }
+  }
+
+  async function setScalperMode(symbol: string, enabled: boolean) {
+    setBusyScalper(symbol);
+
+    try {
+      const response = await fetch("/api/scalper", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol, enabled }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Scalper update failed (${response.status})`);
+      }
+
+      await loadDashboard();
+    } catch (requestError) {
+      const message =
+        requestError instanceof Error
+          ? requestError.message
+          : "Scalper update failed";
+      setError(message);
+    } finally {
+      setBusyScalper(null);
     }
   }
 
@@ -700,14 +872,27 @@ export default function RevbotDashboard() {
                 <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-300">
                   {data.summary.trackedSymbols} total
                 </span>
+                {data.summary.bestBuySymbol && data.summary.bestBuyOpportunityPct !== null ? (
+                  <span className="rounded-full border border-emerald-500/40 bg-emerald-500/20 px-3 py-1.5 text-emerald-100">
+                    Best buy: {data.summary.bestBuySymbol} {formatOpportunity(data.summary.bestBuyOpportunityPct)}
+                  </span>
+                ) : (
+                  <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-300">
+                    Best buy: pending snapshots
+                  </span>
+                )}
               </div>
             </div>
 
             <div className="mt-4 overflow-x-auto rounded-2xl border border-white/8 bg-black/20">
-              <div className="min-w-[860px]">
-                <div className="grid grid-cols-[190px_minmax(220px,1fr)_220px_220px] border-b border-white/8 bg-white/[0.04] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+              <div className="min-w-[1560px]">
+                <div className="grid grid-cols-[170px_minmax(190px,1fr)_170px_150px_170px_170px_190px_190px] border-b border-white/8 bg-white/[0.04] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                   <span>Token</span>
                   <span>Execution Status</span>
+                  <span className="text-center">Regime / Trend</span>
+                  <span className="text-center">Volatility</span>
+                  <span className="text-center">Scalper</span>
+                  <span className="text-center">Buy Opportunity</span>
                   <span className="text-center">BUY</span>
                   <span className="text-center">SELL</span>
                 </div>
@@ -723,14 +908,25 @@ export default function RevbotDashboard() {
                         : control.sellEnabled
                           ? "SELL only"
                           : "Execution paused";
+                    const busyScalperRow = busyScalper === control.symbol;
+                    const isBestBuy =
+                      control.symbol === data.summary.bestBuySymbol
+                      && control.buyOpportunityPct !== null
+                      && !control.hasOpenPosition;
+                    const regimeChipStyle = regimeStyle(control.regime);
+                    const volatilityChipStyle = volatilityStyle(control.volatilityPct);
+                    const buyOpportunityChipStyle = opportunityStyle(
+                      control.buyOpportunityPct,
+                    );
 
                     const buyOn = control.buyEnabled;
                     const sellOn = control.sellEnabled;
+                    const scalperOn = control.scalperEnabled;
 
                     return (
                       <div
                         key={control.symbol}
-                        className="grid grid-cols-[190px_minmax(220px,1fr)_220px_220px] items-center gap-3 border-b border-white/6 px-4 py-2.5 last:border-b-0"
+                        className="grid grid-cols-[170px_minmax(190px,1fr)_170px_150px_170px_170px_190px_190px] items-center gap-3 border-b border-white/6 px-4 py-2.5 last:border-b-0"
                       >
                         <div className="flex items-center gap-2">
                           <p className="truncate text-sm font-semibold uppercase tracking-[0.08em] text-slate-100">
@@ -747,6 +943,63 @@ export default function RevbotDashboard() {
                           {modeLabel}
                         </p>
 
+                        <div className="flex items-center justify-center">
+                          <span
+                            className="inline-flex min-w-[130px] justify-center rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
+                            style={regimeChipStyle}
+                          >
+                            {control.regime ?? "Unknown"}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-center">
+                          <span
+                            className="inline-flex min-w-[120px] justify-center rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
+                            style={volatilityChipStyle}
+                          >
+                            {formatVolatility(control.volatilityPct)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-center">
+                          <button
+                            onClick={() => setScalperMode(control.symbol, !scalperOn)}
+                            disabled={
+                              busyAction !== null
+                              || busyScalperRow
+                              || busySymbol !== null
+                              || savingRisk
+                            }
+                            className="min-w-[86px] rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] disabled:cursor-not-allowed disabled:opacity-60"
+                            style={{
+                              backgroundColor: scalperOn ? "#16a34a" : "#dc2626",
+                              borderColor: scalperOn ? "#16a34a" : "#dc2626",
+                              color: "#ffffff",
+                            }}
+                          >
+                            {busyScalperRow ? "Saving..." : scalperOn ? "ON" : "OFF"}
+                          </button>
+                        </div>
+
+                        <div className="flex items-center justify-center">
+                          <div className="flex flex-col items-center">
+                            <span
+                              className="inline-flex min-w-[124px] justify-center rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
+                              style={buyOpportunityChipStyle}
+                            >
+                              {formatOpportunity(control.buyOpportunityPct)}
+                            </span>
+                            <span className="mt-0.5 text-[9px] font-medium uppercase tracking-[0.12em] text-slate-400">
+                              Score {control.strategyScorePct === null ? "N/A" : `${control.strategyScorePct.toFixed(1)}%`}
+                            </span>
+                          </div>
+                          {isBestBuy ? (
+                            <span className="ml-2 rounded-full border border-emerald-500/35 bg-emerald-500/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-200">
+                              Best
+                            </span>
+                          ) : null}
+                        </div>
+
                         <div className="flex items-center justify-center gap-3">
                           <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
                             BUY
@@ -759,7 +1012,12 @@ export default function RevbotDashboard() {
                                 !control.buyEnabled,
                               )
                             }
-                            disabled={busyAction !== null || busyBuy || savingRisk}
+                            disabled={
+                              busyAction !== null
+                              || busyBuy
+                              || savingRisk
+                              || busyScalper !== null
+                            }
                             className="min-w-[76px] rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] disabled:cursor-not-allowed disabled:opacity-60"
                             style={{
                               backgroundColor: buyOn ? "#16a34a" : "#dc2626",
@@ -783,7 +1041,12 @@ export default function RevbotDashboard() {
                                 !control.sellEnabled,
                               )
                             }
-                            disabled={busyAction !== null || busySell || savingRisk}
+                            disabled={
+                              busyAction !== null
+                              || busySell
+                              || savingRisk
+                              || busyScalper !== null
+                            }
                             className="min-w-[76px] rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] disabled:cursor-not-allowed disabled:opacity-60"
                             style={{
                               backgroundColor: sellOn ? "#16a34a" : "#dc2626",
@@ -842,7 +1105,13 @@ export default function RevbotDashboard() {
 
               <button
                 onClick={saveRiskSettings}
-                disabled={!riskDirty || savingRisk || busyAction !== null || busySymbol !== null}
+                disabled={
+                  !riskDirty
+                  || savingRisk
+                  || busyAction !== null
+                  || busySymbol !== null
+                  || busyScalper !== null
+                }
                 className="self-end rounded-full border border-sky-400/25 bg-sky-500/12 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.14em] text-sky-100 transition hover:bg-sky-500/18 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {savingRisk ? "Saving..." : "Save Risk"}
@@ -1208,6 +1477,7 @@ export default function RevbotDashboard() {
                             busyAction !== null ||
                             busyManualSell !== null ||
                             busySymbol !== null ||
+                            busyScalper !== null ||
                             savingRisk
                           }
                           className="rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition disabled:cursor-not-allowed"

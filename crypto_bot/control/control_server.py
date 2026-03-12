@@ -60,16 +60,27 @@ def _is_enabled(enabled_map, symbol):
     return enabled_map.get(symbol, True) is not False
 
 
+def _normalize_strategy_name(value):
+    raw = str(value or "").strip().lower()
+    if raw in {"volatility_scalper", "vol_scalper", "scalper"}:
+        return "volatility_scalper"
+    return "mean_reversion"
+
+
 def _remove_strategy_symbol(state, symbol):
     if not isinstance(state, dict):
         return {}
 
     for key in (
         "entry_price",
+        "entry_time",
         "profit_lock",
         "peak_pnl",
         "last_signal",
         "last_momentum",
+        "last_regime",
+        "last_score",
+        "last_volatility",
     ):
         section = state.get(key)
         if isinstance(section, dict):
@@ -286,6 +297,66 @@ def update_symbols():
             "symbol_buy_enabled": buy_map,
             "symbol_sell_enabled": sell_map,
             "symbol_enabled": legacy_map,
+        }
+        return cfg
+
+    update_config(_mutate)
+    return jsonify(result)
+
+
+@app.route("/scalper", methods=["POST"])
+def update_scalper():
+    body = request.get_json(silent=True) or {}
+    symbol = _normalize_symbol(body.get("symbol"))
+    enabled = body.get("enabled")
+
+    if not symbol:
+        return jsonify({"error": "Missing symbol"}), 400
+
+    if not isinstance(enabled, bool):
+        return jsonify({"error": "enabled must be a boolean"}), 400
+
+    result = {}
+
+    def _mutate(cfg):
+        nonlocal result
+
+        symbols = _normalize_symbols(cfg.get("symbols", []))
+        if symbol not in symbols:
+            symbols.append(symbol)
+
+        symbol_strategies = cfg.get("symbol_strategies", {})
+        if not isinstance(symbol_strategies, dict):
+            symbol_strategies = {}
+
+        symbol_strategies[symbol] = (
+            "volatility_scalper"
+            if enabled
+            else "mean_reversion"
+        )
+
+        scalper_cfg = cfg.get("volatility_scalper", {})
+        if not isinstance(scalper_cfg, dict):
+            scalper_cfg = {}
+
+        scalper_symbols = _normalize_symbols(scalper_cfg.get("symbols", []))
+        if enabled:
+            if symbol not in scalper_symbols:
+                scalper_symbols.append(symbol)
+        else:
+            scalper_symbols = [item for item in scalper_symbols if item != symbol]
+
+        scalper_cfg["symbols"] = scalper_symbols
+        cfg["symbols"] = symbols
+        cfg["symbol_strategies"] = symbol_strategies
+        cfg["volatility_scalper"] = scalper_cfg
+
+        result = {
+            "symbol": symbol,
+            "enabled": enabled,
+            "strategy": _normalize_strategy_name(symbol_strategies.get(symbol)),
+            "symbol_strategies": symbol_strategies,
+            "volatility_scalper": scalper_cfg,
         }
         return cfg
 

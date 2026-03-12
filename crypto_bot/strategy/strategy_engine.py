@@ -1,8 +1,15 @@
-from utils.logger import setup_logger
-from strategy.regime import detect_regime
+import time
 from pathlib import Path
 
+from strategy.regime import detect_regime
+from strategy.scoring import score_indicators
+from utils.logger import setup_logger
 from utils.state_io import read_json_file, write_json_file
+
+try:
+    from analysis.data_analysis import calculate_support_resistance
+except ModuleNotFoundError:
+    from crypto_bot.analysis.data_analysis import calculate_support_resistance
 
 logger = setup_logger("strategy")
 
@@ -12,11 +19,21 @@ logger = setup_logger("strategy")
 _last_signal = {}
 _last_sell_price = {}
 _entry_price = {}
+_entry_time = {}
 _profit_lock = {}
 _peak_pnl = {}
 _last_momentum = {}
+_last_regime = {}
+_last_score = {}
+_last_volatility = {}
 _synced = False
 _last_paper_state_mtime = None
+_metrics_dirty = False
+_last_metrics_flush_at = 0.0
+
+METRICS_FLUSH_INTERVAL_SECONDS = 5.0
+SCORE_EPSILON = 0.01
+VOLATILITY_EPSILON = 1e-6
 
 STATE_DIR = Path(__file__).resolve().parent.parent / "state"
 STRATEGY_STATE_FILE = STATE_DIR / "strategy_state.json"
@@ -47,12 +64,18 @@ def _sync_with_broker_state():
         for symbol in list(_entry_price.keys()):
             if symbol not in broker_symbols:
                 _entry_price.pop(symbol, None)
+                _entry_time.pop(symbol, None)
                 _profit_lock.pop(symbol, None)
                 _peak_pnl.pop(symbol, None)
                 _last_momentum.pop(symbol, None)
                 _last_signal.pop(symbol, None)
                 state_changed = True
                 logger.info(f"Strategy sync: removed stale state for {symbol}")
+
+        for symbol in list(_entry_time.keys()):
+            if symbol not in broker_symbols:
+                _entry_time.pop(symbol, None)
+                state_changed = True
 
         for symbol in list(_profit_lock.keys()):
             if symbol not in broker_symbols:
@@ -76,8 +99,12 @@ def _sync_with_broker_state():
 
         for symbol, pos in positions.items():
             entry_price = pos.get("price")
+            entry_time = _parse_numeric(pos.get("entry_time"), fallback=None)
+            if entry_time is None:
+                entry_time = time.time()
             if symbol not in _entry_price:
                 _entry_price[symbol] = entry_price
+                _entry_time[symbol] = entry_time
                 _profit_lock[symbol] = None
                 _last_signal[symbol] = "BUY"
                 state_changed = True
@@ -86,6 +113,9 @@ def _sync_with_broker_state():
                 _entry_price[symbol] = entry_price
                 state_changed = True
                 logger.info(f"Strategy sync: reconciled {symbol} entry to {entry_price}")
+            if _entry_time.get(symbol) != entry_time:
+                _entry_time[symbol] = entry_time
+                state_changed = True
 
             if symbol not in _profit_lock:
                 _profit_lock[symbol] = None
@@ -145,7 +175,6 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     price = snapshot["price"]
 
     momentum = snapshot["momentum_norm"]
-    momentum_raw = snapshot["momentum_raw"]
     trades = snapshot["trade_count"]
 
     high_24h = snapshot["high_24h"]
@@ -159,11 +188,14 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
 
     entry = _entry_price.get(symbol)
     prev_mom = _last_momentum.get(symbol)
+    entry_ts = _entry_time.get(symbol)
 
     min_trades = cfg.get("min_trades", 3)
     regime_cfg = cfg.get("market_regime", {})
     volatility_cfg = cfg.get("volatility_filters", {})
     profit_cfg = cfg.get("profit_locks", {})
+    scalper_cfg = _resolve_scalper_config(cfg)
+    strategy_mode = _strategy_for_symbol(cfg, symbol, scalper_cfg=scalper_cfg)
     min_atr = volatility_cfg.get(
         "min_atr",
         regime_cfg.get("min_atr", cfg.get("min_atr", 0.003)),
@@ -172,6 +204,9 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     effective_min_atr = max(min_atr, min_atr_pct)
     buy_zone_low, buy_zone_high = regime_cfg.get("preferred_buy_zone", [0.05, 0.30])
     min_z_score = regime_cfg.get("min_z_score", -1.5)
+    min_score_to_buy = float(
+        regime_cfg.get("min_score_to_buy", cfg.get("min_score_to_buy", 60))
+    )
     max_negative_z_score = profit_cfg.get(
         "max_negative_z_score",
         regime_cfg.get("max_negative_z_score", -3.0),
@@ -183,38 +218,91 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         )
     )
 
-    sell_signal = _evaluate_sell(
-        symbol=symbol,
-        price=price,
-        momentum=momentum,
-        entry=entry,
-        z_score=z_score,
-        first_activation=profit_cfg.get("first_activation", 0.02),
-        initial_lock=profit_cfg.get("initial_lock", 0.01),
-        profit_levels=profit_cfg.get(
-            "levels",
-            [
-                [0.04, 0.03],
-                [0.05, 0.04],
-                [0.06, 0.05],
-                [0.08, 0.06],
-            ],
-        ),
-        trailing_activation=profit_cfg.get("trailing_activation", 0.10),
-        trailing_gap=profit_cfg.get("trailing_gap", 0.02),
-        reset_below_activation=profit_cfg.get("reset_below_activation", True),
-        max_negative_z_score=max_negative_z_score,
-    )
+    if strategy_mode == "volatility_scalper":
+        regime, score, range_pos, volatility = _compute_scalper_diagnostics(
+            snapshot=snapshot,
+            price=price,
+            momentum=momentum,
+            high_24h=high_24h,
+            low_24h=low_24h,
+            atr=atr,
+            z_score=z_score,
+            regime_cfg=regime_cfg,
+            scalper_cfg=scalper_cfg,
+        )
+    else:
+        regime, score, range_pos, volatility = _compute_buy_diagnostics(
+            snapshot=snapshot,
+            price=price,
+            momentum=momentum,
+            high_24h=high_24h,
+            low_24h=low_24h,
+            atr=atr,
+            z_score=z_score,
+            regime_cfg=regime_cfg,
+        )
+    _record_symbol_metrics(symbol, regime, score, volatility)
+    _flush_metrics_state_if_due()
+
+    if strategy_mode == "volatility_scalper":
+        sell_signal = _evaluate_scalper_sell(
+            symbol=symbol,
+            price=price,
+            momentum=momentum,
+            entry=entry,
+            entry_ts=entry_ts,
+            atr=atr,
+            z_score=z_score,
+            scalper_cfg=scalper_cfg,
+        )
+    else:
+        sell_signal = _evaluate_sell(
+            symbol=symbol,
+            price=price,
+            momentum=momentum,
+            entry=entry,
+            z_score=z_score,
+            first_activation=profit_cfg.get("first_activation", 0.02),
+            initial_lock=profit_cfg.get("initial_lock", 0.01),
+            profit_levels=profit_cfg.get(
+                "levels",
+                [
+                    [0.04, 0.03],
+                    [0.05, 0.04],
+                    [0.06, 0.05],
+                    [0.08, 0.06],
+                ],
+            ),
+            trailing_activation=profit_cfg.get("trailing_activation", 0.10),
+            trailing_gap=profit_cfg.get("trailing_gap", 0.02),
+            reset_below_activation=profit_cfg.get("reset_below_activation", True),
+            max_negative_z_score=max_negative_z_score,
+        )
 
     # SELL is always allowed to fire while in a position.
     if sell_signal is not None:
-        if sell_signal["action"] == "SELL":
-            return sell_signal
         return sell_signal
+
+    if strategy_mode == "volatility_scalper":
+        return _evaluate_scalper_buy(
+            snapshot=snapshot,
+            symbol=symbol,
+            price=price,
+            momentum=momentum,
+            trades=trades,
+            atr=atr,
+            z_score=z_score,
+            prev_mom=prev_mom,
+            regime=regime,
+            score=score,
+            range_pos=range_pos,
+            blocked_regimes=blocked_regimes,
+            min_trades=min_trades,
+            scalper_cfg=scalper_cfg,
+        )
 
     return _evaluate_buy(
         snapshot=snapshot,
-        cfg=cfg,
         symbol=symbol,
         price=price,
         momentum=momentum,
@@ -230,8 +318,11 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         buy_zone_low=buy_zone_low,
         buy_zone_high=buy_zone_high,
         min_z_score=min_z_score,
-        regime_cfg=regime_cfg,
+        min_score_to_buy=min_score_to_buy,
         blocked_regimes=blocked_regimes,
+        regime=regime,
+        score=score,
+        range_pos=range_pos,
     )
 
 
@@ -315,9 +406,151 @@ def _evaluate_sell(
     return _decision(symbol, "HOLD", price, momentum, "in_position")
 
 
+def _evaluate_scalper_sell(
+    symbol,
+    price,
+    momentum,
+    entry,
+    entry_ts,
+    atr,
+    z_score,
+    scalper_cfg,
+):
+    if entry is None:
+        return None
+
+    now = time.time()
+    if entry_ts is None:
+        entry_ts = _entry_time.get(symbol)
+    entry_ts = _parse_numeric(entry_ts, fallback=None)
+    if entry_ts is None:
+        entry_ts = now
+        _entry_time[symbol] = entry_ts
+
+    atr_value = _parse_numeric(atr, fallback=0.0) or 0.0
+    min_move_pct = max(
+        _parse_numeric(scalper_cfg.get("min_move_pct"), fallback=0.0015) or 0.0015,
+        0.0,
+    )
+    take_profit_pct = max(
+        atr_value * max(scalper_cfg.get("take_profit_atr_mult", 0.6), 0.0),
+        min_move_pct,
+    )
+    stop_loss_pct = max(
+        atr_value * max(scalper_cfg.get("stop_loss_atr_mult", 0.35), 0.0),
+        min_move_pct * 0.75,
+    )
+    max_hold_seconds = max(int(scalper_cfg.get("max_hold_seconds", 180)), 1)
+    exit_z_score = _parse_numeric(
+        scalper_cfg.get("exit_z_score"),
+        fallback=0.8,
+    )
+
+    pnl_pct = (price - entry) / entry
+    _peak_pnl[symbol] = max(_peak_pnl.get(symbol, pnl_pct), pnl_pct)
+
+    if pnl_pct >= take_profit_pct:
+        return _decision(symbol, "SELL", price, momentum, "scalper_take_profit")
+
+    if pnl_pct <= -stop_loss_pct:
+        return _decision(symbol, "SELL", price, momentum, "scalper_stop_loss")
+
+    if (
+        z_score is not None
+        and exit_z_score is not None
+        and z_score >= exit_z_score
+        and pnl_pct > 0
+    ):
+        return _decision(symbol, "SELL", price, momentum, "scalper_vwap_exit")
+
+    if (now - entry_ts) >= max_hold_seconds:
+        return _decision(symbol, "SELL", price, momentum, "scalper_time_stop")
+
+    return _decision(symbol, "HOLD", price, momentum, "scalper_in_position")
+
+
+def _evaluate_scalper_buy(
+    snapshot,
+    symbol,
+    price,
+    momentum,
+    trades,
+    atr,
+    z_score,
+    prev_mom,
+    regime,
+    score,
+    range_pos,
+    blocked_regimes,
+    min_trades,
+    scalper_cfg,
+):
+    if not snapshot.get("data_quality_ok", True):
+        return _decision(
+            symbol,
+            "HOLD",
+            price,
+            momentum,
+            snapshot.get("data_quality_reason", "data_quality_failed"),
+        )
+
+    if regime in blocked_regimes:
+        return _decision(symbol, "HOLD", price, momentum, f"regime_{regime}")
+
+    required_trades = max(int(scalper_cfg.get("min_trades", 6)), int(min_trades))
+    if trades < required_trades:
+        return _decision(symbol, "HOLD", price, momentum, "scalper_insufficient_trades")
+
+    atr_value = _parse_numeric(atr, fallback=None)
+    if atr_value is None or atr_value <= 0:
+        return _decision(symbol, "HOLD", price, momentum, "scalper_missing_volatility")
+
+    min_atr = max(scalper_cfg.get("min_atr", 0.008), 0.0)
+    if atr_value < min_atr:
+        return _decision(symbol, "HOLD", price, momentum, "scalper_volatility_too_low")
+
+    spread_bps = _parse_numeric(snapshot.get("spread_bps"), fallback=None)
+    max_spread_bps = max(scalper_cfg.get("max_spread_bps", 120.0), 0.0)
+    if spread_bps is not None and spread_bps > max_spread_bps:
+        return _decision(symbol, "HOLD", price, momentum, "scalper_spread_too_wide")
+
+    max_range_pos = scalper_cfg.get("max_range_pos")
+    if max_range_pos is not None and range_pos is not None and range_pos > max_range_pos:
+        return _decision(symbol, "HOLD", price, momentum, "scalper_too_extended")
+
+    if z_score is None:
+        vwap = _parse_numeric(snapshot.get("vwap"), fallback=None)
+        if vwap is not None and atr_value > 0:
+            z_score = (price - vwap) / atr_value
+
+    entry_z_score_max = _parse_numeric(
+        scalper_cfg.get("entry_z_score_max"),
+        fallback=-0.1,
+    )
+    if z_score is not None and entry_z_score_max is not None and z_score > entry_z_score_max:
+        return _decision(symbol, "HOLD", price, momentum, "scalper_wait_for_pullback")
+
+    min_momentum = _parse_numeric(
+        scalper_cfg.get("min_momentum"),
+        fallback=0.2,
+    )
+    if min_momentum is not None and momentum < min_momentum:
+        return _decision(symbol, "HOLD", price, momentum, "scalper_momentum_not_ready")
+
+    min_score = max(float(scalper_cfg.get("min_score_to_buy", 55.0)), 0.0)
+    if score < min_score:
+        return _decision(symbol, "HOLD", price, momentum, "scalper_score_below_threshold")
+
+    if prev_mom is not None and momentum < prev_mom:
+        _last_momentum[symbol] = momentum
+        return _decision(symbol, "HOLD", price, momentum, "scalper_momentum_weakening")
+
+    _last_momentum[symbol] = momentum
+    return _decision(symbol, "BUY", price, momentum, "volatility_scalper_entry")
+
+
 def _evaluate_buy(
     snapshot,
-    cfg,
     symbol,
     price,
     momentum,
@@ -333,8 +566,11 @@ def _evaluate_buy(
     buy_zone_low,
     buy_zone_high,
     min_z_score,
-    regime_cfg,
+    min_score_to_buy,
     blocked_regimes,
+    regime,
+    score,
+    range_pos,
 ):
     if not snapshot.get("data_quality_ok", True):
         return _decision(
@@ -360,13 +596,11 @@ def _evaluate_buy(
     if z_score is None:
         z_score = (price - vwap) / atr
 
-    # Regime is advisory for entries unless explicitly hard-blocked in config.
-    regime = detect_regime(snapshot, regime_cfg)
     if regime in blocked_regimes:
         return _decision(symbol, "HOLD", price, momentum, f"regime_{regime}")
 
-    range_width = high_24h - low_24h
-    range_pos = (price - low_24h) / range_width
+    if range_pos is None:
+        return _decision(symbol, "HOLD", price, momentum, "insufficient_range_data")
 
     if range_pos > buy_zone_high:
         return _decision(symbol, "HOLD", price, momentum, "price_above_buy_zone")
@@ -376,6 +610,9 @@ def _evaluate_buy(
 
     if z_score > min_z_score:
         return _decision(symbol, "HOLD", price, momentum, "insufficient_volatility_stretch")
+
+    if score < min_score_to_buy:
+        return _decision(symbol, "HOLD", price, momentum, "score_below_threshold")
 
     if prev_mom is not None and momentum < prev_mom:
         _last_momentum[symbol] = momentum
@@ -390,17 +627,25 @@ def _evaluate_buy(
 # ============================================================
 
 def _save_strategy_state():
+    global _metrics_dirty, _last_metrics_flush_at
+
     STATE_DIR.mkdir(parents=True, exist_ok=True)
 
     state = {
         "entry_price": _entry_price,
+        "entry_time": _entry_time,
         "profit_lock": _profit_lock,
         "peak_pnl": _peak_pnl,
         "last_signal": _last_signal,
         "last_momentum": _last_momentum,
+        "last_regime": _last_regime,
+        "last_score": _last_score,
+        "last_volatility": _last_volatility,
     }
 
     write_json_file(STRATEGY_STATE_FILE, state)
+    _metrics_dirty = False
+    _last_metrics_flush_at = time.time()
 
 
 def _load_strategy_state():
@@ -413,10 +658,14 @@ def _load_strategy_state():
             state = {}
 
         _entry_price.update(state.get("entry_price", {}))
+        _entry_time.update(state.get("entry_time", {}))
         _profit_lock.update(state.get("profit_lock", {}))
         _peak_pnl.update(state.get("peak_pnl", {}))
         _last_signal.update(state.get("last_signal", {}))
         _last_momentum.update(state.get("last_momentum", {}))
+        _last_regime.update(state.get("last_regime", {}))
+        _last_score.update(state.get("last_score", {}))
+        _last_volatility.update(state.get("last_volatility", {}))
 
         logger.info("Strategy state restored")
 
@@ -429,6 +678,7 @@ def _load_strategy_state():
 # ============================================================
 def confirm_entry(symbol: str, price: float):
     _entry_price[symbol] = price
+    _entry_time[symbol] = time.time()
     _profit_lock[symbol] = None
     _peak_pnl[symbol] = 0.0
     _last_signal[symbol] = "BUY"
@@ -443,21 +693,309 @@ def confirm_exit(symbol: str, price: float):
 def _cleanup(symbol, price):
     _last_sell_price[symbol] = price
     _entry_price.pop(symbol, None)
+    _entry_time.pop(symbol, None)
     _profit_lock.pop(symbol, None)
     _peak_pnl.pop(symbol, None)
     _last_signal.pop(symbol, None)
     _last_momentum.pop(symbol, None)
+    _last_regime.pop(symbol, None)
+    _last_score.pop(symbol, None)
+    _last_volatility.pop(symbol, None)
 
 
 def _decision(symbol, action, price, momentum, reason):
-    logger.info(f"{symbol} → {action} | reason={reason}")
-    return {
+    logger.info(f"{symbol} -> {action} | reason={reason}")
+    payload = {
         "symbol": symbol,
         "action": action,
         "price": price,
         "momentum": momentum,
         "reason": reason,
     }
+    if symbol in _last_regime:
+        payload["regime"] = _last_regime[symbol]
+    if symbol in _last_score:
+        payload["score"] = _last_score[symbol]
+    if symbol in _last_volatility:
+        payload["volatility"] = _last_volatility[symbol]
+    return payload
+
+
+def _parse_numeric(value, fallback=None):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _compute_buy_diagnostics(
+    snapshot,
+    price,
+    momentum,
+    high_24h,
+    low_24h,
+    atr,
+    z_score,
+    regime_cfg,
+):
+    regime = detect_regime(snapshot, regime_cfg)
+    volatility = _parse_numeric(atr, fallback=None)
+
+    range_pos = None
+    if high_24h > low_24h:
+        range_pos = (price - low_24h) / (high_24h - low_24h)
+        range_pos = max(0.0, min(1.0, range_pos))
+
+    rsi = _parse_numeric(snapshot.get("rsi"), fallback=None)
+    if rsi is None:
+        if range_pos is not None:
+            rsi = range_pos * 100.0
+        elif z_score is not None:
+            rsi = max(0.0, min(100.0, 50.0 + (z_score * 10.0)))
+        else:
+            rsi = 50.0
+
+    structure = 0.0
+    recent_prices = snapshot.get("recent_prices")
+    if isinstance(recent_prices, list):
+        valid_prices = []
+        for raw in recent_prices:
+            value = _parse_numeric(raw, fallback=None)
+            if value is None or value <= 0:
+                continue
+            valid_prices.append(value)
+
+        if len(valid_prices) >= 5:
+            try:
+                support, resistance = calculate_support_resistance(
+                    valid_prices,
+                    window=min(14, len(valid_prices)),
+                )
+                if price <= support * 1.01:
+                    structure = 1.0
+                elif price >= resistance * 0.995:
+                    structure = -1.0
+            except Exception:
+                structure = 0.0
+
+    indicators = {
+        "rsi": rsi,
+        "momentum": _parse_numeric(momentum, fallback=0.0),
+        "structure": structure,
+    }
+
+    score = score_indicators(
+        regime=regime,
+        indicators=indicators,
+        range_pos=range_pos if range_pos is not None else 0.0,
+    )
+
+    return regime, float(score), range_pos, volatility
+
+
+def _normalize_symbol(value):
+    if not isinstance(value, str):
+        return ""
+    return value.strip().upper()
+
+
+def _normalize_strategy_name(value):
+    raw = str(value or "").strip().lower()
+    if raw in {"volatility_scalper", "vol_scalper", "scalper"}:
+        return "volatility_scalper"
+    return "mean_reversion"
+
+
+def _resolve_scalper_config(cfg):
+    raw = cfg.get("volatility_scalper", {})
+    if not isinstance(raw, dict):
+        raw = {}
+
+    symbols = set()
+    raw_symbols = raw.get("symbols", [])
+    if isinstance(raw_symbols, list):
+        for item in raw_symbols:
+            symbol = _normalize_symbol(item)
+            if symbol:
+                symbols.add(symbol)
+
+    max_range_pos = _parse_numeric(raw.get("max_range_pos"), fallback=0.65)
+    if max_range_pos is not None:
+        max_range_pos = max(0.0, min(1.0, max_range_pos))
+
+    return {
+        "enabled": raw.get("enabled", True) is not False,
+        "symbols": symbols,
+        "min_atr": max(_parse_numeric(raw.get("min_atr"), fallback=0.008) or 0.008, 0.0),
+        "min_trades": max(int(_parse_numeric(raw.get("min_trades"), fallback=6) or 6), 1),
+        "max_spread_bps": max(
+            _parse_numeric(raw.get("max_spread_bps"), fallback=120.0) or 120.0,
+            0.0,
+        ),
+        "min_momentum": _parse_numeric(raw.get("min_momentum"), fallback=0.2),
+        "entry_z_score_max": _parse_numeric(raw.get("entry_z_score_max"), fallback=-0.1),
+        "exit_z_score": _parse_numeric(raw.get("exit_z_score"), fallback=0.8),
+        "take_profit_atr_mult": max(
+            _parse_numeric(raw.get("take_profit_atr_mult"), fallback=0.6) or 0.6,
+            0.0,
+        ),
+        "stop_loss_atr_mult": max(
+            _parse_numeric(raw.get("stop_loss_atr_mult"), fallback=0.35) or 0.35,
+            0.0,
+        ),
+        "max_hold_seconds": max(
+            int(_parse_numeric(raw.get("max_hold_seconds"), fallback=180) or 180),
+            1,
+        ),
+        "min_move_pct": max(
+            _parse_numeric(raw.get("min_move_pct"), fallback=0.0015) or 0.0015,
+            0.0,
+        ),
+        "min_score_to_buy": max(
+            _parse_numeric(raw.get("min_score_to_buy"), fallback=55.0) or 55.0,
+            0.0,
+        ),
+        "max_range_pos": max_range_pos,
+    }
+
+
+def _strategy_for_symbol(cfg, symbol, scalper_cfg):
+    symbol_key = _normalize_symbol(symbol)
+    if not symbol_key:
+        return "mean_reversion"
+
+    symbol_strategies = cfg.get("symbol_strategies", {})
+    if isinstance(symbol_strategies, dict):
+        for raw_symbol, raw_strategy in symbol_strategies.items():
+            if _normalize_symbol(raw_symbol) != symbol_key:
+                continue
+            return _normalize_strategy_name(raw_strategy)
+
+    strategy_overrides = cfg.get("strategy_overrides", {})
+    if isinstance(strategy_overrides, dict):
+        for raw_symbol, override in strategy_overrides.items():
+            if _normalize_symbol(raw_symbol) != symbol_key:
+                continue
+
+            mode = override
+            if isinstance(override, dict):
+                mode = override.get("strategy", override.get("mode"))
+            return _normalize_strategy_name(mode)
+
+    if scalper_cfg.get("enabled") and symbol_key in scalper_cfg.get("symbols", set()):
+        return "volatility_scalper"
+
+    return "mean_reversion"
+
+
+def _compute_scalper_diagnostics(
+    snapshot,
+    price,
+    momentum,
+    high_24h,
+    low_24h,
+    atr,
+    z_score,
+    regime_cfg,
+    scalper_cfg,
+):
+    regime = detect_regime(snapshot, regime_cfg)
+    volatility = _parse_numeric(atr, fallback=None)
+
+    range_pos = None
+    if high_24h > low_24h:
+        range_pos = (price - low_24h) / (high_24h - low_24h)
+        range_pos = max(0.0, min(1.0, range_pos))
+
+    score = 0.0
+    min_atr = scalper_cfg.get("min_atr", 0.008)
+    if volatility is not None:
+        if volatility >= min_atr:
+            score += 45
+            score += min((volatility - min_atr) / max(min_atr, 1e-9), 1.0) * 20.0
+        else:
+            score += max(volatility / max(min_atr, 1e-9), 0.0) * 35.0
+
+    momentum_value = _parse_numeric(momentum, fallback=0.0) or 0.0
+    if momentum_value > 0:
+        score += min(momentum_value / 2.0, 1.0) * 20.0
+
+    spread_bps = _parse_numeric(snapshot.get("spread_bps"), fallback=None)
+    max_spread_bps = max(scalper_cfg.get("max_spread_bps", 120.0), 1e-9)
+    if spread_bps is not None:
+        if spread_bps <= max_spread_bps:
+            score += 15.0
+        else:
+            penalty = min(((spread_bps - max_spread_bps) / max_spread_bps) * 30.0, 40.0)
+            score -= penalty
+
+    entry_z_score_max = scalper_cfg.get("entry_z_score_max")
+    if z_score is not None and entry_z_score_max is not None:
+        if z_score <= entry_z_score_max:
+            score += 15.0
+        elif z_score >= 1.2:
+            score -= 15.0
+
+    if range_pos is not None:
+        max_range_pos = scalper_cfg.get("max_range_pos")
+        if max_range_pos is not None and range_pos <= max_range_pos:
+            score += 10.0
+        elif range_pos > 0.8:
+            score -= 10.0
+
+    if regime in {"trend_down", "dump"}:
+        score -= 10.0
+    elif regime in {"trend_up", "accumulation", "spike"}:
+        score += 5.0
+
+    score = max(0.0, min(score, 100.0))
+    return regime, float(score), range_pos, volatility
+
+
+def _record_symbol_metrics(symbol, regime, score, volatility):
+    global _metrics_dirty
+
+    changed = False
+
+    if _last_regime.get(symbol) != regime:
+        _last_regime[symbol] = regime
+        changed = True
+
+    previous_score = _parse_numeric(_last_score.get(symbol), fallback=None)
+    if previous_score is None or abs(previous_score - score) > SCORE_EPSILON:
+        _last_score[symbol] = float(score)
+        changed = True
+
+    if volatility is None:
+        if symbol in _last_volatility:
+            _last_volatility.pop(symbol, None)
+            changed = True
+    else:
+        previous_volatility = _parse_numeric(
+            _last_volatility.get(symbol),
+            fallback=None,
+        )
+        if (
+            previous_volatility is None
+            or abs(previous_volatility - volatility) > VOLATILITY_EPSILON
+        ):
+            _last_volatility[symbol] = float(volatility)
+            changed = True
+
+    if changed:
+        _metrics_dirty = True
+
+
+def _flush_metrics_state_if_due(force=False):
+    if not _metrics_dirty:
+        return
+
+    now = time.time()
+    if not force and (now - _last_metrics_flush_at) < METRICS_FLUSH_INTERVAL_SECONDS:
+        return
+
+    _save_strategy_state()
+
 
 
 _load_strategy_state()

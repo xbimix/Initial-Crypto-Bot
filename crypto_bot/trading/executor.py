@@ -55,6 +55,7 @@ class Executor:
         action = decision.get("action")
         price = decision.get("price")
         reason = decision.get("reason")
+        volatility = decision.get("volatility")
 
         if not symbol or action not in {"BUY", "SELL", "HOLD"}:
             logger.warning(f"Invalid decision payload: {decision}")
@@ -69,7 +70,7 @@ class Executor:
         logger.info(f"Executor: {symbol} -> {action} @ {price} | {reason}")
 
         if action == "BUY":
-            return self._handle_buy(symbol, price, reason)
+            return self._handle_buy(symbol, price, reason, volatility)
 
         elif action == "SELL":
             return self._handle_sell(symbol, price, reason)
@@ -97,10 +98,10 @@ class Executor:
     # BUY HANDLER
     # --------------------------------------------------
 
-    def _handle_buy(self, symbol: str, price: float, reason: str) -> bool:
+    def _handle_buy(self, symbol: str, price: float, reason: str, volatility=None) -> bool:
 
         # Cooldown protection
-        if not self.risk.can_trade(symbol):
+        if not self.risk.can_trade(symbol, volatility=volatility):
             logger.info(f"Cooldown active for {symbol}")
             return False
 
@@ -116,7 +117,7 @@ class Executor:
 
         # Position sizing
         balance = self.paper.get_balance()
-        size = self.risk.position_size(balance, price)
+        size = self.risk.position_size(balance, price, volatility=volatility)
 
         if size <= 0:
             logger.warning("Invalid position size")

@@ -19,6 +19,11 @@ type SymbolsBody = {
   enabled?: unknown;
 };
 
+type ScalperBody = {
+  symbol?: unknown;
+  enabled?: unknown;
+};
+
 const STATE_DIR = path.resolve(process.cwd(), "..", "crypto_bot", "state");
 const CONFIG_PATH = path.join(STATE_DIR, "config.json");
 const PAPER_STATE_PATH = path.join(STATE_DIR, "paper_state.json");
@@ -85,6 +90,14 @@ function parseEnabledMap(value: unknown): Record<string, boolean> {
     output[symbol] = rawEnabled !== false;
   }
   return output;
+}
+
+function normalizeStrategyName(value: unknown): "mean_reversion" | "volatility_scalper" {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "volatility_scalper" || raw === "vol_scalper" || raw === "scalper") {
+    return "volatility_scalper";
+  }
+  return "mean_reversion";
 }
 
 function sleep(ms: number) {
@@ -337,6 +350,56 @@ export async function updateSymbolsLocal(body: SymbolsBody) {
   });
 }
 
+export async function updateScalperLocal(body: ScalperBody) {
+  const symbol = normalizeSymbol(body.symbol);
+  if (!symbol) {
+    throw new RouteError(400, "Missing symbol");
+  }
+
+  if (typeof body.enabled !== "boolean") {
+    throw new RouteError(400, "enabled must be a boolean");
+  }
+  const enabled = body.enabled;
+
+  return withFileLock(CONFIG_PATH, async () => {
+    const cfg = toObject(await readJson<ConfigState>(CONFIG_PATH, {}));
+    const symbols = normalizeSymbols(cfg.symbols);
+    if (!symbols.includes(symbol)) {
+      symbols.push(symbol);
+    }
+
+    const symbolStrategies = toObject(cfg.symbol_strategies);
+    symbolStrategies[symbol] = enabled ? "volatility_scalper" : "mean_reversion";
+
+    const volatilityScalper = toObject(cfg.volatility_scalper);
+    const scalperSymbols = normalizeSymbols(volatilityScalper.symbols);
+    if (enabled) {
+      if (!scalperSymbols.includes(symbol)) {
+        scalperSymbols.push(symbol);
+      }
+    } else {
+      volatilityScalper.symbols = scalperSymbols.filter((item) => item !== symbol);
+    }
+    if (enabled) {
+      volatilityScalper.symbols = scalperSymbols;
+    }
+
+    cfg.symbols = symbols;
+    cfg.symbol_strategies = symbolStrategies;
+    cfg.volatility_scalper = volatilityScalper;
+    await writeJsonAtomic(CONFIG_PATH, cfg);
+
+    return {
+      symbol,
+      enabled,
+      strategy: normalizeStrategyName(symbolStrategies[symbol]),
+      symbol_strategies: symbolStrategies,
+      volatility_scalper: volatilityScalper,
+      fallback: true,
+    };
+  });
+}
+
 export async function updateRiskLocal(body: RiskBody) {
   if (
     body.maxConcurrentTrades === undefined &&
@@ -429,10 +492,14 @@ export async function manualSellLocal(body: ManualSellBody) {
 
     for (const key of [
       "entry_price",
+      "entry_time",
       "profit_lock",
       "peak_pnl",
       "last_signal",
       "last_momentum",
+      "last_regime",
+      "last_score",
+      "last_volatility",
     ]) {
       const section = toObject(strategyState[key]);
       delete section[symbol];

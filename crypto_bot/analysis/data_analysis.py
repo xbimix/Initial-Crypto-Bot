@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 
 
 # =====================================================
@@ -39,6 +38,8 @@ def calculate_rsi(prices, period=14):
     RSI with numerical stability.
     Returns Pandas Series (standard practice).
     """
+    import pandas as pd
+
     prices = pd.Series(prices, dtype=float)
 
     delta = prices.diff()
@@ -91,6 +92,8 @@ def calculate_moving_averages(ohlcv, windows=(20, 50, 200)):
     Adds moving averages to OHLCV dataframe.
     Used for diagnostics / backtesting (optional).
     """
+    import pandas as pd
+
     df = pd.DataFrame(
         ohlcv,
         columns=["timestamp", "open", "high", "low", "close", "volume"]
@@ -146,4 +149,3 @@ def auto_rebuy_price(current_price, risk_percent=2.0, rebuy_count=2):
         levels.append(round(price, 6))
 
     return levels
-##final

@@ -7,6 +7,11 @@ from api.revolut_order_book import get_order_book
 from api.revolut_trades import get_last_trades
 from utils.logger import setup_logger
 
+try:
+    from analysis.indicators import calculate_rsi
+except ModuleNotFoundError:
+    from crypto_bot.analysis.indicators import calculate_rsi
+
 logger = setup_logger("market_data")
 
 EPSILON = 1e-8
@@ -358,6 +363,7 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
 
         raw_momentum = (last_price - first_price) / (first_price + EPSILON)
         norm_momentum = raw_momentum / (atr + EPSILON)
+        rsi = calculate_rsi(prices, period=14)
 
         ema_50 = _ema(prices[-100:], 50)
         ema_200 = _ema(prices[-250:], 200)
@@ -391,6 +397,7 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             "price_source": "order_book_mid",
             "momentum_raw": raw_momentum,
             "momentum_norm": norm_momentum,
+            "rsi": rsi,
 
             "atr": atr,
             "atr_raw": atr_raw,
@@ -402,6 +409,7 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             "low_24h": low_24h,
             "trade_count": len(prices) if data_quality_ok else 0,
             "history_points": len(prices),
+            "recent_prices": prices[-60:],
             "data_quality_ok": data_quality_ok,
             "data_quality_reason": data_quality_reason,
 
@@ -417,6 +425,7 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             f"ask={book['best_ask']:.5f} "
             f"spread_bps={book['spread_bps']:.2f} "
             f"mom_norm={norm_momentum:.3f} "
+            f"rsi={(rsi if rsi is not None else 50.0):.2f} "
             f"atr_raw={atr_raw:.5f} "
             f"vwap={vwap:.5f} "
             f"points={len(prices)} "
