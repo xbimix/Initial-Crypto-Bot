@@ -1,5 +1,5 @@
 {
-  "balance": 8658.765949999197,
+  "balance": 8827.052778085517,
   "positions": {
     "DOT-USD": {
       "price": 1.54135,
@@ -35,12 +35,6 @@
       "price": 2105.455,
       "size": 0.084031,
       "entry_time": 1772721574.1915956,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "PONKE-USD": {
-      "price": 0.029525,
-      "size": 5533.930552,
-      "entry_time": 1772790249.8796015,
       "reason": "bear_market_mean_reversion_buy"
     },
     "PERP-USD": {

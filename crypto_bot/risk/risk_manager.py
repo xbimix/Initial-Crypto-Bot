@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from datetime import datetime, timezone
 
 from utils.logger import setup_logger
 
@@ -10,6 +11,7 @@ STATE_DIR = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "state")
 )
 PAPER_STATE_FILE = os.path.join(STATE_DIR, "paper_state.json")
+TRADES_FILE = os.path.join(STATE_DIR, "trades.json")
 
 
 class RiskManager:
@@ -45,6 +47,19 @@ class RiskManager:
             return float(value)
         except (TypeError, ValueError):
             return default
+
+    def _risk_cfg(self):
+        risk_cfg = self.cfg.get("risk", {})
+        if not isinstance(risk_cfg, dict):
+            return {}
+        return risk_cfg
+
+    @staticmethod
+    def _utc_day_start_epoch(now=None):
+        now_ts = time.time() if now is None else float(now)
+        dt = datetime.fromtimestamp(now_ts, tz=timezone.utc)
+        day_start = datetime(dt.year, dt.month, dt.day, tzinfo=timezone.utc)
+        return day_start.timestamp(), day_start.date().isoformat()
 
     def _volatility_scaling(self, volatility):
         risk_cfg = self.cfg.get("risk", {})
@@ -106,8 +121,16 @@ class RiskManager:
     # =====================================================
 
     def can_trade(self, symbol, volatility=None):
-        risk_cfg = self.cfg.get("risk", {})
+        risk_cfg = self._risk_cfg()
         cooldown = float(risk_cfg.get("cooldown_seconds", 90))
+        symbol_cooldown = risk_cfg.get("symbol_cooldown_seconds", {})
+        if isinstance(symbol_cooldown, dict):
+            symbol_key = str(symbol or "").strip().upper()
+            if symbol_key in symbol_cooldown:
+                cooldown = max(
+                    self._as_float(symbol_cooldown.get(symbol_key), cooldown),
+                    0.0,
+                )
         scaling = self._volatility_scaling(volatility)
         cooldown *= scaling["cooldown_mult"]
         last_time = self.last_trade_time.get(symbol, 0)
@@ -121,9 +144,134 @@ class RiskManager:
     # =====================================================
 
     def can_open_position(self, current_open_positions: int):
-        risk_cfg = self.cfg.get("risk", {})
-        max_trades = int(risk_cfg.get("max_concurrent_trades", 1))
+        risk_cfg = self._risk_cfg()
+        max_trades = max(int(self._as_float(risk_cfg.get("max_concurrent_trades"), 1)), 1)
         return current_open_positions < max_trades
+
+    def can_open_position_for_symbol(self, current_symbol_positions: int):
+        risk_cfg = self._risk_cfg()
+        max_symbol_trades = max(
+            int(self._as_float(risk_cfg.get("max_concurrent_trades_per_token"), 1)),
+            1,
+        )
+        return current_symbol_positions < max_symbol_trades
+
+    def can_open_under_max_trade_amount(self, current_allocated_usd: float, next_trade_cost_usd: float):
+        risk_cfg = self._risk_cfg()
+        raw_limit = risk_cfg.get(
+            "max_trade_amount_usd",
+            self._as_float(self.cfg.get("starting_balance"), None),
+        )
+        if raw_limit is None:
+            return True
+
+        limit = max(self._as_float(raw_limit, 0.0), 0.0)
+        return (current_allocated_usd + next_trade_cost_usd) <= (limit + 1e-9)
+
+    def exposure_block_reason(
+        self,
+        current_open_value_usd: float,
+        current_symbol_value_usd: float,
+        next_trade_cost_usd: float,
+        equity_usd: float,
+    ):
+        if equity_usd <= 0:
+            return "Equity unavailable"
+
+        risk_cfg = self._risk_cfg()
+        max_portfolio_pct = max(
+            self._as_float(risk_cfg.get("max_portfolio_exposure_pct"), 100.0),
+            1.0,
+        )
+        max_token_pct = max(
+            self._as_float(risk_cfg.get("max_exposure_per_token_pct"), 100.0),
+            1.0,
+        )
+
+        next_portfolio_pct = (
+            (max(current_open_value_usd, 0.0) + max(next_trade_cost_usd, 0.0))
+            / max(equity_usd, 1e-9)
+        ) * 100.0
+        if next_portfolio_pct > max_portfolio_pct:
+            return (
+                f"Portfolio exposure limit reached "
+                f"({next_portfolio_pct:.1f}% > {max_portfolio_pct:.1f}%)"
+            )
+
+        next_token_pct = (
+            (max(current_symbol_value_usd, 0.0) + max(next_trade_cost_usd, 0.0))
+            / max(equity_usd, 1e-9)
+        ) * 100.0
+        if next_token_pct > max_token_pct:
+            return (
+                f"Token exposure limit reached "
+                f"({next_token_pct:.1f}% > {max_token_pct:.1f}%)"
+            )
+
+        return None
+
+    def is_within_trade_window(self, now_utc=None):
+        risk_cfg = self._risk_cfg()
+        window_cfg = risk_cfg.get("trade_window_utc", {})
+        if not isinstance(window_cfg, dict):
+            window_cfg = {}
+
+        if window_cfg.get("enabled", False) is not True:
+            return True
+
+        start_hour = int(self._as_float(window_cfg.get("start_hour_utc"), 0) or 0)
+        end_hour = int(self._as_float(window_cfg.get("end_hour_utc"), 23) or 23)
+        start_hour = max(0, min(23, start_hour))
+        end_hour = max(0, min(23, end_hour))
+
+        now_dt = datetime.now(timezone.utc) if now_utc is None else now_utc
+        hour = int(now_dt.hour)
+
+        if start_hour == end_hour:
+            return True
+        if start_hour < end_hour:
+            return start_hour <= hour < end_hour
+        return hour >= start_hour or hour < end_hour
+
+    def daily_loss_state(self, now=None):
+        risk_cfg = self._risk_cfg()
+        daily_loss_limit = max(
+            self._as_float(risk_cfg.get("daily_loss_limit_usd"), 0.0),
+            0.0,
+        )
+        auto_pause = bool(risk_cfg.get("daily_loss_auto_pause", True))
+        close_all = bool(risk_cfg.get("daily_loss_close_all", False))
+
+        day_start_epoch, day_key = self._utc_day_start_epoch(now=now)
+        realized = 0.0
+
+        if os.path.exists(TRADES_FILE):
+            try:
+                with open(TRADES_FILE, "r", encoding="utf-8") as handle:
+                    trades = json.load(handle)
+                if isinstance(trades, list):
+                    for trade in trades:
+                        if not isinstance(trade, dict):
+                            continue
+                        if str(trade.get("side", "")).upper() != "SELL":
+                            continue
+                        ts = self._as_float(trade.get("time"), None)
+                        if ts is None or ts < day_start_epoch:
+                            continue
+                        pnl = self._as_float(trade.get("pnl"), 0.0) or 0.0
+                        realized += pnl
+            except Exception as exc:
+                logger.warning(f"Daily loss state read failed: {exc}")
+
+        breached = daily_loss_limit > 0 and realized <= -daily_loss_limit
+        return {
+            "day": day_key,
+            "limit_usd": daily_loss_limit,
+            "realized_usd": realized,
+            "breached": breached,
+            "buy_paused": breached and auto_pause,
+            "close_all": breached and close_all,
+        }
 
     # =====================================================
     # POSITION SIZING

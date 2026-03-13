@@ -37,7 +37,7 @@
   "risk": {
     "risk_percent": 0.02,
     "trade_amount_usd": 200,
-    "max_concurrent_trades": 1,
+    "max_concurrent_trades": 15,
     "cooldown_seconds": 90
   },
   "market_regime": {
@@ -96,5 +96,13 @@
   "symbol_sell_enabled": {
     "ADA-USD": true
   },
-  "emergency_stop": false
+  "emergency_stop": false,
+  "symbol_strategies": {
+    "GST-USD": "volatility_scalper"
+  },
+  "volatility_scalper": {
+    "symbols": [
+      "GST-USD"
+    ]
+  }
 }

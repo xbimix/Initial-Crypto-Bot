@@ -6,24 +6,51 @@ type ConfigState = {
   enabled?: boolean;
   execution_mode?: string;
   starting_balance?: number;
+  min_atr?: number;
+  min_score_to_buy?: number;
   symbols?: string[];
   symbol_strategies?: Record<string, unknown>;
   strategy_overrides?: Record<string, unknown>;
   volatility_scalper?: {
     enabled?: boolean;
     symbols?: string[];
+    min_atr?: number;
+    min_trades?: number;
+    max_spread_bps?: number;
+    min_momentum?: number;
+    entry_z_score_max?: number;
+    min_score_to_buy?: number;
+    max_range_pos?: number;
   };
   symbol_enabled?: Record<string, boolean>;
   symbol_buy_enabled?: Record<string, boolean>;
   symbol_sell_enabled?: Record<string, boolean>;
+  volatility_filters?: {
+    min_atr?: number;
+    min_atr_pct?: number;
+  };
   lookback?: number;
   min_trades?: number;
   loop_sleep?: number;
   risk?: {
     risk_percent?: number;
     max_concurrent_trades?: number;
+    max_concurrent_trades_per_token?: number;
+    max_trade_amount_usd?: number;
     trade_amount_usd?: number;
     cooldown_seconds?: number;
+    max_portfolio_exposure_pct?: number;
+    max_exposure_per_token_pct?: number;
+    daily_loss_limit_usd?: number;
+    daily_loss_auto_pause?: boolean;
+    daily_loss_close_all?: boolean;
+    signal_confirmation_cycles?: number;
+    trade_window_utc?: {
+      enabled?: boolean;
+      start_hour_utc?: number;
+      end_hour_utc?: number;
+    };
+    symbol_cooldown_seconds?: Record<string, number>;
   };
   profit_locks?: {
     first_activation?: number;
@@ -33,6 +60,10 @@ type ConfigState = {
   market_regime?: {
     preferred_buy_zone?: [number, number];
     min_z_score?: number;
+    min_score_to_buy?: number;
+    min_atr?: number;
+    blocked_regimes?: string[];
+    hard_blocked_regimes?: string[];
   };
 };
 
@@ -94,6 +125,9 @@ type SymbolControl = {
   sellEnabled: boolean;
   hasOpenPosition: boolean;
   scalperEnabled: boolean;
+  cooldownOverrideSeconds: number | null;
+  buyExecutable: boolean;
+  buyExecutableReason: string;
   regime: string | null;
   volatilityPct: number | null;
   strategyScorePct: number | null;
@@ -105,6 +139,7 @@ type SnapshotMetrics = {
   vwap: number | null;
   atrRaw: number | null;
   momNorm: number | null;
+  points: number | null;
   low24h: number | null;
   high24h: number | null;
   spreadBps: number | null;
@@ -176,6 +211,7 @@ function parseSnapshotMetrics(rawFields: string): SnapshotMetrics {
     vwap: asNumber(values.vwap),
     atrRaw: asNumber(values.atr_raw),
     momNorm: asNumber(values.mom_norm),
+    points: asNumber(values.points),
     low24h: asNumber(values["24h_low"]),
     high24h: asNumber(values["24h_high"]),
     spreadBps: asNumber(values.spread_bps),
@@ -332,6 +368,392 @@ function computeBuyOpportunityPct(
 
   const score = clamp(zoneScore + stretchScore + momentumScore - penalty, 0, 100);
   return score;
+}
+
+function isWithinTradeWindowUtc(config: ConfigState, nowUtc = new Date()) {
+  const windowCfg = config.risk?.trade_window_utc;
+  if (!windowCfg || windowCfg.enabled !== true) {
+    return true;
+  }
+
+  const startHour = Math.max(
+    0,
+    Math.min(23, Math.floor(Number(windowCfg.start_hour_utc ?? 0))),
+  );
+  const endHour = Math.max(
+    0,
+    Math.min(23, Math.floor(Number(windowCfg.end_hour_utc ?? 23))),
+  );
+  const hour = nowUtc.getUTCHours();
+
+  if (startHour === endHour) {
+    return true;
+  }
+  if (startHour < endHour) {
+    return hour >= startHour && hour < endHour;
+  }
+  return hour >= startHour || hour < endHour;
+}
+
+function computeDailyRealizedPnlUtc(
+  trades: TradeEntry[],
+  nowUtc = new Date(),
+) {
+  const dayStartUtc = Date.UTC(
+    nowUtc.getUTCFullYear(),
+    nowUtc.getUTCMonth(),
+    nowUtc.getUTCDate(),
+    0,
+    0,
+    0,
+    0,
+  ) / 1000;
+
+  return trades.reduce((total, trade) => {
+    if (String(trade.side ?? "").toUpperCase() !== "SELL") {
+      return total;
+    }
+    const tradeTime = Number(trade.time ?? 0);
+    if (!Number.isFinite(tradeTime) || tradeTime < dayStartUtc) {
+      return total;
+    }
+    return total + Number(trade.pnl ?? 0);
+  }, 0);
+}
+
+type BuyExecutableStatus = {
+  buyExecutable: boolean;
+  buyExecutableReason: string;
+};
+
+function blockedBuy(reason: string): BuyExecutableStatus {
+  return {
+    buyExecutable: false,
+    buyExecutableReason: reason,
+  };
+}
+
+function executableBuyReady(): BuyExecutableStatus {
+  return {
+    buyExecutable: true,
+    buyExecutableReason: "Ready",
+  };
+}
+
+function parseBlockedRegimeSet(config: ConfigState) {
+  const regimeCfg = config.market_regime ?? {};
+  const rawBlocked =
+    regimeCfg.hard_blocked_regimes
+    ?? regimeCfg.blocked_regimes
+    ?? ["unknown"];
+  const blocked = new Set<string>();
+
+  if (!Array.isArray(rawBlocked)) {
+    return blocked;
+  }
+
+  for (const value of rawBlocked) {
+    const regime = String(value ?? "").trim().toLowerCase();
+    if (regime) {
+      blocked.add(regime);
+    }
+  }
+
+  return blocked;
+}
+
+function parseQualityBlockReason(quality: string | null) {
+  const raw = String(quality ?? "").trim().toLowerCase();
+  if (!raw || raw === "ok") {
+    return null;
+  }
+
+  const reasons = raw
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (reasons.includes("spread_too_wide")) {
+    return "Spread too wide";
+  }
+  if (reasons.includes("order_book_tape_mismatch")) {
+    return "Book/tape mismatch";
+  }
+  if (reasons.includes("warming_up_history")) {
+    return "History warming up";
+  }
+
+  return "Data quality blocked";
+}
+
+function computeBuyExecutableStatus({
+  buyEnabled,
+  hasOpenPosition,
+  openPositionsForSymbol,
+  snapshot,
+  score,
+  regimeRaw,
+  strategyMode,
+  config,
+  openPositions,
+  currentAllocatedUsd,
+  currentSymbolAllocatedUsd,
+  totalEquityUsd,
+  estimatedNextTradeUsd,
+  dailyBuyPaused,
+  insideTradeWindowUtc,
+}: {
+  buyEnabled: boolean;
+  hasOpenPosition: boolean;
+  openPositionsForSymbol: number;
+  snapshot: SnapshotMetrics | null;
+  score: number | null;
+  regimeRaw: string | null;
+  strategyMode: string;
+  config: ConfigState;
+  openPositions: number;
+  currentAllocatedUsd: number;
+  currentSymbolAllocatedUsd: number;
+  totalEquityUsd: number;
+  estimatedNextTradeUsd: number;
+  dailyBuyPaused: boolean;
+  insideTradeWindowUtc: boolean;
+}): BuyExecutableStatus {
+  if (!buyEnabled) {
+    return blockedBuy("BUY toggle off");
+  }
+
+  if (!insideTradeWindowUtc) {
+    return blockedBuy("Outside UTC window");
+  }
+
+  if (dailyBuyPaused) {
+    return blockedBuy("Daily loss auto-pause");
+  }
+
+  const maxConcurrentTradesPerToken = Number(
+    config.risk?.max_concurrent_trades_per_token ?? 1,
+  );
+  if (
+    Number.isFinite(maxConcurrentTradesPerToken)
+    && openPositionsForSymbol >= maxConcurrentTradesPerToken
+  ) {
+    return blockedBuy(
+      `Token max reached (${openPositionsForSymbol}/${Math.trunc(maxConcurrentTradesPerToken)})`,
+    );
+  }
+
+  if (hasOpenPosition) {
+    return blockedBuy("Position already open");
+  }
+
+  if (!snapshot) {
+    return blockedBuy("No snapshot");
+  }
+
+  const qualityReason = parseQualityBlockReason(snapshot.quality);
+  if (qualityReason !== null) {
+    return blockedBuy(qualityReason);
+  }
+
+  const blockedRegimes = parseBlockedRegimeSet(config);
+  const regime = String(regimeRaw ?? "unknown").trim().toLowerCase() || "unknown";
+  if (blockedRegimes.has(regime)) {
+    return blockedBuy(`Regime blocked (${formatRegimeLabel(regime) ?? regime})`);
+  }
+
+  const maxConcurrentTrades = Number(config.risk?.max_concurrent_trades ?? 1);
+  if (
+    Number.isFinite(maxConcurrentTrades)
+    && openPositions >= maxConcurrentTrades
+  ) {
+    return blockedBuy(
+      `Max trades reached (${openPositions}/${Math.trunc(maxConcurrentTrades)})`,
+    );
+  }
+
+  const maxTradeAmountUsd = asFiniteNumber(
+    config.risk?.max_trade_amount_usd ?? config.starting_balance ?? null,
+  );
+  if (
+    maxTradeAmountUsd !== null
+    && (currentAllocatedUsd + estimatedNextTradeUsd) > maxTradeAmountUsd
+  ) {
+    return blockedBuy(
+      `Trade cap reached (${round(currentAllocatedUsd, 0)}/${round(maxTradeAmountUsd, 0)})`,
+    );
+  }
+
+  if (totalEquityUsd > 0) {
+    const maxPortfolioExposurePct = Math.max(
+      Number(config.risk?.max_portfolio_exposure_pct ?? 100),
+      1,
+    );
+    const maxTokenExposurePct = Math.max(
+      Number(config.risk?.max_exposure_per_token_pct ?? 100),
+      1,
+    );
+    const nextPortfolioExposurePct = (
+      (currentAllocatedUsd + estimatedNextTradeUsd)
+      / totalEquityUsd
+    ) * 100;
+    const nextTokenExposurePct = (
+      (currentSymbolAllocatedUsd + estimatedNextTradeUsd)
+      / totalEquityUsd
+    ) * 100;
+
+    if (nextPortfolioExposurePct > maxPortfolioExposurePct) {
+      return blockedBuy(
+        `Portfolio exposure limit (${nextPortfolioExposurePct.toFixed(1)}% > ${maxPortfolioExposurePct.toFixed(1)}%)`,
+      );
+    }
+
+    if (nextTokenExposurePct > maxTokenExposurePct) {
+      return blockedBuy(
+        `Token exposure limit (${nextTokenExposurePct.toFixed(1)}% > ${maxTokenExposurePct.toFixed(1)}%)`,
+      );
+    }
+  }
+
+  const price = snapshot.price;
+  const vwap = snapshot.vwap;
+  const atrRaw = snapshot.atrRaw;
+  const momentum = snapshot.momNorm;
+  const points = snapshot.points;
+  const spreadBps = snapshot.spreadBps;
+  const low24h = snapshot.low24h;
+  const high24h = snapshot.high24h;
+
+  if (price === null || price <= 0) {
+    return blockedBuy("Price unavailable");
+  }
+
+  if (
+    low24h === null
+    || high24h === null
+    || !Number.isFinite(low24h)
+    || !Number.isFinite(high24h)
+    || high24h <= low24h
+  ) {
+    return blockedBuy("Insufficient range data");
+  }
+
+  const rangePos = (price - low24h) / (high24h - low24h);
+
+  const zScore = (
+    vwap !== null
+    && atrRaw !== null
+    && atrRaw > 0
+  )
+    ? (price - vwap) / atrRaw
+    : null;
+
+  const minTrades = Math.max(Number(config.min_trades ?? 3), 1);
+  const mode = normalizeStrategyName(strategyMode);
+  if (mode === "volatility_scalper") {
+    const scalperCfg = config.volatility_scalper ?? {};
+    const requiredTrades = Math.max(Number(scalperCfg.min_trades ?? 6), minTrades);
+    if (points === null || points < requiredTrades) {
+      return blockedBuy(`Need ${Math.trunc(requiredTrades)} trades`);
+    }
+
+    if (atrRaw === null || atrRaw <= 0) {
+      return blockedBuy("Missing volatility");
+    }
+
+    const minAtr = Math.max(Number(scalperCfg.min_atr ?? 0.008), 0);
+    if (atrRaw < minAtr) {
+      return blockedBuy("Scalper volatility too low");
+    }
+
+    const maxSpreadBps = Math.max(Number(scalperCfg.max_spread_bps ?? 120), 0);
+    if (spreadBps !== null && spreadBps > maxSpreadBps) {
+      return blockedBuy("Spread too wide");
+    }
+
+    const maxRangePos = asFiniteNumber(scalperCfg.max_range_pos);
+    if (maxRangePos !== null && rangePos > maxRangePos) {
+      return blockedBuy("Too extended");
+    }
+
+    const entryZMax = Number(scalperCfg.entry_z_score_max ?? -0.1);
+    if (zScore !== null && zScore > entryZMax) {
+      return blockedBuy("Wait for pullback");
+    }
+
+    const minMomentum = Number(scalperCfg.min_momentum ?? 0.2);
+    if (momentum === null || momentum < minMomentum) {
+      return blockedBuy("Momentum not ready");
+    }
+
+    const minScore = Math.max(Number(scalperCfg.min_score_to_buy ?? 55), 0);
+    if (score === null) {
+      return blockedBuy("Score pending");
+    }
+    if (score < minScore) {
+      return blockedBuy("Score below threshold");
+    }
+
+    return executableBuyReady();
+  }
+
+  if (points === null || points < minTrades) {
+    return blockedBuy(`Need ${Math.trunc(minTrades)} trades`);
+  }
+
+  if (vwap === null || atrRaw === null || atrRaw <= 0) {
+    return blockedBuy("Insufficient data");
+  }
+
+  let buyZoneLow = 0.05;
+  let buyZoneHigh = 0.30;
+  const configuredZone = config.market_regime?.preferred_buy_zone;
+  if (Array.isArray(configuredZone) && configuredZone.length === 2) {
+    const low = Number(configuredZone[0]);
+    const high = Number(configuredZone[1]);
+    if (Number.isFinite(low) && Number.isFinite(high) && low < high) {
+      buyZoneLow = clamp(low, 0, 1);
+      buyZoneHigh = clamp(high, 0, 1);
+    }
+  }
+
+  const baseMinAtr = Number(
+    config.volatility_filters?.min_atr
+    ?? config.market_regime?.min_atr
+    ?? config.min_atr
+    ?? 0.003,
+  );
+  const minAtrPct = Number(config.volatility_filters?.min_atr_pct ?? baseMinAtr);
+  const effectiveMinAtr = Math.max(baseMinAtr, minAtrPct);
+  if (atrRaw < effectiveMinAtr) {
+    return blockedBuy("ATR below minimum");
+  }
+
+  if (rangePos > buyZoneHigh) {
+    return blockedBuy("Above buy zone");
+  }
+
+  if (rangePos < buyZoneLow) {
+    return blockedBuy("Below buy zone");
+  }
+
+  const minZScore = Number(config.market_regime?.min_z_score ?? -1.5);
+  if (zScore !== null && zScore > minZScore) {
+    return blockedBuy("No volatility stretch");
+  }
+
+  const minScoreToBuy = Number(
+    config.market_regime?.min_score_to_buy
+    ?? config.min_score_to_buy
+    ?? 60,
+  );
+  if (score === null) {
+    return blockedBuy("Score pending");
+  }
+  if (score < minScoreToBuy) {
+    return blockedBuy("Score below threshold");
+  }
+
+  return executableBuyReady();
 }
 
 function round(value: number, digits = 2) {
@@ -626,6 +1048,43 @@ export async function GET() {
   );
 
   const { snapshots, lastSnapshotAt } = await readLatestSnapshots(allSymbols);
+  const openPositionsCount = positionSymbols.length;
+  const startingBalance = Number(config.starting_balance ?? 10000);
+  const cashBalance = Number(paper.balance ?? 0);
+  const riskPercent = Number(config.risk?.risk_percent ?? 0.02);
+  const defaultTradeAmount = startingBalance * riskPercent;
+  const tradeAmountUsd = Number(config.risk?.trade_amount_usd ?? defaultTradeAmount);
+  const maxConcurrentTrades = Number(config.risk?.max_concurrent_trades ?? 1);
+  const maxConcurrentTradesPerToken = Number(
+    config.risk?.max_concurrent_trades_per_token ?? 1,
+  );
+  const maxTradeAmountUsd = Number(
+    config.risk?.max_trade_amount_usd ?? startingBalance,
+  );
+  const symbolCostBasisUsd: Record<string, number> = {};
+  for (const symbol of positionSymbols) {
+    const position = positions[symbol] ?? {};
+    symbolCostBasisUsd[symbol] = Number(position.price ?? 0) * Number(position.size ?? 0);
+  }
+  const currentAllocatedUsd = sum(Object.values(symbolCostBasisUsd));
+  const totalEquityEstimateUsd = cashBalance + currentAllocatedUsd;
+  const estimatedNextTradeUsd = Math.min(
+    Math.max(cashBalance, 0),
+    Math.max(Number.isFinite(tradeAmountUsd) ? tradeAmountUsd : 0, 0),
+  );
+  const cooldownOverrideMap = parseNumberMap(config.risk?.symbol_cooldown_seconds);
+  const nowUtc = new Date();
+  const insideTradeWindowUtc = isWithinTradeWindowUtc(config, nowUtc);
+  const dailyRealizedPnlUsd = computeDailyRealizedPnlUtc(trades, nowUtc);
+  const dailyLossLimitUsd = Math.max(
+    Number(config.risk?.daily_loss_limit_usd ?? 0),
+    0,
+  );
+  const dailyLossAutoPause = config.risk?.daily_loss_auto_pause !== false;
+  const dailyLossCloseAll = config.risk?.daily_loss_close_all === true;
+  const dailyBuyPaused = dailyLossLimitUsd > 0
+    && dailyLossAutoPause
+    && dailyRealizedPnlUsd <= -dailyLossLimitUsd;
 
   const symbolControls: SymbolControl[] = allSymbols.map((symbol) => {
     const snapshot = snapshots[symbol] ?? null;
@@ -638,13 +1097,36 @@ export async function GET() {
       strategyOverrides,
       scalperSymbols,
     );
+    const buyEnabled = buyMap[symbol] ?? legacyMap[symbol] ?? true;
+    const hasOpenPosition = symbol in positions;
+    const symbolAllocatedUsd = symbolCostBasisUsd[symbol] ?? 0;
+    const executableStatus = computeBuyExecutableStatus({
+      buyEnabled,
+      hasOpenPosition,
+      openPositionsForSymbol: hasOpenPosition ? 1 : 0,
+      snapshot,
+      score,
+      regimeRaw,
+      strategyMode,
+      config,
+      openPositions: openPositionsCount,
+      currentAllocatedUsd,
+      currentSymbolAllocatedUsd: symbolAllocatedUsd,
+      totalEquityUsd: totalEquityEstimateUsd,
+      estimatedNextTradeUsd,
+      dailyBuyPaused,
+      insideTradeWindowUtc,
+    });
 
     return {
       symbol,
-      buyEnabled: buyMap[symbol] ?? legacyMap[symbol] ?? true,
+      buyEnabled,
       sellEnabled: sellMap[symbol] ?? legacyMap[symbol] ?? true,
-      hasOpenPosition: symbol in positions,
+      hasOpenPosition,
       scalperEnabled: strategyMode === "volatility_scalper",
+      cooldownOverrideSeconds: cooldownOverrideMap[symbol] ?? null,
+      buyExecutable: executableStatus.buyExecutable,
+      buyExecutableReason: executableStatus.buyExecutableReason,
       regime: formatRegimeLabel(regimeRaw),
       volatilityPct:
         volatilityRaw === null ? null : Number(volatilityRaw) * 100,
@@ -739,20 +1221,10 @@ export async function GET() {
     }))
     .sort((left, right) => right.marketValue - left.marketValue);
 
-  const cashBalance = Number(paper.balance ?? 0);
   const investedCapital = sum(positionRows.map((row) => row.costBasis));
   const unrealizedPnl = sum(positionRows.map((row) => row.unrealizedValue));
   const realizedPnl = sum(
     trades.map((trade) => Number(trade.pnl ?? 0)),
-  );
-  const startingBalance = Number(config.starting_balance ?? 10000);
-  const riskPercent = Number(config.risk?.risk_percent ?? 0.02);
-  const defaultTradeAmount = startingBalance * riskPercent;
-  const tradeAmountUsd = Number(
-    config.risk?.trade_amount_usd ?? defaultTradeAmount,
-  );
-  const maxConcurrentTrades = Number(
-    config.risk?.max_concurrent_trades ?? 1,
   );
   const totalEquity = cashBalance + openValue;
   const netPnl = realizedPnl + unrealizedPnl;
@@ -782,8 +1254,37 @@ export async function GET() {
         config.risk?.cooldown_seconds ?? 0,
       ),
       maxConcurrentTrades: round(maxConcurrentTrades, 0),
+      maxConcurrentTradesPerToken: round(maxConcurrentTradesPerToken, 0),
+      maxTradeAmountUsd: round(maxTradeAmountUsd, 2),
+      maxPortfolioExposurePct: round(
+        Number(config.risk?.max_portfolio_exposure_pct ?? 100),
+        2,
+      ),
+      maxExposurePerTokenPct: round(
+        Number(config.risk?.max_exposure_per_token_pct ?? 100),
+        2,
+      ),
       tradeAmountUsd: round(tradeAmountUsd, 2),
       riskPercent: round(riskPercent * 100, 2),
+      signalConfirmationCycles: Math.max(
+        1,
+        Math.trunc(Number(config.risk?.signal_confirmation_cycles ?? 1)),
+      ),
+      tradeWindowEnabled: config.risk?.trade_window_utc?.enabled === true,
+      tradeWindowStartHourUtc: Math.max(
+        0,
+        Math.min(23, Math.trunc(Number(config.risk?.trade_window_utc?.start_hour_utc ?? 0))),
+      ),
+      tradeWindowEndHourUtc: Math.max(
+        0,
+        Math.min(23, Math.trunc(Number(config.risk?.trade_window_utc?.end_hour_utc ?? 23))),
+      ),
+      insideTradeWindowUtc,
+      dailyLossLimitUsd: round(dailyLossLimitUsd, 2),
+      dailyLossAutoPause,
+      dailyLossCloseAll,
+      dailyRealizedPnlUsd: round(dailyRealizedPnlUsd, 2),
+      dailyBuyPaused,
       loopSeconds: Number(config.loop_sleep ?? 0),
       lookback: Number(config.lookback ?? 0),
       minTrades: Number(config.min_trades ?? 0),
@@ -812,9 +1313,14 @@ export async function GET() {
         bestBuyCandidate?.buyOpportunityPct === null
           ? null
           : round(Number(bestBuyCandidate?.buyOpportunityPct ?? 0), 1),
+      symbolCooldownOverrides: cooldownOverrideMap,
     },
     symbolControls: symbolControls.map((control) => ({
       ...control,
+      cooldownOverrideSeconds:
+        control.cooldownOverrideSeconds === null
+          ? null
+          : round(control.cooldownOverrideSeconds, 1),
       volatilityPct:
         control.volatilityPct === null
           ? null

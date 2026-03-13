@@ -9,6 +9,7 @@ from utils.logger import setup_logger
 logger = setup_logger("main")
 
 HEARTBEAT_INTERVAL = 60
+_buy_signal_streak: dict[str, int] = {}
 
 
 def _normalize_symbols(raw_symbols: list[str]) -> list[str]:
@@ -62,6 +63,17 @@ def _is_action_enabled(cfg: dict, symbol: str, action: str) -> bool:
     return True
 
 
+def _signal_confirmation_cycles(cfg: dict) -> int:
+    risk_cfg = cfg.get("risk", {})
+    if not isinstance(risk_cfg, dict):
+        return 1
+
+    try:
+        return max(1, int(float(risk_cfg.get("signal_confirmation_cycles", 1))))
+    except (TypeError, ValueError):
+        return 1
+
+
 def main():
     logger.info("RevBot starting (paper mode default)")
     executor: Executor | None = None
@@ -86,6 +98,8 @@ def main():
             else:
                 executor.update_config(cfg)
 
+            executor.enforce_daily_loss_controls(snapshot_fetcher=fetch_market_snapshot)
+
             now = time.time()
             if now - last_heartbeat > HEARTBEAT_INTERVAL:
                 logger.info("Heartbeat - bot running")
@@ -105,6 +119,20 @@ def main():
                 decision = evaluate_symbol(market, cfg)
                 action = decision.get("action")
                 if action != "HOLD":
+                    if action == "BUY":
+                        required_cycles = _signal_confirmation_cycles(cfg)
+                        streak = _buy_signal_streak.get(symbol, 0) + 1
+                        _buy_signal_streak[symbol] = streak
+                        if streak < required_cycles:
+                            logger.info(
+                                f"{symbol} -> BUY blocked "
+                                f"(signal confirmation {streak}/{required_cycles})"
+                            )
+                            time.sleep(0.2)
+                            continue
+                    else:
+                        _buy_signal_streak.pop(symbol, None)
+
                     if not _is_action_enabled(cfg, symbol, action):
                         logger.info(
                             f"{symbol} -> {action} blocked (symbol {action} toggle off)"
@@ -112,6 +140,8 @@ def main():
                         time.sleep(0.2)
                         continue
                     executor.handle_decision(decision)
+                else:
+                    _buy_signal_streak.pop(symbol, None)
 
                 time.sleep(0.2)
 

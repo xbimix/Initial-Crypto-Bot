@@ -10,7 +10,18 @@ type ManualSellBody = {
 
 type RiskBody = {
   maxConcurrentTrades?: unknown;
+  maxConcurrentTradesPerToken?: unknown;
+  maxTradeAmountUsd?: unknown;
   tradeAmountUsd?: unknown;
+  maxPortfolioExposurePct?: unknown;
+  maxExposurePerTokenPct?: unknown;
+  dailyLossLimitUsd?: unknown;
+  dailyLossAutoPause?: unknown;
+  dailyLossCloseAll?: unknown;
+  signalConfirmationCycles?: unknown;
+  tradeWindowEnabled?: unknown;
+  tradeWindowStartHourUtc?: unknown;
+  tradeWindowEndHourUtc?: unknown;
 };
 
 type SymbolsBody = {
@@ -22,6 +33,15 @@ type SymbolsBody = {
 type ScalperBody = {
   symbol?: unknown;
   enabled?: unknown;
+};
+
+type CooldownBody = {
+  symbol?: unknown;
+  cooldownSeconds?: unknown;
+};
+
+type CloseAllBody = {
+  reason?: unknown;
 };
 
 const STATE_DIR = path.resolve(process.cwd(), "..", "crypto_bot", "state");
@@ -403,7 +423,18 @@ export async function updateScalperLocal(body: ScalperBody) {
 export async function updateRiskLocal(body: RiskBody) {
   if (
     body.maxConcurrentTrades === undefined &&
-    body.tradeAmountUsd === undefined
+    body.maxConcurrentTradesPerToken === undefined &&
+    body.maxTradeAmountUsd === undefined &&
+    body.tradeAmountUsd === undefined &&
+    body.maxPortfolioExposurePct === undefined &&
+    body.maxExposurePerTokenPct === undefined &&
+    body.dailyLossLimitUsd === undefined &&
+    body.dailyLossAutoPause === undefined &&
+    body.dailyLossCloseAll === undefined &&
+    body.signalConfirmationCycles === undefined &&
+    body.tradeWindowEnabled === undefined &&
+    body.tradeWindowStartHourUtc === undefined &&
+    body.tradeWindowEndHourUtc === undefined
   ) {
     throw new RouteError(400, "No risk values provided");
   }
@@ -426,6 +457,110 @@ export async function updateRiskLocal(body: RiskBody) {
     tradeAmountUsd = Math.max(1, value);
   }
 
+  let maxConcurrentTradesPerToken: number | null = null;
+  if (body.maxConcurrentTradesPerToken !== undefined) {
+    const value = asFiniteNumber(body.maxConcurrentTradesPerToken);
+    if (value === null) {
+      throw new RouteError(400, "maxConcurrentTradesPerToken must be a number");
+    }
+    maxConcurrentTradesPerToken = Math.max(1, Math.floor(value));
+  }
+
+  let maxTradeAmountUsd: number | null = null;
+  if (body.maxTradeAmountUsd !== undefined) {
+    const value = asFiniteNumber(body.maxTradeAmountUsd);
+    if (value === null) {
+      throw new RouteError(400, "maxTradeAmountUsd must be a number");
+    }
+    maxTradeAmountUsd = Math.max(1, value);
+  }
+
+  let maxPortfolioExposurePct: number | null = null;
+  if (body.maxPortfolioExposurePct !== undefined) {
+    const value = asFiniteNumber(body.maxPortfolioExposurePct);
+    if (value === null) {
+      throw new RouteError(400, "maxPortfolioExposurePct must be a number");
+    }
+    maxPortfolioExposurePct = Math.max(1, Math.min(100, value));
+  }
+
+  let maxExposurePerTokenPct: number | null = null;
+  if (body.maxExposurePerTokenPct !== undefined) {
+    const value = asFiniteNumber(body.maxExposurePerTokenPct);
+    if (value === null) {
+      throw new RouteError(400, "maxExposurePerTokenPct must be a number");
+    }
+    maxExposurePerTokenPct = Math.max(1, Math.min(100, value));
+  }
+
+  let dailyLossLimitUsd: number | null = null;
+  if (body.dailyLossLimitUsd !== undefined) {
+    const value = asFiniteNumber(body.dailyLossLimitUsd);
+    if (value === null) {
+      throw new RouteError(400, "dailyLossLimitUsd must be a number");
+    }
+    dailyLossLimitUsd = Math.max(0, value);
+  }
+
+  let dailyLossAutoPause: boolean | null = null;
+  if (body.dailyLossAutoPause !== undefined) {
+    if (typeof body.dailyLossAutoPause !== "boolean") {
+      throw new RouteError(400, "dailyLossAutoPause must be a boolean");
+    }
+    dailyLossAutoPause = body.dailyLossAutoPause;
+  }
+
+  let dailyLossCloseAll: boolean | null = null;
+  if (body.dailyLossCloseAll !== undefined) {
+    if (typeof body.dailyLossCloseAll !== "boolean") {
+      throw new RouteError(400, "dailyLossCloseAll must be a boolean");
+    }
+    dailyLossCloseAll = body.dailyLossCloseAll;
+  }
+
+  let signalConfirmationCycles: number | null = null;
+  if (body.signalConfirmationCycles !== undefined) {
+    const value = asFiniteNumber(body.signalConfirmationCycles);
+    if (value === null) {
+      throw new RouteError(400, "signalConfirmationCycles must be a number");
+    }
+    signalConfirmationCycles = Math.max(1, Math.floor(value));
+  }
+
+  let tradeWindowEnabled: boolean | null = null;
+  if (body.tradeWindowEnabled !== undefined) {
+    if (typeof body.tradeWindowEnabled !== "boolean") {
+      throw new RouteError(400, "tradeWindowEnabled must be a boolean");
+    }
+    tradeWindowEnabled = body.tradeWindowEnabled;
+  }
+
+  let tradeWindowStartHourUtc: number | null = null;
+  if (body.tradeWindowStartHourUtc !== undefined) {
+    const value = asFiniteNumber(body.tradeWindowStartHourUtc);
+    if (value === null) {
+      throw new RouteError(400, "tradeWindowStartHourUtc must be a number");
+    }
+    const hour = Math.floor(value);
+    if (hour < 0 || hour > 23) {
+      throw new RouteError(400, "tradeWindowStartHourUtc must be between 0 and 23");
+    }
+    tradeWindowStartHourUtc = hour;
+  }
+
+  let tradeWindowEndHourUtc: number | null = null;
+  if (body.tradeWindowEndHourUtc !== undefined) {
+    const value = asFiniteNumber(body.tradeWindowEndHourUtc);
+    if (value === null) {
+      throw new RouteError(400, "tradeWindowEndHourUtc must be a number");
+    }
+    const hour = Math.floor(value);
+    if (hour < 0 || hour > 23) {
+      throw new RouteError(400, "tradeWindowEndHourUtc must be between 0 and 23");
+    }
+    tradeWindowEndHourUtc = hour;
+  }
+
   return withFileLock(CONFIG_PATH, async () => {
     const cfg = toObject(await readJson<ConfigState>(CONFIG_PATH, {}));
     const risk = toObject(cfg.risk);
@@ -433,8 +568,46 @@ export async function updateRiskLocal(body: RiskBody) {
     if (maxConcurrentTrades !== null) {
       risk.max_concurrent_trades = maxConcurrentTrades;
     }
+    if (maxConcurrentTradesPerToken !== null) {
+      risk.max_concurrent_trades_per_token = maxConcurrentTradesPerToken;
+    }
+    if (maxTradeAmountUsd !== null) {
+      risk.max_trade_amount_usd = maxTradeAmountUsd;
+    }
     if (tradeAmountUsd !== null) {
       risk.trade_amount_usd = tradeAmountUsd;
+    }
+    if (maxPortfolioExposurePct !== null) {
+      risk.max_portfolio_exposure_pct = maxPortfolioExposurePct;
+    }
+    if (maxExposurePerTokenPct !== null) {
+      risk.max_exposure_per_token_pct = maxExposurePerTokenPct;
+    }
+    if (dailyLossLimitUsd !== null) {
+      risk.daily_loss_limit_usd = dailyLossLimitUsd;
+    }
+    if (dailyLossAutoPause !== null) {
+      risk.daily_loss_auto_pause = dailyLossAutoPause;
+    }
+    if (dailyLossCloseAll !== null) {
+      risk.daily_loss_close_all = dailyLossCloseAll;
+    }
+    if (signalConfirmationCycles !== null) {
+      risk.signal_confirmation_cycles = signalConfirmationCycles;
+    }
+
+    const tradeWindow = toObject(risk.trade_window_utc);
+    if (tradeWindowEnabled !== null) {
+      tradeWindow.enabled = tradeWindowEnabled;
+    }
+    if (tradeWindowStartHourUtc !== null) {
+      tradeWindow.start_hour_utc = tradeWindowStartHourUtc;
+    }
+    if (tradeWindowEndHourUtc !== null) {
+      tradeWindow.end_hour_utc = tradeWindowEndHourUtc;
+    }
+    if (Object.keys(tradeWindow).length > 0) {
+      risk.trade_window_utc = tradeWindow;
     }
 
     cfg.risk = risk;
@@ -443,7 +616,166 @@ export async function updateRiskLocal(body: RiskBody) {
     return {
       risk,
       maxConcurrentTrades: risk.max_concurrent_trades,
+      maxConcurrentTradesPerToken: risk.max_concurrent_trades_per_token,
+      maxTradeAmountUsd: risk.max_trade_amount_usd,
       tradeAmountUsd: risk.trade_amount_usd,
+      maxPortfolioExposurePct: risk.max_portfolio_exposure_pct,
+      maxExposurePerTokenPct: risk.max_exposure_per_token_pct,
+      dailyLossLimitUsd: risk.daily_loss_limit_usd,
+      dailyLossAutoPause: risk.daily_loss_auto_pause,
+      dailyLossCloseAll: risk.daily_loss_close_all,
+      signalConfirmationCycles: risk.signal_confirmation_cycles,
+      tradeWindowUtc: risk.trade_window_utc,
+      fallback: true,
+    };
+  });
+}
+
+export async function updateCooldownLocal(body: CooldownBody) {
+  const symbol = normalizeSymbol(body.symbol);
+  if (!symbol) {
+    throw new RouteError(400, "Missing symbol");
+  }
+
+  let cooldownSeconds: number | null = null;
+  if (body.cooldownSeconds !== undefined && body.cooldownSeconds !== null) {
+    const value = asFiniteNumber(body.cooldownSeconds);
+    if (value === null) {
+      throw new RouteError(400, "cooldownSeconds must be a number");
+    }
+    cooldownSeconds = Math.max(1, value);
+  }
+
+  return withFileLock(CONFIG_PATH, async () => {
+    const cfg = toObject(await readJson<ConfigState>(CONFIG_PATH, {}));
+    const symbols = normalizeSymbols(cfg.symbols);
+    if (!symbols.includes(symbol)) {
+      symbols.push(symbol);
+    }
+
+    const risk = toObject(cfg.risk);
+    const symbolCooldown = toObject(risk.symbol_cooldown_seconds);
+
+    if (cooldownSeconds === null) {
+      delete symbolCooldown[symbol];
+    } else {
+      symbolCooldown[symbol] = cooldownSeconds;
+    }
+
+    risk.symbol_cooldown_seconds = symbolCooldown;
+    cfg.symbols = symbols;
+    cfg.risk = risk;
+    await writeJsonAtomic(CONFIG_PATH, cfg);
+
+    return {
+      symbol,
+      cooldownSeconds: symbolCooldown[symbol] ?? null,
+      symbolCooldownSeconds: symbolCooldown,
+      fallback: true,
+    };
+  });
+}
+
+export async function closeAllLocal(body: CloseAllBody) {
+  const rawReason = String(body.reason ?? "").trim();
+  const reason = rawReason || "manual_close_all";
+
+  return withStateTransaction(async () => {
+    const paperState = toObject(await readJson<JsonMap>(PAPER_STATE_PATH, {}));
+    const strategyState = toObject(
+      await readJson<JsonMap>(STRATEGY_STATE_PATH, {}),
+    );
+    const tradesRaw = await readJson<unknown>(TRADES_PATH, []);
+    const trades = Array.isArray(tradesRaw) ? tradesRaw.slice() : [];
+
+    const positions = toObject(paperState.positions);
+    const symbols = Object.keys(positions);
+    if (symbols.length === 0) {
+      return {
+        status: "ok",
+        closedCount: 0,
+        totalPnl: 0,
+        balance: asFiniteNumber(paperState.balance) ?? 0,
+        reason,
+        fallback: true,
+      };
+    }
+
+    let balance = asFiniteNumber(paperState.balance) ?? 0;
+    let totalPnl = 0;
+    const closed: Array<{
+      symbol: string;
+      price: number;
+      size: number;
+      pnl: number;
+    }> = [];
+
+    for (const symbol of symbols) {
+      const position = toObject(positions[symbol]);
+      const entryPrice = asFiniteNumber(position.price);
+      const size = asFiniteNumber(position.size);
+      if (!entryPrice || entryPrice <= 0 || !size || size <= 0) {
+        continue;
+      }
+
+      const marketPrice = await readLatestSnapshotPrice(symbol);
+      const sellPrice = marketPrice && marketPrice > 0 ? marketPrice : entryPrice;
+      const pnl = (sellPrice - entryPrice) * size;
+      const proceeds = sellPrice * size;
+      balance += proceeds;
+      totalPnl += pnl;
+
+      delete positions[symbol];
+
+      for (const key of [
+        "entry_price",
+        "entry_time",
+        "profit_lock",
+        "peak_pnl",
+        "last_signal",
+        "last_momentum",
+        "last_regime",
+        "last_score",
+        "last_volatility",
+      ]) {
+        const section = toObject(strategyState[key]);
+        delete section[symbol];
+        strategyState[key] = section;
+      }
+
+      trades.push({
+        time: Date.now() / 1000,
+        symbol,
+        side: "SELL",
+        price: sellPrice,
+        size,
+        pnl,
+        balance,
+        reason,
+      });
+
+      closed.push({
+        symbol,
+        price: sellPrice,
+        size,
+        pnl,
+      });
+    }
+
+    paperState.positions = positions;
+    paperState.balance = balance;
+
+    await writeJsonAtomic(PAPER_STATE_PATH, paperState);
+    await writeJsonAtomic(STRATEGY_STATE_PATH, strategyState);
+    await writeJsonAtomic(TRADES_PATH, trades);
+
+    return {
+      status: "ok",
+      closedCount: closed.length,
+      closed,
+      totalPnl,
+      balance,
+      reason,
       fallback: true,
     };
   });

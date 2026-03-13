@@ -14,8 +14,22 @@ type DashboardPayload = {
     sellDisabledSymbols: number;
     cooldownSeconds: number;
     maxConcurrentTrades: number;
+    maxConcurrentTradesPerToken: number;
+    maxTradeAmountUsd: number;
+    maxPortfolioExposurePct: number;
+    maxExposurePerTokenPct: number;
     tradeAmountUsd: number;
     riskPercent: number;
+    signalConfirmationCycles: number;
+    tradeWindowEnabled: boolean;
+    tradeWindowStartHourUtc: number;
+    tradeWindowEndHourUtc: number;
+    insideTradeWindowUtc: boolean;
+    dailyLossLimitUsd: number;
+    dailyLossAutoPause: boolean;
+    dailyLossCloseAll: boolean;
+    dailyRealizedPnlUsd: number;
+    dailyBuyPaused: boolean;
     loopSeconds: number;
     lookback: number;
     minTrades: number;
@@ -40,6 +54,7 @@ type DashboardPayload = {
     sellCount: number;
     bestBuySymbol: string | null;
     bestBuyOpportunityPct: number | null;
+    symbolCooldownOverrides: Record<string, number>;
   };
   symbolControls: Array<{
     symbol: string;
@@ -47,6 +62,9 @@ type DashboardPayload = {
     sellEnabled: boolean;
     hasOpenPosition: boolean;
     scalperEnabled: boolean;
+    cooldownOverrideSeconds: number | null;
+    buyExecutable: boolean;
+    buyExecutableReason: string;
     regime: string | null;
     volatilityPct: number | null;
     strategyScorePct: number | null;
@@ -76,6 +94,22 @@ type DashboardPayload = {
   }>;
 };
 
+type RiskDraft = {
+  maxConcurrentTrades: number;
+  maxConcurrentTradesPerToken: number;
+  maxTradeAmountUsd: number;
+  maxPortfolioExposurePct: number;
+  maxExposurePerTokenPct: number;
+  tradeAmountUsd: number;
+  signalConfirmationCycles: number;
+  tradeWindowEnabled: boolean;
+  tradeWindowStartHourUtc: number;
+  tradeWindowEndHourUtc: number;
+  dailyLossLimitUsd: number;
+  dailyLossAutoPause: boolean;
+  dailyLossCloseAll: boolean;
+};
+
 const RANGE_OPTIONS = [
   { id: "recent", label: "Live", points: 8 },
   { id: "session", label: "Session", points: 14 },
@@ -84,10 +118,53 @@ const RANGE_OPTIONS = [
 
 type RangeId = (typeof RANGE_OPTIONS)[number]["id"];
 
+const COIN_NAME_BY_BASE: Record<string, string> = {
+  ADA: "Cardano",
+  ACH: "Alchemy Pay",
+  ACX: "Across Protocol",
+  API3: "API3",
+  ARPA: "ARPA",
+  ASM: "Assemble Protocol",
+  BLZ: "Bluzelle",
+  BNB: "BNB",
+  BTC: "Bitcoin",
+  CRV: "Curve DAO",
+  DOT: "Polkadot",
+  ETH: "Ethereum",
+  GST: "Green Satoshi Token",
+  HOPR: "HOPR",
+  IMX: "Immutable",
+  LCX: "LCX",
+  PERP: "Perpetual Protocol",
+  POLS: "Polkastarter",
+  PONKE: "PONKE",
+  PRIME: "Echelon Prime",
+  SEI: "Sei",
+  SOL: "Solana",
+  SPA: "Sperax",
+  SUI: "Sui",
+  TAI: "TARS AI",
+  XCN: "Onyxcoin",
+  XLM: "Stellar",
+  XRP: "XRP",
+};
+
+function coinName(symbol: string) {
+  const base = String(symbol ?? "").split("-")[0]?.toUpperCase() ?? "";
+  return COIN_NAME_BY_BASE[base] ?? (base || symbol);
+}
+
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
   maximumFractionDigits: 2,
+});
+
+const priceFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 6,
 });
 
 const compactCurrencyFormatter = new Intl.NumberFormat("en-US", {
@@ -104,6 +181,10 @@ const percentFormatter = new Intl.NumberFormat("en-US", {
 
 function formatCurrency(value: number) {
   return currencyFormatter.format(value);
+}
+
+function formatPrice(value: number) {
+  return priceFormatter.format(value);
 }
 
 function formatCompactCurrency(value: number) {
@@ -238,6 +319,22 @@ function opportunityStyle(value: number | null) {
   };
 }
 
+function executableStyle(enabled: boolean) {
+  if (enabled) {
+    return {
+      backgroundColor: "#16a34a",
+      borderColor: "#16a34a",
+      color: "#ffffff",
+    };
+  }
+
+  return {
+    backgroundColor: "#dc2626",
+    borderColor: "#dc2626",
+    color: "#ffffff",
+  };
+}
+
 function regimeStyle(value: string | null) {
   const regime = (value ?? "").toLowerCase();
 
@@ -358,7 +455,7 @@ function MiniChart({
   const marker = coordinates[coordinates.length - 1];
 
   return (
-    <div className="relative h-[320px] overflow-hidden rounded-[28px] border border-white/6 bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.15),_transparent_40%),linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-4">
+    <div className="relative h-[320px] overflow-hidden rounded-lg border border-white/6 bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.15),_transparent_40%),linear-gradient(180deg,rgba(255,255,255,0.03),rgba(255,255,255,0.01))] p-4">
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className="h-full w-full"
@@ -407,10 +504,10 @@ function MiniChart({
         />
       </svg>
 
-      <div className="pointer-events-none absolute right-5 top-5 rounded-full bg-black/35 px-3 py-1 text-xs text-slate-300">
+      <div className="pointer-events-none absolute right-5 top-5 rounded-md bg-black/35 px-3 py-1 text-xs text-slate-300">
         High {formatCompactCurrency(max)}
       </div>
-      <div className="pointer-events-none absolute bottom-5 right-5 rounded-full bg-black/35 px-3 py-1 text-xs text-slate-400">
+      <div className="pointer-events-none absolute bottom-5 right-5 rounded-md bg-black/35 px-3 py-1 text-xs text-slate-400">
         Low {formatCompactCurrency(min)}
       </div>
     </div>
@@ -425,9 +522,12 @@ export default function RevbotDashboard() {
   const [busySymbol, setBusySymbol] = useState<string | null>(null);
   const [busyScalper, setBusyScalper] = useState<string | null>(null);
   const [busyManualSell, setBusyManualSell] = useState<string | null>(null);
-  const [riskDraft, setRiskDraft] = useState<{
-    maxConcurrentTrades: number;
-    tradeAmountUsd: number;
+  const [busyCloseAll, setBusyCloseAll] = useState(false);
+  const [busyCooldown, setBusyCooldown] = useState(false);
+  const [riskDraft, setRiskDraft] = useState<RiskDraft | null>(null);
+  const [cooldownDraft, setCooldownDraft] = useState<{
+    symbol: string;
+    cooldownSeconds: number;
   } | null>(null);
   const [riskDirty, setRiskDirty] = useState(false);
   const [savingRisk, setSavingRisk] = useState(false);
@@ -448,9 +548,34 @@ export default function RevbotDashboard() {
       if (!riskDirty) {
         setRiskDraft({
           maxConcurrentTrades: payload.summary.maxConcurrentTrades,
+          maxConcurrentTradesPerToken: payload.summary.maxConcurrentTradesPerToken,
+          maxTradeAmountUsd: payload.summary.maxTradeAmountUsd,
+          maxPortfolioExposurePct: payload.summary.maxPortfolioExposurePct,
+          maxExposurePerTokenPct: payload.summary.maxExposurePerTokenPct,
           tradeAmountUsd: payload.summary.tradeAmountUsd,
+          signalConfirmationCycles: payload.summary.signalConfirmationCycles,
+          tradeWindowEnabled: payload.summary.tradeWindowEnabled,
+          tradeWindowStartHourUtc: payload.summary.tradeWindowStartHourUtc,
+          tradeWindowEndHourUtc: payload.summary.tradeWindowEndHourUtc,
+          dailyLossLimitUsd: payload.summary.dailyLossLimitUsd,
+          dailyLossAutoPause: payload.summary.dailyLossAutoPause,
+          dailyLossCloseAll: payload.summary.dailyLossCloseAll,
         });
       }
+
+      setCooldownDraft((prev) => {
+        const firstSymbol = payload.symbolControls[0]?.symbol ?? "";
+        const symbol = prev?.symbol || firstSymbol;
+        if (!symbol) {
+          return null;
+        }
+        const override = payload.summary.symbolCooldownOverrides[symbol];
+        const fallback = payload.summary.cooldownSeconds || 90;
+        return {
+          symbol,
+          cooldownSeconds: Number.isFinite(override) ? override : fallback,
+        };
+      });
     } catch (requestError) {
       const message =
         requestError instanceof Error
@@ -459,6 +584,39 @@ export default function RevbotDashboard() {
       setError(message);
     }
   }, [riskDirty]);
+
+  function applyRiskDraft(changes: Partial<RiskDraft>) {
+    if (!data) {
+      return;
+    }
+
+    setRiskDraft((prev) => ({
+      maxConcurrentTrades: prev?.maxConcurrentTrades ?? data.summary.maxConcurrentTrades,
+      maxConcurrentTradesPerToken:
+        prev?.maxConcurrentTradesPerToken ?? data.summary.maxConcurrentTradesPerToken,
+      maxTradeAmountUsd: prev?.maxTradeAmountUsd ?? data.summary.maxTradeAmountUsd,
+      maxPortfolioExposurePct:
+        prev?.maxPortfolioExposurePct ?? data.summary.maxPortfolioExposurePct,
+      maxExposurePerTokenPct:
+        prev?.maxExposurePerTokenPct ?? data.summary.maxExposurePerTokenPct,
+      tradeAmountUsd: prev?.tradeAmountUsd ?? data.summary.tradeAmountUsd,
+      signalConfirmationCycles:
+        prev?.signalConfirmationCycles ?? data.summary.signalConfirmationCycles,
+      tradeWindowEnabled:
+        prev?.tradeWindowEnabled ?? data.summary.tradeWindowEnabled,
+      tradeWindowStartHourUtc:
+        prev?.tradeWindowStartHourUtc ?? data.summary.tradeWindowStartHourUtc,
+      tradeWindowEndHourUtc:
+        prev?.tradeWindowEndHourUtc ?? data.summary.tradeWindowEndHourUtc,
+      dailyLossLimitUsd: prev?.dailyLossLimitUsd ?? data.summary.dailyLossLimitUsd,
+      dailyLossAutoPause:
+        prev?.dailyLossAutoPause ?? data.summary.dailyLossAutoPause,
+      dailyLossCloseAll:
+        prev?.dailyLossCloseAll ?? data.summary.dailyLossCloseAll,
+      ...changes,
+    }));
+    setRiskDirty(true);
+  }
 
   async function runAction(action: "start" | "stop" | "kill" | "refresh") {
     if (action === "refresh") {
@@ -562,7 +720,33 @@ export default function RevbotDashboard() {
       1,
       Math.floor(Number(riskDraft.maxConcurrentTrades) || 1),
     );
+    const maxConcurrentTradesPerToken = Math.max(
+      1,
+      Math.floor(Number(riskDraft.maxConcurrentTradesPerToken) || 1),
+    );
+    const maxTradeAmountUsd = Math.max(1, Number(riskDraft.maxTradeAmountUsd) || 1);
+    const maxPortfolioExposurePct = Math.max(
+      1,
+      Math.min(100, Number(riskDraft.maxPortfolioExposurePct) || 100),
+    );
+    const maxExposurePerTokenPct = Math.max(
+      1,
+      Math.min(100, Number(riskDraft.maxExposurePerTokenPct) || 100),
+    );
     const tradeAmountUsd = Math.max(1, Number(riskDraft.tradeAmountUsd) || 1);
+    const signalConfirmationCycles = Math.max(
+      1,
+      Math.floor(Number(riskDraft.signalConfirmationCycles) || 1),
+    );
+    const tradeWindowStartHourUtc = Math.max(
+      0,
+      Math.min(23, Math.floor(Number(riskDraft.tradeWindowStartHourUtc) || 0)),
+    );
+    const tradeWindowEndHourUtc = Math.max(
+      0,
+      Math.min(23, Math.floor(Number(riskDraft.tradeWindowEndHourUtc) || 23)),
+    );
+    const dailyLossLimitUsd = Math.max(0, Number(riskDraft.dailyLossLimitUsd) || 0);
 
     setSavingRisk(true);
     try {
@@ -571,7 +755,18 @@ export default function RevbotDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           maxConcurrentTrades,
+          maxConcurrentTradesPerToken,
+          maxTradeAmountUsd,
+          maxPortfolioExposurePct,
+          maxExposurePerTokenPct,
           tradeAmountUsd,
+          signalConfirmationCycles,
+          tradeWindowEnabled: riskDraft.tradeWindowEnabled,
+          tradeWindowStartHourUtc,
+          tradeWindowEndHourUtc,
+          dailyLossLimitUsd,
+          dailyLossAutoPause: riskDraft.dailyLossAutoPause,
+          dailyLossCloseAll: riskDraft.dailyLossCloseAll,
         }),
       });
 
@@ -589,6 +784,100 @@ export default function RevbotDashboard() {
       setError(message);
     } finally {
       setSavingRisk(false);
+    }
+  }
+
+  async function saveCooldownOverride(removeOverride = false) {
+    if (!cooldownDraft?.symbol) {
+      return;
+    }
+
+    setBusyCooldown(true);
+    try {
+      const payload = removeOverride
+        ? { symbol: cooldownDraft.symbol, cooldownSeconds: null }
+        : {
+            symbol: cooldownDraft.symbol,
+            cooldownSeconds: Math.max(1, Number(cooldownDraft.cooldownSeconds) || 1),
+          };
+
+      const response = await fetch("/api/cooldown", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Cooldown override failed (${response.status})`);
+      }
+
+      await loadDashboard();
+    } catch (requestError) {
+      const message =
+        requestError instanceof Error
+          ? requestError.message
+          : "Cooldown override failed";
+      setError(message);
+    } finally {
+      setBusyCooldown(false);
+    }
+  }
+
+  async function closeAllPositions() {
+    const currentData = data;
+    if (!currentData) {
+      setError("Dashboard data not loaded.");
+      return;
+    }
+
+    if (currentData.positions.length === 0) {
+      setError("No open positions to close.");
+      return;
+    }
+
+    const totalEstimated = currentData.positions.reduce(
+      (sum, position) => sum + position.unrealizedValue,
+      0,
+    );
+    const pnlLabel = `${formatCurrency(totalEstimated)} (${formatPercent(
+      currentData.summary.startingBalance > 0
+        ? (totalEstimated / currentData.summary.startingBalance) * 100
+        : 0,
+    )})`;
+
+    const confirmation = window.confirm(
+      [
+        `Close ALL open positions now? (${currentData.positions.length} positions)`,
+        "",
+        `Estimated combined PnL: ${pnlLabel}`,
+        "This action will execute immediate SELL for every open position.",
+      ].join("\n"),
+    );
+    if (!confirmation) {
+      return;
+    }
+
+    setBusyCloseAll(true);
+    try {
+      const response = await fetch("/api/close-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "manual_close_all" }),
+      });
+      if (!response.ok) {
+        const details = await response.text();
+        throw new Error(`Close-all failed (${response.status})${details ? `: ${details}` : ""}`);
+      }
+
+      await loadDashboard();
+    } catch (requestError) {
+      const message =
+        requestError instanceof Error
+          ? requestError.message
+          : "Close-all failed";
+      setError(message);
+    } finally {
+      setBusyCloseAll(false);
     }
   }
 
@@ -663,16 +952,16 @@ export default function RevbotDashboard() {
   if (!data) {
     return (
       <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
-        <div className="mx-auto flex max-w-[1480px] gap-5">
-          <div className="hidden w-20 shrink-0 rounded-[30px] border border-white/8 bg-black/40 lg:block" />
+        <div className="mx-auto flex w-full max-w-[1360px] justify-center">
+          <div className="hidden w-20 shrink-0 rounded-md border border-white/8 bg-black/40 lg:block" />
           <div className="flex-1 space-y-6">
-            <div className="h-[420px] animate-pulse rounded-[36px] border border-white/8 bg-white/[0.04]" />
+            <div className="h-[420px] animate-pulse rounded-md border border-white/8 bg-white/[0.04]" />
             <div className="grid gap-6 lg:grid-cols-3">
-              <div className="h-40 animate-pulse rounded-[28px] border border-white/8 bg-white/[0.04]" />
-              <div className="h-40 animate-pulse rounded-[28px] border border-white/8 bg-white/[0.04]" />
-              <div className="h-40 animate-pulse rounded-[28px] border border-white/8 bg-white/[0.04]" />
+              <div className="h-40 animate-pulse rounded-lg border border-white/8 bg-white/[0.04]" />
+              <div className="h-40 animate-pulse rounded-lg border border-white/8 bg-white/[0.04]" />
+              <div className="h-40 animate-pulse rounded-lg border border-white/8 bg-white/[0.04]" />
             </div>
-            <div className="h-[420px] animate-pulse rounded-[32px] border border-white/8 bg-white/[0.04]" />
+            <div className="h-[420px] animate-pulse rounded-md border border-white/8 bg-white/[0.04]" />
           </div>
         </div>
       </main>
@@ -708,7 +997,7 @@ export default function RevbotDashboard() {
         data.summary.executionMode,
       ).toUpperCase()}`,
       accountTone: data.summary.enabled ? "text-emerald-300" : "text-rose-300",
-      configValue: `${data.summary.cooldownSeconds}s cool | ${data.summary.maxConcurrentTrades} max | ${formatCurrency(data.summary.tradeAmountUsd)} size`,
+      configValue: `${data.summary.cooldownSeconds}s cool | ${data.summary.maxConcurrentTrades} max | ${data.summary.maxConcurrentTradesPerToken}/token | ${data.summary.maxPortfolioExposurePct}% port | ${data.summary.maxExposurePerTokenPct}% token | ${formatCurrency(data.summary.maxTradeAmountUsd)} cap | ${formatCurrency(data.summary.tradeAmountUsd)} size`,
       configTone: "text-amber-200",
       stateValue: formatSnapshotTime(data.summary.lastSnapshotAt),
       stateTone: "text-sky-200",
@@ -752,20 +1041,20 @@ export default function RevbotDashboard() {
 
   return (
     <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mx-auto flex max-w-[1480px] gap-5">
-        <aside className="hidden w-20 shrink-0 flex-col rounded-[30px] border border-white/8 bg-black/45 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] lg:flex">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,#f8fafc,#93c5fd_45%,#f59e0b)] text-lg font-bold text-slate-950">
+      <div className="mx-auto flex w-full max-w-[1360px] justify-center">
+        <aside className="hidden">
+          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[linear-gradient(135deg,#f8fafc,#93c5fd_45%,#f59e0b)] text-lg font-bold text-slate-950">
             R
           </div>
           <div className="mt-6 space-y-2.5 text-center text-[10px] font-medium text-slate-400">
-            <div className="rounded-2xl border border-white/10 bg-white/[0.06] px-2 py-2.5 text-white">
+            <div className="rounded-lg border border-white/10 bg-white/[0.06] px-2 py-2.5 text-white">
               Home
             </div>
-            <div className="rounded-2xl px-2 py-2.5">Portfolio</div>
-            <div className="rounded-2xl px-2 py-2.5">Control</div>
-            <div className="rounded-2xl px-2 py-2.5">Risk</div>
+            <div className="rounded-lg px-2 py-2.5">Portfolio</div>
+            <div className="rounded-lg px-2 py-2.5">Control</div>
+            <div className="rounded-lg px-2 py-2.5">Risk</div>
           </div>
-          <div className="mt-auto rounded-3xl border border-white/10 bg-white/[0.04] p-2.5 text-center">
+          <div className="mt-auto rounded-lg border border-white/10 bg-white/[0.04] p-2.5 text-center">
             <p className="text-[10px] uppercase tracking-[0.24em] text-slate-500">
               Mode
             </p>
@@ -786,7 +1075,7 @@ export default function RevbotDashboard() {
                   Portfolio Monitor
                 </h1>
                 <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${
+                  className={`rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${
                     data.summary.enabled
                       ? "bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/30"
                       : "bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/30"
@@ -834,16 +1123,23 @@ export default function RevbotDashboard() {
               >
                 Refresh
               </button>
+              <button
+                onClick={closeAllPositions}
+                disabled={busyAction !== null || busyCloseAll || data.positions.length === 0}
+                className="rounded-full border border-orange-400/25 bg-orange-500/12 px-5 py-3 text-sm font-semibold text-orange-100 transition hover:bg-orange-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {busyCloseAll ? "Closing..." : "Close all"}
+              </button>
             </div>
           </header>
 
           {error ? (
-            <div className="rounded-[28px] border border-rose-400/20 bg-rose-500/10 px-5 py-4 text-sm text-rose-100">
+            <div className="rounded-lg border border-rose-400/20 bg-rose-500/10 px-5 py-4 text-sm text-rose-100">
               {error}
             </div>
           ) : null}
 
-          <section className="rounded-[30px] border border-white/8 bg-[linear-gradient(160deg,rgba(9,14,24,0.94),rgba(4,8,14,0.96))] p-5 sm:p-6">
+          <section className="rounded-md border border-white/8 bg-[linear-gradient(160deg,rgba(9,14,24,0.94),rgba(4,8,14,0.96))] p-5 sm:p-6">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
@@ -857,42 +1153,43 @@ export default function RevbotDashboard() {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]">
-                <span className="rounded-full border border-emerald-500 bg-emerald-600 px-3 py-1.5 text-white">
+                <span className="rounded-md border border-emerald-500 bg-emerald-600 px-3 py-1.5 text-white">
                   BUY on: {data.summary.activeSymbols}
                 </span>
-                <span className="rounded-full border border-rose-500 bg-rose-600 px-3 py-1.5 text-white">
+                <span className="rounded-md border border-rose-500 bg-rose-600 px-3 py-1.5 text-white">
                   BUY off: {data.summary.disabledSymbols}
                 </span>
-                <span className="rounded-full border border-emerald-500 bg-emerald-600 px-3 py-1.5 text-white">
+                <span className="rounded-md border border-emerald-500 bg-emerald-600 px-3 py-1.5 text-white">
                   SELL on: {data.summary.sellEnabledSymbols}
                 </span>
-                <span className="rounded-full border border-rose-500 bg-rose-600 px-3 py-1.5 text-white">
+                <span className="rounded-md border border-rose-500 bg-rose-600 px-3 py-1.5 text-white">
                   SELL off: {data.summary.sellDisabledSymbols}
                 </span>
-                <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-300">
+                <span className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-300">
                   {data.summary.trackedSymbols} total
                 </span>
                 {data.summary.bestBuySymbol && data.summary.bestBuyOpportunityPct !== null ? (
-                  <span className="rounded-full border border-emerald-500/40 bg-emerald-500/20 px-3 py-1.5 text-emerald-100">
+                  <span className="rounded-md border border-emerald-500/40 bg-emerald-500/20 px-3 py-1.5 text-emerald-100">
                     Best buy: {data.summary.bestBuySymbol} {formatOpportunity(data.summary.bestBuyOpportunityPct)}
                   </span>
                 ) : (
-                  <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-300">
+                  <span className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-300">
                     Best buy: pending snapshots
                   </span>
                 )}
               </div>
             </div>
 
-            <div className="mt-4 overflow-x-auto rounded-2xl border border-white/8 bg-black/20">
-              <div className="min-w-[1560px]">
-                <div className="grid grid-cols-[170px_minmax(190px,1fr)_170px_150px_170px_170px_190px_190px] border-b border-white/8 bg-white/[0.04] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+            <div className="mt-4 overflow-x-auto rounded-lg border border-white/8 bg-black/20">
+              <div className="min-w-[1760px]">
+                <div className="grid grid-cols-[170px_minmax(190px,1fr)_170px_150px_170px_170px_190px_190px_190px] border-b border-white/8 bg-white/[0.04] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                   <span>Token</span>
                   <span>Execution Status</span>
                   <span className="text-center">Regime / Trend</span>
                   <span className="text-center">Volatility</span>
                   <span className="text-center">Scalper</span>
                   <span className="text-center">Buy Opportunity</span>
+                  <span className="text-center">Executable</span>
                   <span className="text-center">BUY</span>
                   <span className="text-center">SELL</span>
                 </div>
@@ -918,6 +1215,7 @@ export default function RevbotDashboard() {
                     const buyOpportunityChipStyle = opportunityStyle(
                       control.buyOpportunityPct,
                     );
+                    const executableChipStyle = executableStyle(control.buyExecutable);
 
                     const buyOn = control.buyEnabled;
                     const sellOn = control.sellEnabled;
@@ -926,26 +1224,31 @@ export default function RevbotDashboard() {
                     return (
                       <div
                         key={control.symbol}
-                        className="grid grid-cols-[170px_minmax(190px,1fr)_170px_150px_170px_170px_190px_190px] items-center gap-3 border-b border-white/6 px-4 py-2.5 last:border-b-0"
+                        className="grid grid-cols-[170px_minmax(190px,1fr)_170px_150px_170px_170px_190px_190px_190px] items-center gap-3 border-b border-white/6 px-4 py-2.5 last:border-b-0"
                       >
                         <div className="flex items-center gap-2">
                           <p className="truncate text-sm font-semibold uppercase tracking-[0.08em] text-slate-100">
                             {control.symbol}
                           </p>
                           {control.hasOpenPosition ? (
-                            <span className="inline-flex rounded-full border border-sky-400/25 bg-sky-500/12 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-200">
+                            <span className="inline-flex rounded-md border border-sky-400/25 bg-sky-500/12 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-200">
                               OPEN
                             </span>
                           ) : null}
                         </div>
 
-                        <p className="truncate text-sm font-medium text-slate-300">
-                          {modeLabel}
-                        </p>
+                        <div className="flex flex-col">
+                          <p className="truncate text-sm font-medium text-slate-300">
+                            {modeLabel}
+                          </p>
+                          <p className="truncate text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                            Cooldown {control.cooldownOverrideSeconds === null ? "default" : `${control.cooldownOverrideSeconds.toFixed(0)}s`}
+                          </p>
+                        </div>
 
                         <div className="flex items-center justify-center">
                           <span
-                            className="inline-flex min-w-[130px] justify-center rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
+                            className="inline-flex min-w-[130px] justify-center rounded-md border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
                             style={regimeChipStyle}
                           >
                             {control.regime ?? "Unknown"}
@@ -954,7 +1257,7 @@ export default function RevbotDashboard() {
 
                         <div className="flex items-center justify-center">
                           <span
-                            className="inline-flex min-w-[120px] justify-center rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
+                            className="inline-flex min-w-[120px] justify-center rounded-md border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
                             style={volatilityChipStyle}
                           >
                             {formatVolatility(control.volatilityPct)}
@@ -984,7 +1287,7 @@ export default function RevbotDashboard() {
                         <div className="flex items-center justify-center">
                           <div className="flex flex-col items-center">
                             <span
-                              className="inline-flex min-w-[124px] justify-center rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
+                              className="inline-flex min-w-[124px] justify-center rounded-md border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
                               style={buyOpportunityChipStyle}
                             >
                               {formatOpportunity(control.buyOpportunityPct)}
@@ -994,10 +1297,24 @@ export default function RevbotDashboard() {
                             </span>
                           </div>
                           {isBestBuy ? (
-                            <span className="ml-2 rounded-full border border-emerald-500/35 bg-emerald-500/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-200">
+                            <span className="ml-2 rounded-md border border-emerald-500/35 bg-emerald-500/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-200">
                               Best
                             </span>
                           ) : null}
+                        </div>
+
+                        <div className="flex items-center justify-center">
+                          <div className="flex flex-col items-center">
+                            <span
+                              className="inline-flex min-w-[134px] justify-center rounded-md border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
+                              style={executableChipStyle}
+                            >
+                              {control.buyExecutable ? "Ready" : "Blocked"}
+                            </span>
+                            <span className="mt-0.5 max-w-[170px] truncate text-[9px] font-medium uppercase tracking-[0.12em] text-slate-400">
+                              {control.buyExecutableReason}
+                            </span>
+                          </div>
                         </div>
 
                         <div className="flex items-center justify-center gap-3">
@@ -1064,63 +1381,321 @@ export default function RevbotDashboard() {
               </div>
             </div>
 
-            <div className="mt-5 grid gap-3 rounded-2xl border border-white/8 bg-black/20 p-4 sm:grid-cols-[1fr_1fr_auto]">
-              <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
-                Max Concurrent Trades
-                <input
-                  type="number"
-                  min={1}
-                  value={riskDraft?.maxConcurrentTrades ?? ""}
-                  onChange={(event) => {
-                    const value = Number(event.target.value);
-                    setRiskDraft((prev) => ({
-                      maxConcurrentTrades: Number.isFinite(value) ? value : 1,
-                      tradeAmountUsd: prev?.tradeAmountUsd ?? data.summary.tradeAmountUsd,
-                    }));
-                    setRiskDirty(true);
-                  }}
-                  className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white outline-none ring-sky-300/40 focus:ring-2"
-                />
-              </label>
+            <div className="mt-5 rounded-lg bg-black/20 p-4">
+              <div className="flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.14em]">
+                <span className={`rounded-md border px-3 py-1.5 ${data.summary.dailyBuyPaused ? "border-rose-500 bg-rose-600 text-white" : "border-emerald-500 bg-emerald-600 text-white"}`}>
+                  Daily guard: {data.summary.dailyBuyPaused ? "Paused" : "Active"}
+                </span>
+                <span className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-300">
+                  Daily PnL: {formatCurrency(data.summary.dailyRealizedPnlUsd)}
+                </span>
+                <span className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-300">
+                  UTC window: {data.summary.tradeWindowEnabled ? `${data.summary.tradeWindowStartHourUtc}:00-${data.summary.tradeWindowEndHourUtc}:00` : "Disabled"}
+                </span>
+              </div>
 
-              <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
-                Trade Amount (USD)
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={riskDraft?.tradeAmountUsd ?? ""}
-                  onChange={(event) => {
-                    const value = Number(event.target.value);
-                    setRiskDraft((prev) => ({
-                      maxConcurrentTrades:
-                        prev?.maxConcurrentTrades ?? data.summary.maxConcurrentTrades,
-                      tradeAmountUsd: Number.isFinite(value) ? value : 0,
-                    }));
-                    setRiskDirty(true);
-                  }}
-                  className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white outline-none ring-sky-300/40 focus:ring-2"
-                />
-              </label>
+              <div className="mt-4 overflow-x-auto rounded-lg border border-white/8 bg-black/20">
+                <div className="min-w-[1160px]">
+                  <div className="border-b border-white/8 bg-white/[0.04] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    Risk Controls
+                  </div>
 
-              <button
-                onClick={saveRiskSettings}
-                disabled={
-                  !riskDirty
-                  || savingRisk
-                  || busyAction !== null
-                  || busySymbol !== null
-                  || busyScalper !== null
-                }
-                className="self-end rounded-full border border-sky-400/25 bg-sky-500/12 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.14em] text-sky-100 transition hover:bg-sky-500/18 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {savingRisk ? "Saving..." : "Save Risk"}
-              </button>
+                  <div className="grid grid-cols-5 gap-3 border-b border-white/6 px-4 py-3">
+                    <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                      Max Concurrent Trades
+                      <input
+                        type="number"
+                        min={1}
+                        value={riskDraft?.maxConcurrentTrades ?? ""}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          applyRiskDraft({ maxConcurrentTrades: Number.isFinite(value) ? value : 1 });
+                        }}
+                        className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white outline-none ring-sky-300/40 focus:ring-2"
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                      Max Concurrent Trades Per Token
+                      <input
+                        type="number"
+                        min={1}
+                        value={riskDraft?.maxConcurrentTradesPerToken ?? ""}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          applyRiskDraft({ maxConcurrentTradesPerToken: Number.isFinite(value) ? value : 1 });
+                        }}
+                        className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white outline-none ring-sky-300/40 focus:ring-2"
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                      Max Trade Amount (USD)
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={riskDraft?.maxTradeAmountUsd ?? ""}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          applyRiskDraft({ maxTradeAmountUsd: Number.isFinite(value) ? value : 0 });
+                        }}
+                        className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white outline-none ring-sky-300/40 focus:ring-2"
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                      Trade Amount (USD)
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={riskDraft?.tradeAmountUsd ?? ""}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          applyRiskDraft({ tradeAmountUsd: Number.isFinite(value) ? value : 0 });
+                        }}
+                        className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white outline-none ring-sky-300/40 focus:ring-2"
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                      Max Portfolio Exposure (%)
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        step={0.5}
+                        value={riskDraft?.maxPortfolioExposurePct ?? ""}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          applyRiskDraft({ maxPortfolioExposurePct: Number.isFinite(value) ? value : 100 });
+                        }}
+                        className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white outline-none ring-sky-300/40 focus:ring-2"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-5 gap-3 border-b border-white/6 px-4 py-3">
+                    <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                      Max Token Exposure (%)
+                      <input
+                        type="number"
+                        min={1}
+                        max={100}
+                        step={0.5}
+                        value={riskDraft?.maxExposurePerTokenPct ?? ""}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          applyRiskDraft({ maxExposurePerTokenPct: Number.isFinite(value) ? value : 100 });
+                        }}
+                        className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white outline-none ring-sky-300/40 focus:ring-2"
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                      Signal Confirmation (Cycles)
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={riskDraft?.signalConfirmationCycles ?? ""}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          applyRiskDraft({ signalConfirmationCycles: Number.isFinite(value) ? value : 1 });
+                        }}
+                        className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white outline-none ring-sky-300/40 focus:ring-2"
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                      Trade Window
+                      <button
+                        onClick={() => applyRiskDraft({ tradeWindowEnabled: !(riskDraft?.tradeWindowEnabled ?? false) })}
+                        className="rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white"
+                        style={{
+                          backgroundColor: (riskDraft?.tradeWindowEnabled ?? false) ? "#16a34a" : "#dc2626",
+                          borderColor: (riskDraft?.tradeWindowEnabled ?? false) ? "#16a34a" : "#dc2626",
+                        }}
+                      >
+                        {(riskDraft?.tradeWindowEnabled ?? false) ? "Enabled" : "Disabled"}
+                      </button>
+                    </label>
+
+                    <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                      Window Start (UTC)
+                      <input
+                        type="number"
+                        min={0}
+                        max={23}
+                        step={1}
+                        value={riskDraft?.tradeWindowStartHourUtc ?? ""}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          applyRiskDraft({ tradeWindowStartHourUtc: Number.isFinite(value) ? value : 0 });
+                        }}
+                        className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white outline-none ring-sky-300/40 focus:ring-2"
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                      Window End (UTC)
+                      <input
+                        type="number"
+                        min={0}
+                        max={23}
+                        step={1}
+                        value={riskDraft?.tradeWindowEndHourUtc ?? ""}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          applyRiskDraft({ tradeWindowEndHourUtc: Number.isFinite(value) ? value : 23 });
+                        }}
+                        className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white outline-none ring-sky-300/40 focus:ring-2"
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-5 gap-3 px-4 py-3">
+                    <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                      Daily Loss Limit (USD)
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={riskDraft?.dailyLossLimitUsd ?? ""}
+                        onChange={(event) => {
+                          const value = Number(event.target.value);
+                          applyRiskDraft({ dailyLossLimitUsd: Number.isFinite(value) ? value : 0 });
+                        }}
+                        className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white outline-none ring-sky-300/40 focus:ring-2"
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                      Daily Auto Pause
+                      <button
+                        onClick={() => applyRiskDraft({ dailyLossAutoPause: !(riskDraft?.dailyLossAutoPause ?? false) })}
+                        className="rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white"
+                        style={{
+                          backgroundColor: (riskDraft?.dailyLossAutoPause ?? false) ? "#16a34a" : "#dc2626",
+                          borderColor: (riskDraft?.dailyLossAutoPause ?? false) ? "#16a34a" : "#dc2626",
+                        }}
+                      >
+                        {(riskDraft?.dailyLossAutoPause ?? false) ? "Enabled" : "Disabled"}
+                      </button>
+                    </label>
+
+                    <label className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                      Daily Close All
+                      <button
+                        onClick={() => applyRiskDraft({ dailyLossCloseAll: !(riskDraft?.dailyLossCloseAll ?? false) })}
+                        className="rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white"
+                        style={{
+                          backgroundColor: (riskDraft?.dailyLossCloseAll ?? false) ? "#16a34a" : "#dc2626",
+                          borderColor: (riskDraft?.dailyLossCloseAll ?? false) ? "#16a34a" : "#dc2626",
+                        }}
+                      >
+                        {(riskDraft?.dailyLossCloseAll ?? false) ? "Enabled" : "Disabled"}
+                      </button>
+                    </label>
+
+                    <div className="flex flex-col gap-1 text-xs uppercase tracking-[0.14em] text-slate-400">
+                      Save Risk
+                      <button
+                        onClick={saveRiskSettings}
+                        disabled={
+                          !riskDirty
+                          || savingRisk
+                          || busyAction !== null
+                          || busySymbol !== null
+                          || busyScalper !== null
+                          || busyCooldown
+                        }
+                        className="w-full rounded-full border border-sky-400/25 bg-sky-500/12 px-5 py-2.5 text-xs font-semibold uppercase tracking-[0.14em] text-sky-100 transition hover:bg-sky-500/18 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {savingRisk ? "Saving..." : "Save Risk"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-md border border-white/8 bg-black/25 p-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                  Per-token cooldown override
+                </p>
+                <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4 xl:items-end">
+                  <label className="flex flex-col gap-1 rounded-md bg-white/[0.02] p-3 text-xs uppercase tracking-[0.14em] text-slate-400">
+                    Token
+                    <select
+                      value={cooldownDraft?.symbol ?? ""}
+                      onChange={(event) => {
+                        const symbol = event.target.value;
+                        const override = data.summary.symbolCooldownOverrides[symbol];
+                        setCooldownDraft({
+                          symbol,
+                          cooldownSeconds: Number.isFinite(override)
+                            ? override
+                            : (data.summary.cooldownSeconds || 90),
+                        });
+                      }}
+                      className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white outline-none ring-sky-300/40 focus:ring-2"
+                    >
+                      {sortedSymbolControls.map((control) => (
+                        <option key={control.symbol} value={control.symbol}>
+                          {control.symbol}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="flex flex-col gap-1 rounded-md bg-white/[0.02] p-3 text-xs uppercase tracking-[0.14em] text-slate-400">
+                    Cooldown (sec)
+                    <input
+                      type="number"
+                      min={1}
+                      value={cooldownDraft?.cooldownSeconds ?? ""}
+                      onChange={(event) => {
+                        const value = Number(event.target.value);
+                        setCooldownDraft((prev) => ({
+                          symbol: prev?.symbol ?? sortedSymbolControls[0]?.symbol ?? "",
+                          cooldownSeconds: Number.isFinite(value) ? value : 1,
+                        }));
+                      }}
+                      className="rounded-md border border-white/10 bg-white/[0.04] px-3 py-2 text-sm font-semibold text-white outline-none ring-sky-300/40 focus:ring-2"
+                    />
+                  </label>
+
+                  <button
+                    onClick={() => saveCooldownOverride(false)}
+                    disabled={
+                      busyCooldown
+                      || savingRisk
+                      || !cooldownDraft?.symbol
+                    }
+                    className="h-11 rounded-full border border-emerald-400/25 bg-emerald-500/12 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-100 transition hover:bg-emerald-500/18 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {busyCooldown ? "Saving..." : "Set Override"}
+                  </button>
+
+                  <button
+                    onClick={() => saveCooldownOverride(true)}
+                    disabled={
+                      busyCooldown
+                      || savingRisk
+                      || !cooldownDraft?.symbol
+                    }
+                    className="h-11 rounded-full border border-rose-400/25 bg-rose-500/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-rose-100 transition hover:bg-rose-500/18 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Clear Override
+                  </button>
+                </div>
+              </div>
             </div>
           </section>
 
           <section className="space-y-6">
-            <div className="rounded-[36px] border border-white/8 bg-[linear-gradient(135deg,rgba(15,23,42,0.94),rgba(9,9,11,0.96))] p-5 shadow-[0_20px_90px_rgba(0,0,0,0.35)] sm:p-6">
+            <div className="rounded-md border border-white/8 bg-[linear-gradient(160deg,rgba(9,14,24,0.94),rgba(4,8,14,0.96))] p-5 sm:p-6">
               <div className="flex flex-col gap-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
@@ -1143,7 +1718,7 @@ export default function RevbotDashboard() {
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 rounded-full border border-white/8 bg-white/[0.04] p-1">
+                  <div className="flex flex-wrap items-center gap-2 rounded-md border border-white/8 bg-white/[0.04] p-1">
                     {RANGE_OPTIONS.map((option) => (
                       <button
                         key={option.id}
@@ -1163,7 +1738,7 @@ export default function RevbotDashboard() {
 
                 <MiniChart points={visiblePoints} min={chartMin} max={chartMax} />
 
-                <div className="overflow-x-auto rounded-[26px] border border-white/8 bg-black/20">
+                <div className="overflow-x-auto rounded-lg border border-white/8 bg-black/20">
                   <table className="min-w-full table-fixed border-collapse">
                     <thead>
                       <tr className="border-b border-white/8 bg-white/[0.05] text-left">
@@ -1247,7 +1822,7 @@ export default function RevbotDashboard() {
                     </div>
                   </div>
 
-                  <div className="mt-5 overflow-x-auto rounded-[26px] border border-white/8 bg-black/20">
+                  <div className="mt-5 overflow-x-auto rounded-lg border border-white/8 bg-black/20">
                     <table className="min-w-full table-fixed border-collapse">
                       <thead>
                         <tr className="border-b border-white/8 bg-white/[0.05] text-left">
@@ -1287,16 +1862,16 @@ export default function RevbotDashboard() {
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-medium uppercase tracking-[0.12em]">
-                    <span className="rounded-full border border-emerald-400/15 bg-emerald-500/8 px-3 py-1.5 text-emerald-200">
+                    <span className="rounded-md border border-emerald-400/15 bg-emerald-500/8 px-3 py-1.5 text-emerald-200">
                       {data.summary.buyCount} buys
                     </span>
-                    <span className="rounded-full border border-rose-400/15 bg-rose-500/8 px-3 py-1.5 text-rose-200">
+                    <span className="rounded-md border border-rose-400/15 bg-rose-500/8 px-3 py-1.5 text-rose-200">
                       {data.summary.sellCount} sells
                     </span>
-                    <span className="rounded-full border border-sky-400/15 bg-sky-500/[0.07] px-3 py-1.5 text-sky-100">
+                    <span className="rounded-md border border-sky-400/15 bg-sky-500/[0.07] px-3 py-1.5 text-sky-100">
                       {data.summary.openPositions} open positions
                     </span>
-                    <span className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5 text-slate-300">
+                    <span className="rounded-md border border-white/8 bg-white/[0.03] px-3 py-1.5 text-slate-300">
                       BUY on {data.summary.activeSymbols} / {data.summary.trackedSymbols}
                     </span>
                   </div>
@@ -1305,7 +1880,7 @@ export default function RevbotDashboard() {
             </div>
           </section>
 
-          <section className="rounded-[36px] border border-white/8 bg-[linear-gradient(180deg,rgba(8,12,20,0.92),rgba(6,8,13,0.98))] p-5 shadow-[0_20px_90px_rgba(0,0,0,0.35)] sm:p-6">
+          <section className="rounded-md border border-white/8 bg-[linear-gradient(160deg,rgba(9,14,24,0.94),rgba(4,8,14,0.96))] p-5 sm:p-6">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">
@@ -1321,16 +1896,16 @@ export default function RevbotDashboard() {
               </div>
 
               <div className="flex flex-wrap gap-3 text-sm text-slate-400">
-                <span className="rounded-full border border-sky-400/15 bg-sky-500/[0.07] px-4 py-2 text-sky-100">
+                <span className="rounded-md border border-sky-400/15 bg-sky-500/[0.07] px-4 py-2 text-sky-100">
                   {data.summary.openPositions} open positions
                 </span>
-                <span className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-slate-300">
+                <span className="rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-slate-300">
                   BUY on {data.summary.activeSymbols} / {data.summary.trackedSymbols}
                 </span>
               </div>
             </div>
 
-            <div className="mt-6 overflow-x-auto rounded-[28px] border border-white/8 bg-black/20">
+            <div className="mt-6 overflow-x-auto rounded-lg border border-white/8 bg-black/20">
               <table className="min-w-full table-fixed border-collapse">
                 <thead>
                   <tr className="border-b border-white/8 bg-white/[0.05] text-left">
@@ -1369,6 +1944,7 @@ export default function RevbotDashboard() {
                 <tbody className="divide-y divide-white/6">
                   {data.positions.map((position) => {
                     const manualSellOnProfit = position.unrealizedValue >= 0;
+                    const assetName = coinName(position.symbol);
 
                     return (
                       <tr
@@ -1383,8 +1959,8 @@ export default function RevbotDashboard() {
                       >
                       <td className="px-4 py-3 align-middle">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[linear-gradient(135deg,rgba(248,250,252,0.16),rgba(59,130,246,0.22))] text-xs font-semibold text-white">
-                            {position.symbol.slice(0, 2)}
+                          <div className="inline-flex min-h-9 min-w-[110px] items-center justify-center rounded-md bg-[linear-gradient(135deg,rgba(248,250,252,0.16),rgba(59,130,246,0.22))] px-2.5 text-[10px] font-semibold text-white">
+                            {assetName}
                           </div>
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
@@ -1392,12 +1968,12 @@ export default function RevbotDashboard() {
                                 {position.symbol}
                               </p>
                               {position.symbol === topExposureSymbol ? (
-                                <span className="rounded-full border border-sky-400/20 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-200">
+                                <span className="rounded-md border border-sky-400/20 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-200">
                                   Top size
                                 </span>
                               ) : null}
                               {position.symbol === topWinnerSymbol ? (
-                                <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-200">
+                                <span className="rounded-md border border-emerald-400/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-200">
                                   Top gain
                                 </span>
                               ) : null}
@@ -1412,7 +1988,7 @@ export default function RevbotDashboard() {
                         {formatUnits(position.units)}
                       </td>
                       <td className="px-4 py-3 text-right font-medium text-slate-300">
-                        {formatCurrency(position.entryPrice)}
+                        {formatPrice(position.entryPrice)}
                       </td>
                       <td
                         className={`px-4 py-3 text-right font-semibold ${compareTone(
@@ -1420,7 +1996,7 @@ export default function RevbotDashboard() {
                           position.entryPrice,
                         )}`}
                       >
-                        {position.currentPrice === null ? "Pending" : formatCurrency(position.currentPrice)}
+                        {position.currentPrice === null ? "Pending" : formatPrice(position.currentPrice)}
                       </td>
                       <td className="px-4 py-3 text-right">
                         <p className="text-sm font-semibold text-white">
@@ -1436,7 +2012,7 @@ export default function RevbotDashboard() {
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-1.5">
                           <span
-                            className={`inline-flex w-fit rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${statusTone(
+                            className={`inline-flex w-fit rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${statusTone(
                               position.status,
                             )}`}
                           >
@@ -1497,16 +2073,16 @@ export default function RevbotDashboard() {
               </table>
             </div>
             <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">
-              <span className="rounded-full border border-white/8 bg-white/[0.03] px-3 py-1.5">
+              <span className="rounded-md border border-white/8 bg-white/[0.03] px-3 py-1.5">
                 Sorted by value
               </span>
               {topExposureSymbol ? (
-                <span className="rounded-full border border-sky-400/15 bg-sky-500/8 px-3 py-1.5 text-sky-200">
+                <span className="rounded-md border border-sky-400/15 bg-sky-500/8 px-3 py-1.5 text-sky-200">
                   Largest position: {topExposureSymbol}
                 </span>
               ) : null}
               {topWinnerSymbol ? (
-                <span className="rounded-full border border-emerald-400/15 bg-emerald-500/8 px-3 py-1.5 text-emerald-200">
+                <span className="rounded-md border border-emerald-400/15 bg-emerald-500/8 px-3 py-1.5 text-emerald-200">
                   Strongest winner: {topWinnerSymbol}
                 </span>
               ) : null}

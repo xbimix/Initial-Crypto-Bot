@@ -67,6 +67,13 @@ def _normalize_strategy_name(value):
     return "mean_reversion"
 
 
+def _to_float(value, fallback=None):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
 def _remove_strategy_symbol(state, symbol):
     if not isinstance(state, dict):
         return {}
@@ -181,6 +188,12 @@ def status():
     risk = cfg.get("risk", {})
     if not isinstance(risk, dict):
         risk = {}
+    trade_window = risk.get("trade_window_utc", {})
+    if not isinstance(trade_window, dict):
+        trade_window = {}
+    symbol_cooldown = risk.get("symbol_cooldown_seconds", {})
+    if not isinstance(symbol_cooldown, dict):
+        symbol_cooldown = {}
 
     return jsonify(
         {
@@ -192,6 +205,20 @@ def status():
             "sell_enabled_symbols": sell_enabled_symbols,
             "loop_sleep": cfg.get("loop_sleep"),
             "cooldown_seconds": risk.get("cooldown_seconds"),
+            "max_concurrent_trades": risk.get("max_concurrent_trades"),
+            "max_concurrent_trades_per_token": risk.get(
+                "max_concurrent_trades_per_token"
+            ),
+            "max_trade_amount_usd": risk.get("max_trade_amount_usd"),
+            "trade_amount_usd": risk.get("trade_amount_usd"),
+            "max_portfolio_exposure_pct": risk.get("max_portfolio_exposure_pct"),
+            "max_exposure_per_token_pct": risk.get("max_exposure_per_token_pct"),
+            "daily_loss_limit_usd": risk.get("daily_loss_limit_usd"),
+            "daily_loss_auto_pause": risk.get("daily_loss_auto_pause"),
+            "daily_loss_close_all": risk.get("daily_loss_close_all"),
+            "signal_confirmation_cycles": risk.get("signal_confirmation_cycles"),
+            "trade_window_utc": trade_window,
+            "symbol_cooldown_seconds": symbol_cooldown,
         }
     )
 
@@ -368,9 +395,34 @@ def update_scalper():
 def update_risk():
     body = request.get_json(silent=True) or {}
     max_concurrent_raw = body.get("maxConcurrentTrades")
+    max_concurrent_per_token_raw = body.get("maxConcurrentTradesPerToken")
+    max_trade_amount_raw = body.get("maxTradeAmountUsd")
     trade_amount_raw = body.get("tradeAmountUsd")
+    max_portfolio_exposure_raw = body.get("maxPortfolioExposurePct")
+    max_token_exposure_raw = body.get("maxExposurePerTokenPct")
+    daily_loss_limit_raw = body.get("dailyLossLimitUsd")
+    daily_loss_auto_pause_raw = body.get("dailyLossAutoPause")
+    daily_loss_close_all_raw = body.get("dailyLossCloseAll")
+    signal_confirmation_cycles_raw = body.get("signalConfirmationCycles")
+    trade_window_enabled_raw = body.get("tradeWindowEnabled")
+    trade_window_start_hour_raw = body.get("tradeWindowStartHourUtc")
+    trade_window_end_hour_raw = body.get("tradeWindowEndHourUtc")
 
-    if max_concurrent_raw is None and trade_amount_raw is None:
+    if (
+        max_concurrent_raw is None
+        and max_concurrent_per_token_raw is None
+        and max_trade_amount_raw is None
+        and trade_amount_raw is None
+        and max_portfolio_exposure_raw is None
+        and max_token_exposure_raw is None
+        and daily_loss_limit_raw is None
+        and daily_loss_auto_pause_raw is None
+        and daily_loss_close_all_raw is None
+        and signal_confirmation_cycles_raw is None
+        and trade_window_enabled_raw is None
+        and trade_window_start_hour_raw is None
+        and trade_window_end_hour_raw is None
+    ):
         return jsonify({"error": "No risk values provided"}), 400
 
     try:
@@ -383,6 +435,24 @@ def update_risk():
         return jsonify({"error": "maxConcurrentTrades must be a number"}), 400
 
     try:
+        max_concurrent_per_token = (
+            None
+            if max_concurrent_per_token_raw is None
+            else max(1, int(float(max_concurrent_per_token_raw)))
+        )
+    except (TypeError, ValueError):
+        return jsonify({"error": "maxConcurrentTradesPerToken must be a number"}), 400
+
+    try:
+        max_trade_amount = (
+            None
+            if max_trade_amount_raw is None
+            else max(1.0, float(max_trade_amount_raw))
+        )
+    except (TypeError, ValueError):
+        return jsonify({"error": "maxTradeAmountUsd must be a number"}), 400
+
+    try:
         trade_amount = (
             None
             if trade_amount_raw is None
@@ -390,6 +460,77 @@ def update_risk():
         )
     except (TypeError, ValueError):
         return jsonify({"error": "tradeAmountUsd must be a number"}), 400
+
+    try:
+        max_portfolio_exposure = (
+            None
+            if max_portfolio_exposure_raw is None
+            else max(1.0, min(100.0, float(max_portfolio_exposure_raw)))
+        )
+    except (TypeError, ValueError):
+        return jsonify({"error": "maxPortfolioExposurePct must be a number"}), 400
+
+    try:
+        max_token_exposure = (
+            None
+            if max_token_exposure_raw is None
+            else max(1.0, min(100.0, float(max_token_exposure_raw)))
+        )
+    except (TypeError, ValueError):
+        return jsonify({"error": "maxExposurePerTokenPct must be a number"}), 400
+
+    try:
+        daily_loss_limit = (
+            None
+            if daily_loss_limit_raw is None
+            else max(0.0, float(daily_loss_limit_raw))
+        )
+    except (TypeError, ValueError):
+        return jsonify({"error": "dailyLossLimitUsd must be a number"}), 400
+
+    if daily_loss_auto_pause_raw is not None and not isinstance(daily_loss_auto_pause_raw, bool):
+        return jsonify({"error": "dailyLossAutoPause must be a boolean"}), 400
+    daily_loss_auto_pause = daily_loss_auto_pause_raw if isinstance(daily_loss_auto_pause_raw, bool) else None
+
+    if daily_loss_close_all_raw is not None and not isinstance(daily_loss_close_all_raw, bool):
+        return jsonify({"error": "dailyLossCloseAll must be a boolean"}), 400
+    daily_loss_close_all = daily_loss_close_all_raw if isinstance(daily_loss_close_all_raw, bool) else None
+
+    try:
+        signal_confirmation_cycles = (
+            None
+            if signal_confirmation_cycles_raw is None
+            else max(1, int(float(signal_confirmation_cycles_raw)))
+        )
+    except (TypeError, ValueError):
+        return jsonify({"error": "signalConfirmationCycles must be a number"}), 400
+
+    if trade_window_enabled_raw is not None and not isinstance(trade_window_enabled_raw, bool):
+        return jsonify({"error": "tradeWindowEnabled must be a boolean"}), 400
+    trade_window_enabled = trade_window_enabled_raw if isinstance(trade_window_enabled_raw, bool) else None
+
+    try:
+        trade_window_start_hour = (
+            None
+            if trade_window_start_hour_raw is None
+            else int(float(trade_window_start_hour_raw))
+        )
+    except (TypeError, ValueError):
+        return jsonify({"error": "tradeWindowStartHourUtc must be a number"}), 400
+
+    try:
+        trade_window_end_hour = (
+            None
+            if trade_window_end_hour_raw is None
+            else int(float(trade_window_end_hour_raw))
+        )
+    except (TypeError, ValueError):
+        return jsonify({"error": "tradeWindowEndHourUtc must be a number"}), 400
+
+    if trade_window_start_hour is not None and not (0 <= trade_window_start_hour <= 23):
+        return jsonify({"error": "tradeWindowStartHourUtc must be between 0 and 23"}), 400
+    if trade_window_end_hour is not None and not (0 <= trade_window_end_hour <= 23):
+        return jsonify({"error": "tradeWindowEndHourUtc must be between 0 and 23"}), 400
 
     result = {}
 
@@ -402,19 +543,211 @@ def update_risk():
 
         if max_concurrent is not None:
             risk["max_concurrent_trades"] = max_concurrent
+        if max_concurrent_per_token is not None:
+            risk["max_concurrent_trades_per_token"] = max_concurrent_per_token
+        if max_trade_amount is not None:
+            risk["max_trade_amount_usd"] = max_trade_amount
         if trade_amount is not None:
             risk["trade_amount_usd"] = trade_amount
+        if max_portfolio_exposure is not None:
+            risk["max_portfolio_exposure_pct"] = max_portfolio_exposure
+        if max_token_exposure is not None:
+            risk["max_exposure_per_token_pct"] = max_token_exposure
+        if daily_loss_limit is not None:
+            risk["daily_loss_limit_usd"] = daily_loss_limit
+        if daily_loss_auto_pause is not None:
+            risk["daily_loss_auto_pause"] = daily_loss_auto_pause
+        if daily_loss_close_all is not None:
+            risk["daily_loss_close_all"] = daily_loss_close_all
+        if signal_confirmation_cycles is not None:
+            risk["signal_confirmation_cycles"] = signal_confirmation_cycles
+
+        trade_window = risk.get("trade_window_utc", {})
+        if not isinstance(trade_window, dict):
+            trade_window = {}
+        if trade_window_enabled is not None:
+            trade_window["enabled"] = trade_window_enabled
+        if trade_window_start_hour is not None:
+            trade_window["start_hour_utc"] = trade_window_start_hour
+        if trade_window_end_hour is not None:
+            trade_window["end_hour_utc"] = trade_window_end_hour
+        if trade_window:
+            risk["trade_window_utc"] = trade_window
 
         cfg["risk"] = risk
         result = {
             "risk": risk,
             "maxConcurrentTrades": risk.get("max_concurrent_trades"),
+            "maxConcurrentTradesPerToken": risk.get("max_concurrent_trades_per_token"),
+            "maxTradeAmountUsd": risk.get("max_trade_amount_usd"),
             "tradeAmountUsd": risk.get("trade_amount_usd"),
+            "maxPortfolioExposurePct": risk.get("max_portfolio_exposure_pct"),
+            "maxExposurePerTokenPct": risk.get("max_exposure_per_token_pct"),
+            "dailyLossLimitUsd": risk.get("daily_loss_limit_usd"),
+            "dailyLossAutoPause": risk.get("daily_loss_auto_pause"),
+            "dailyLossCloseAll": risk.get("daily_loss_close_all"),
+            "signalConfirmationCycles": risk.get("signal_confirmation_cycles"),
+            "tradeWindowUtc": risk.get("trade_window_utc"),
         }
         return cfg
 
     update_config(_mutate)
     return jsonify(result)
+
+
+@app.route("/cooldown", methods=["POST"])
+def update_symbol_cooldown():
+    body = request.get_json(silent=True) or {}
+    symbol = _normalize_symbol(body.get("symbol"))
+    cooldown_seconds_raw = body.get("cooldownSeconds")
+
+    if not symbol:
+        return jsonify({"error": "Missing symbol"}), 400
+
+    if cooldown_seconds_raw is None:
+        cooldown_seconds = None
+    else:
+        cooldown_seconds = _to_float(cooldown_seconds_raw, fallback=None)
+        if cooldown_seconds is None:
+            return jsonify({"error": "cooldownSeconds must be a number"}), 400
+        cooldown_seconds = max(1.0, cooldown_seconds)
+
+    result = {}
+
+    def _mutate(cfg):
+        nonlocal result
+
+        symbols = _normalize_symbols(cfg.get("symbols", []))
+        if symbol not in symbols:
+            symbols.append(symbol)
+
+        risk = cfg.get("risk", {})
+        if not isinstance(risk, dict):
+            risk = {}
+
+        symbol_cooldown = risk.get("symbol_cooldown_seconds", {})
+        if not isinstance(symbol_cooldown, dict):
+            symbol_cooldown = {}
+
+        if cooldown_seconds is None:
+            symbol_cooldown.pop(symbol, None)
+        else:
+            symbol_cooldown[symbol] = cooldown_seconds
+
+        risk["symbol_cooldown_seconds"] = symbol_cooldown
+        cfg["symbols"] = symbols
+        cfg["risk"] = risk
+
+        result = {
+            "symbol": symbol,
+            "cooldownSeconds": symbol_cooldown.get(symbol),
+            "symbolCooldownSeconds": symbol_cooldown,
+        }
+        return cfg
+
+    update_config(_mutate)
+    return jsonify(result)
+
+
+@app.route("/close-all", methods=["POST"])
+def close_all_positions():
+    body = request.get_json(silent=True) or {}
+    reason = str(body.get("reason") or "manual_close_all").strip() or "manual_close_all"
+
+    with state_transaction_lock(STATE_DIR, timeout=12.0):
+        paper_state = read_json_file(PAPER_STATE_PATH, default={})
+        strategy_state = read_json_file(STRATEGY_STATE_PATH, default={})
+        trades = read_json_file(TRADES_PATH, default=[])
+
+        if not isinstance(paper_state, dict):
+            paper_state = {}
+        if not isinstance(strategy_state, dict):
+            strategy_state = {}
+        if not isinstance(trades, list):
+            trades = []
+
+        positions = paper_state.get("positions", {})
+        if not isinstance(positions, dict):
+            positions = {}
+
+        if not positions:
+            return jsonify(
+                {
+                    "status": "ok",
+                    "closedCount": 0,
+                    "totalPnl": 0.0,
+                    "balance": _to_float(paper_state.get("balance"), fallback=0.0) or 0.0,
+                    "reason": reason,
+                }
+            )
+
+        try:
+            balance = float(paper_state.get("balance", 0))
+        except (TypeError, ValueError):
+            balance = 0.0
+
+        closed_items = []
+        total_pnl = 0.0
+
+        for symbol, raw_position in list(positions.items()):
+            if not isinstance(raw_position, dict):
+                continue
+
+            entry_price = _to_float(raw_position.get("price"), fallback=None)
+            size = _to_float(raw_position.get("size"), fallback=None)
+            if entry_price is None or size is None or entry_price <= 0 or size <= 0:
+                continue
+
+            market_price = _read_latest_snapshot_price(symbol)
+            sell_price = market_price if market_price and market_price > 0 else entry_price
+            pnl = (sell_price - entry_price) * size
+            proceeds = sell_price * size
+            balance += proceeds
+            total_pnl += pnl
+
+            positions.pop(symbol, None)
+            strategy_state = _remove_strategy_symbol(strategy_state, symbol)
+
+            trade_entry = {
+                "time": time.time(),
+                "symbol": symbol,
+                "side": "SELL",
+                "price": sell_price,
+                "size": size,
+                "pnl": pnl,
+                "balance": balance,
+                "reason": reason,
+            }
+            trades.append(trade_entry)
+            closed_items.append(
+                {
+                    "symbol": symbol,
+                    "price": sell_price,
+                    "size": size,
+                    "pnl": pnl,
+                }
+            )
+
+        paper_state["positions"] = positions
+        paper_state["balance"] = balance
+
+        write_json_file(PAPER_STATE_PATH, paper_state)
+        write_json_file(STRATEGY_STATE_PATH, strategy_state)
+        write_json_file(TRADES_PATH, trades)
+
+    logger.warning(
+        f"Close-all executed: closed={len(closed_items)} total_pnl={total_pnl:.2f} reason={reason}"
+    )
+    return jsonify(
+        {
+            "status": "ok",
+            "closedCount": len(closed_items),
+            "closed": closed_items,
+            "totalPnl": total_pnl,
+            "balance": balance,
+            "reason": reason,
+        }
+    )
 
 
 @app.route("/manual-sell", methods=["POST"])

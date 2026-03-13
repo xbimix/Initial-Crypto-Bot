@@ -668,5 +668,15 @@
     "pnl": 8.296367002000007,
     "balance": 8658.765949999197,
     "reason": "profit_lock_exit_5pct"
+  },
+  {
+    "time": 1773363458.6290438,
+    "symbol": "PONKE-USD",
+    "side": "SELL",
+    "price": 0.03041,
+    "size": 5533.930552,
+    "pnl": 4.897528538520002,
+    "balance": 8827.052778085517,
+    "reason": "profit_lock_exit_3pct"
   }
 ]
