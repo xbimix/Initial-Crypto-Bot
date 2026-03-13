@@ -1,109 +1,84 @@
 import logging
+import os
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-LOG_DIR = Path("state")
-LOG_DIR.mkdir(exist_ok=True)
-
+LOG_DIR = Path(__file__).resolve().parent.parent / "state"
+LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "bot.log"
 
-# Global guard
 _FILE_HANDLER_ADDED = False
 
 
-def setup_logger(name="revbot"):
+class SafeRotatingFileHandler(RotatingFileHandler):
+    """
+    Windows-safe rotating handler.
+    If another process holds the file lock during rollover, skip rotation
+    instead of raising and breaking logging calls.
+    """
+
+    def doRollover(self):
+        try:
+            super().doRollover()
+        except PermissionError:
+            return
+        except OSError:
+            return
+
+
+def _parse_int_env(name: str, default: int, *, minimum: int = 0) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(value, minimum)
+
+
+def _resolve_log_level() -> int:
+    level_name = os.getenv("REVBOT_LOG_LEVEL", "INFO").strip().upper()
+    return getattr(logging, level_name, logging.INFO)
+
+
+def setup_logger(name: str = "revbot"):
     global _FILE_HANDLER_ADDED
 
+    log_level = _resolve_log_level()
     logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
+    logger.setLevel(log_level)
 
-    formatter = logging.Formatter(
-        "%(asctime)s | %(levelname)s | %(message)s"
-    )
+    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(message)s")
 
-    # ---- Console handler ----
-    if not any(isinstance(h, logging.StreamHandler) for h in logger.handlers):
+    if not any(
+        isinstance(handler, logging.StreamHandler)
+        and not isinstance(handler, logging.FileHandler)
+        for handler in logger.handlers
+    ):
         console = logging.StreamHandler(sys.stdout)
         console.setFormatter(formatter)
-        console.setLevel(logging.INFO)
+        console.setLevel(log_level)
         logger.addHandler(console)
 
-    # ---- File handler (add ONCE globally) ----
     if not _FILE_HANDLER_ADDED:
-        file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+        max_bytes = _parse_int_env("REVBOT_LOG_MAX_BYTES", 5 * 1024 * 1024, minimum=1)
+        backup_count = _parse_int_env("REVBOT_LOG_BACKUP_COUNT", 5, minimum=1)
+
+        file_handler = SafeRotatingFileHandler(
+            LOG_FILE,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
         file_handler.setFormatter(formatter)
-        file_handler.setLevel(logging.INFO)
+        file_handler.setLevel(log_level)
 
-        logging.getLogger().addHandler(file_handler)
-        logging.getLogger().setLevel(logging.INFO)
-
+        root_logger = logging.getLogger()
+        root_logger.addHandler(file_handler)
+        root_logger.setLevel(log_level)
         _FILE_HANDLER_ADDED = True
 
-    # Prevent double logging via root
     logger.propagate = True
-
     return logger
-
-
-
-
-# import logging
-# import sys
-# from pathlib import Path
-
-# LOG_DIR = Path("state")
-# LOG_DIR.mkdir(exist_ok=True)
-
-# LOG_FILE = LOG_DIR / "bot.log"
-
-
-# def setup_logger(name="revbot"):
-#     logger = logging.getLogger(name)
-
-#     if logger.handlers:
-#         return logger  # prevent duplicate handlers
-
-#     logger.setLevel(logging.INFO)
-
-#     formatter = logging.Formatter(
-#         "%(asctime)s | %(levelname)s | %(message)s"
-#     )
-
-#     # ---- Console handler (Windows safe, no emojis) ----
-#     console = logging.StreamHandler(sys.stdout)
-#     console.setFormatter(formatter)
-#     console.setLevel(logging.INFO)
-
-#     # ---- File handler ----
-#     file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
-#     file_handler.setFormatter(formatter)
-#     file_handler.setLevel(logging.INFO)
-
-#     logger.addHandler(console)
-#     logger.addHandler(file_handler)
-
-#     return logger
-
-
-# crypto_bot/
-# │
-# ├── main.py                     # Main controller script
-# ├── config.py                   # Configuration and settings
-# │
-# ├── api/
-# │   └── revolut_api.py         # RevolutX API integration layer (to be filled in later)
-# │
-# ├── data/
-# │   └── market_data.py          # Handles fetching market data
-# │
-# ├── analysis/
-# │   └── indicators.py          # Your indicator functions (RSI, MA, etc.)
-# │
-# ├── strategy/
-# │   └── strategy_engine.py      # Where we generate buy/sell signals
-# │
-# ├── trading/
-# │   └── trader.py               # Manages actual trade decisions
-# │
-# └── utils/
-#     └── logger.py               # (Optional) Logging and debugging utilities

@@ -38,7 +38,20 @@
     "risk_percent": 0.02,
     "trade_amount_usd": 200,
     "max_concurrent_trades": 15,
-    "cooldown_seconds": 90
+    "cooldown_seconds": 90,
+    "max_concurrent_trades_per_token": 2,
+    "max_trade_amount_usd": 10000,
+    "max_portfolio_exposure_pct": 100,
+    "max_exposure_per_token_pct": 100,
+    "daily_loss_limit_usd": 0,
+    "daily_loss_auto_pause": true,
+    "daily_loss_close_all": false,
+    "signal_confirmation_cycles": 1,
+    "trade_window_utc": {
+      "enabled": false,
+      "start_hour_utc": 0,
+      "end_hour_utc": 23
+    }
   },
   "market_regime": {
     "type": "bear",
@@ -104,5 +117,6 @@
     "symbols": [
       "GST-USD"
     ]
-  }
+  },
+  "config_version": 1
 }

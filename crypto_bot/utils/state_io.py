@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import os
 import tempfile
 import time
@@ -12,6 +13,9 @@ from typing import Any, Callable
 DEFAULT_LOCK_TIMEOUT = 8.0
 DEFAULT_LOCK_POLL_SECONDS = 0.05
 DEFAULT_STALE_LOCK_SECONDS = 120.0
+LOCK_WAIT_LOG_THRESHOLD_SECONDS = 1.0
+
+logger = logging.getLogger("state_io")
 
 
 @contextmanager
@@ -28,6 +32,7 @@ def file_lock(
 
     handle: int | None = None
     started_at = time.monotonic()
+    wait_logged = False
 
     while True:
         try:
@@ -39,6 +44,9 @@ def file_lock(
                 try:
                     age_seconds = time.time() - lock_path.stat().st_mtime
                     if age_seconds > stale_seconds:
+                        logger.warning(
+                            f"Removing stale lock {lock_path} (age={age_seconds:.2f}s)"
+                        )
                         try:
                             lock_path.unlink()
                         except FileNotFoundError:
@@ -47,8 +55,22 @@ def file_lock(
                 except FileNotFoundError:
                     continue
 
-            if time.monotonic() - started_at >= timeout:
-                raise TimeoutError(f"Timed out waiting for lock: {lock_path}")
+            waited = time.monotonic() - started_at
+            if (not wait_logged) and waited >= LOCK_WAIT_LOG_THRESHOLD_SECONDS:
+                holder = "unknown"
+                try:
+                    holder = lock_path.read_text(encoding="utf-8").strip() or "unknown"
+                except Exception:
+                    pass
+                logger.warning(
+                    f"Waiting for lock {lock_path} for {waited:.2f}s (holder={holder})"
+                )
+                wait_logged = True
+
+            if waited >= timeout:
+                message = f"Timed out waiting for lock: {lock_path}"
+                logger.error(message)
+                raise TimeoutError(message)
 
             time.sleep(poll_seconds)
 

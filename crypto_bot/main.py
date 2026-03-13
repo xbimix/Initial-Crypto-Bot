@@ -1,4 +1,6 @@
 import time
+import os
+from pathlib import Path
 
 from data.market_data import fetch_market_snapshot
 from strategy.strategy_engine import evaluate_symbol
@@ -10,6 +12,28 @@ logger = setup_logger("main")
 
 HEARTBEAT_INTERVAL = 60
 _buy_signal_streak: dict[str, int] = {}
+STATE_DIR = Path(__file__).resolve().parent / "state"
+REQUIRED_STATE_FILES = (
+    "config.json",
+    "paper_state.json",
+    "strategy_state.json",
+    "trades.json",
+)
+
+
+def _bool_env(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+STRICT_STARTUP_CHECKS = _bool_env("REVBOT_MAIN_STRICT_STARTUP", default=False)
 
 
 def _normalize_symbols(raw_symbols: list[str]) -> list[str]:
@@ -74,8 +98,60 @@ def _signal_confirmation_cycles(cfg: dict) -> int:
         return 1
 
 
+def _check_state_dir_writable(directory: Path):
+    marker = directory / f".main_write_probe.{os.getpid()}"
+    marker.write_text("ok", encoding="utf-8")
+    marker.unlink(missing_ok=True)
+
+
+def _run_startup_checks() -> dict:
+    checks: list[dict] = []
+    ok = True
+
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        checks.append({"name": "state_dir_exists", "ok": True})
+    except Exception as exc:
+        checks.append({"name": "state_dir_exists", "ok": False, "detail": str(exc)})
+        ok = False
+
+    try:
+        _check_state_dir_writable(STATE_DIR)
+        checks.append({"name": "state_dir_writable", "ok": True})
+    except Exception as exc:
+        checks.append({"name": "state_dir_writable", "ok": False, "detail": str(exc)})
+        ok = False
+
+    for filename in REQUIRED_STATE_FILES:
+        path = STATE_DIR / filename
+        checks.append({"name": f"{filename}_present", "ok": path.exists()})
+
+    try:
+        cfg = load_config()
+        checks.append({"name": "config_loadable", "ok": isinstance(cfg, dict)})
+        if not isinstance(cfg, dict):
+            ok = False
+    except Exception as exc:
+        checks.append({"name": "config_loadable", "ok": False, "detail": str(exc)})
+        ok = False
+
+    return {"ok": ok, "checks": checks}
+
+
+def _log_startup_checks(result: dict):
+    if result.get("ok"):
+        logger.info("Startup checks passed")
+        return
+    logger.warning(f"Startup checks reported issues: {result.get('checks', [])}")
+
+
 def main():
     logger.info("RevBot starting (paper mode default)")
+    startup = _run_startup_checks()
+    _log_startup_checks(startup)
+    if not startup.get("ok", False) and STRICT_STARTUP_CHECKS:
+        raise RuntimeError("Startup checks failed and strict mode is enabled")
+
     executor: Executor | None = None
     last_heartbeat = 0.0
 

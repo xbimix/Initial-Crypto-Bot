@@ -9,3 +9,14 @@ __pycache__/
 
 # Logs
 *.log
+.pytest_cache/
+
+# Local runtime artifacts
+crypto_bot/state/backups/
+crypto_bot/state/*.lock
+crypto_bot/state/.pytest_cache*/
+crypto_bot/state/pytest_tmp*/
+crypto_bot/state/pytest-cache-files-*/
+crypto_bot/tests/.pytest_cache*/
+crypto_bot/tests/_pytest_tmp*/
+crypto_bot/tests/pytest-cache-files-*/

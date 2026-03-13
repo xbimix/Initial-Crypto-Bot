@@ -1,8 +1,11 @@
 import re
 import time
+from datetime import datetime, timezone
+import os
 from pathlib import Path
 
 from flask import Flask, jsonify, request
+from werkzeug.exceptions import HTTPException
 
 from utils.config_loader import load_config, update_config
 from utils.logger import setup_logger
@@ -17,9 +20,104 @@ STRATEGY_STATE_PATH = STATE_DIR / "strategy_state.json"
 TRADES_PATH = STATE_DIR / "trades.json"
 LOG_PATH = STATE_DIR / "bot.log"
 LOG_TAIL_BYTES = 256 * 1024
+CONTROL_HOST = os.getenv("REVBOT_CONTROL_HOST", "127.0.0.1").strip() or "127.0.0.1"
+try:
+    CONTROL_PORT = int(os.getenv("REVBOT_CONTROL_PORT", "8001"))
+except ValueError:
+    CONTROL_PORT = 8001
+STRICT_STARTUP = os.getenv("REVBOT_CONTROL_STRICT_STARTUP", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 SNAPSHOT_PATTERN = re.compile(
     r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+\s+\|\s+INFO\s+\|\s+SNAPSHOT\s+([A-Z0-9-]+)\s+\|\s+price=([0-9.]+)"
 )
+REQUIRED_STATE_JSON_FILES = (
+    PAPER_STATE_PATH,
+    STRATEGY_STATE_PATH,
+    TRADES_PATH,
+)
+_startup_status = None
+
+
+def _now_utc_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _json_error(message, *, status=400, code="bad_request", details=None):
+    payload = {
+        "status": "error",
+        "error": str(message),
+        "code": code,
+    }
+    if details is not None:
+        payload["details"] = details
+    return jsonify(payload), status
+
+
+def _probe_directory_writable(directory: Path):
+    directory.mkdir(parents=True, exist_ok=True)
+    marker = directory / f".control_write_probe.{os.getpid()}.{int(time.time() * 1000)}"
+    marker.write_text("ok", encoding="utf-8")
+    marker.unlink(missing_ok=True)
+
+
+def _run_startup_checks():
+    checks = []
+    ok = True
+
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        checks.append({"name": "state_dir_exists", "ok": True})
+    except Exception as exc:
+        checks.append({"name": "state_dir_exists", "ok": False, "detail": str(exc)})
+        ok = False
+
+    try:
+        _probe_directory_writable(STATE_DIR)
+        checks.append({"name": "state_dir_writable", "ok": True})
+    except Exception as exc:
+        checks.append({"name": "state_dir_writable", "ok": False, "detail": str(exc)})
+        ok = False
+
+    for path in REQUIRED_STATE_JSON_FILES:
+        exists = path.exists()
+        checks.append({"name": f"{path.name}_present", "ok": exists})
+        if not exists:
+            continue
+
+        try:
+            read_json_file(path, strict=True)
+            checks.append({"name": f"{path.name}_json_valid", "ok": True})
+        except Exception as exc:
+            checks.append({"name": f"{path.name}_json_valid", "ok": False, "detail": str(exc)})
+            ok = False
+
+    try:
+        cfg = load_config()
+        checks.append({"name": "config_loadable", "ok": isinstance(cfg, dict)})
+        if not isinstance(cfg, dict):
+            ok = False
+    except Exception as exc:
+        checks.append({"name": "config_loadable", "ok": False, "detail": str(exc)})
+        ok = False
+
+    return {
+        "ok": ok,
+        "checkedAt": _now_utc_iso(),
+        "checks": checks,
+    }
+
+
+def _refresh_startup_status():
+    global _startup_status
+    _startup_status = _run_startup_checks()
+    return _startup_status
+
+
+_startup_status = _refresh_startup_status()
 
 
 def _normalize_symbol(value):
@@ -223,6 +321,44 @@ def status():
     )
 
 
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify(
+        {
+            "status": "ok",
+            "service": "control",
+            "time": _now_utc_iso(),
+        }
+    )
+
+
+@app.route("/ready", methods=["GET"])
+def ready():
+    status_payload = _refresh_startup_status()
+    if status_payload.get("ok"):
+        payload = dict(status_payload)
+        payload["status"] = "ok"
+        return jsonify(payload)
+    payload = dict(status_payload)
+    payload["status"] = "error"
+    payload["error"] = "startup_checks_failed"
+    payload["code"] = "not_ready"
+    return jsonify(payload), 503
+
+
+@app.errorhandler(Exception)
+def handle_exception(exc):
+    if isinstance(exc, HTTPException):
+        return _json_error(
+            exc.description or "HTTP error",
+            status=exc.code or 500,
+            code="http_error",
+        )
+
+    logger.exception(f"Unhandled control server error: {exc}")
+    return _json_error("Internal server error", status=500, code="internal_error")
+
+
 @app.route("/config", methods=["GET"])
 def get_config():
     return jsonify(load_config())
@@ -232,7 +368,7 @@ def get_config():
 def update_config_route():
     updates = request.get_json(silent=True) or {}
     if not isinstance(updates, dict):
-        return jsonify({"error": "Request body must be an object"}), 400
+        return _json_error("Request body must be an object")
 
     def _mutate(cfg):
         cfg.update(updates)
@@ -251,7 +387,7 @@ def control():
 
     payload, error = _apply_control_action(action, reason=reason)
     if error:
-        return jsonify({"error": error}), 400
+        return _json_error(error)
 
     return jsonify(payload)
 
@@ -263,7 +399,7 @@ def kill():
 
     payload, error = _apply_control_action("KILL", reason=reason)
     if error:
-        return jsonify({"error": error}), 400
+        return _json_error(error)
 
     return jsonify(payload)
 
@@ -276,18 +412,18 @@ def update_symbols():
     enabled = body.get("enabled")
 
     if not symbol:
-        return jsonify({"error": "Missing symbol"}), 400
+        return _json_error("Missing symbol")
 
     if enabled is None or not isinstance(enabled, bool):
-        return jsonify({"error": "enabled must be a boolean"}), 400
+        return _json_error("enabled must be a boolean")
 
     side = None
     if side_raw is not None:
         if not isinstance(side_raw, str):
-            return jsonify({"error": "side must be buy, sell, or omitted"}), 400
+            return _json_error("side must be buy, sell, or omitted")
         side = side_raw.strip().lower()
         if side not in {"buy", "sell"}:
-            return jsonify({"error": "side must be buy, sell, or omitted"}), 400
+            return _json_error("side must be buy, sell, or omitted")
 
     result = {}
 
@@ -338,10 +474,10 @@ def update_scalper():
     enabled = body.get("enabled")
 
     if not symbol:
-        return jsonify({"error": "Missing symbol"}), 400
+        return _json_error("Missing symbol")
 
     if not isinstance(enabled, bool):
-        return jsonify({"error": "enabled must be a boolean"}), 400
+        return _json_error("enabled must be a boolean")
 
     result = {}
 
@@ -423,7 +559,7 @@ def update_risk():
         and trade_window_start_hour_raw is None
         and trade_window_end_hour_raw is None
     ):
-        return jsonify({"error": "No risk values provided"}), 400
+        return _json_error("No risk values provided")
 
     try:
         max_concurrent = (
@@ -432,7 +568,7 @@ def update_risk():
             else max(1, int(float(max_concurrent_raw)))
         )
     except (TypeError, ValueError):
-        return jsonify({"error": "maxConcurrentTrades must be a number"}), 400
+        return _json_error("maxConcurrentTrades must be a number")
 
     try:
         max_concurrent_per_token = (
@@ -441,7 +577,7 @@ def update_risk():
             else max(1, int(float(max_concurrent_per_token_raw)))
         )
     except (TypeError, ValueError):
-        return jsonify({"error": "maxConcurrentTradesPerToken must be a number"}), 400
+        return _json_error("maxConcurrentTradesPerToken must be a number")
 
     try:
         max_trade_amount = (
@@ -450,7 +586,7 @@ def update_risk():
             else max(1.0, float(max_trade_amount_raw))
         )
     except (TypeError, ValueError):
-        return jsonify({"error": "maxTradeAmountUsd must be a number"}), 400
+        return _json_error("maxTradeAmountUsd must be a number")
 
     try:
         trade_amount = (
@@ -459,7 +595,7 @@ def update_risk():
             else max(1.0, float(trade_amount_raw))
         )
     except (TypeError, ValueError):
-        return jsonify({"error": "tradeAmountUsd must be a number"}), 400
+        return _json_error("tradeAmountUsd must be a number")
 
     try:
         max_portfolio_exposure = (
@@ -468,7 +604,7 @@ def update_risk():
             else max(1.0, min(100.0, float(max_portfolio_exposure_raw)))
         )
     except (TypeError, ValueError):
-        return jsonify({"error": "maxPortfolioExposurePct must be a number"}), 400
+        return _json_error("maxPortfolioExposurePct must be a number")
 
     try:
         max_token_exposure = (
@@ -477,7 +613,7 @@ def update_risk():
             else max(1.0, min(100.0, float(max_token_exposure_raw)))
         )
     except (TypeError, ValueError):
-        return jsonify({"error": "maxExposurePerTokenPct must be a number"}), 400
+        return _json_error("maxExposurePerTokenPct must be a number")
 
     try:
         daily_loss_limit = (
@@ -486,14 +622,14 @@ def update_risk():
             else max(0.0, float(daily_loss_limit_raw))
         )
     except (TypeError, ValueError):
-        return jsonify({"error": "dailyLossLimitUsd must be a number"}), 400
+        return _json_error("dailyLossLimitUsd must be a number")
 
     if daily_loss_auto_pause_raw is not None and not isinstance(daily_loss_auto_pause_raw, bool):
-        return jsonify({"error": "dailyLossAutoPause must be a boolean"}), 400
+        return _json_error("dailyLossAutoPause must be a boolean")
     daily_loss_auto_pause = daily_loss_auto_pause_raw if isinstance(daily_loss_auto_pause_raw, bool) else None
 
     if daily_loss_close_all_raw is not None and not isinstance(daily_loss_close_all_raw, bool):
-        return jsonify({"error": "dailyLossCloseAll must be a boolean"}), 400
+        return _json_error("dailyLossCloseAll must be a boolean")
     daily_loss_close_all = daily_loss_close_all_raw if isinstance(daily_loss_close_all_raw, bool) else None
 
     try:
@@ -503,10 +639,10 @@ def update_risk():
             else max(1, int(float(signal_confirmation_cycles_raw)))
         )
     except (TypeError, ValueError):
-        return jsonify({"error": "signalConfirmationCycles must be a number"}), 400
+        return _json_error("signalConfirmationCycles must be a number")
 
     if trade_window_enabled_raw is not None and not isinstance(trade_window_enabled_raw, bool):
-        return jsonify({"error": "tradeWindowEnabled must be a boolean"}), 400
+        return _json_error("tradeWindowEnabled must be a boolean")
     trade_window_enabled = trade_window_enabled_raw if isinstance(trade_window_enabled_raw, bool) else None
 
     try:
@@ -516,7 +652,7 @@ def update_risk():
             else int(float(trade_window_start_hour_raw))
         )
     except (TypeError, ValueError):
-        return jsonify({"error": "tradeWindowStartHourUtc must be a number"}), 400
+        return _json_error("tradeWindowStartHourUtc must be a number")
 
     try:
         trade_window_end_hour = (
@@ -525,12 +661,12 @@ def update_risk():
             else int(float(trade_window_end_hour_raw))
         )
     except (TypeError, ValueError):
-        return jsonify({"error": "tradeWindowEndHourUtc must be a number"}), 400
+        return _json_error("tradeWindowEndHourUtc must be a number")
 
     if trade_window_start_hour is not None and not (0 <= trade_window_start_hour <= 23):
-        return jsonify({"error": "tradeWindowStartHourUtc must be between 0 and 23"}), 400
+        return _json_error("tradeWindowStartHourUtc must be between 0 and 23")
     if trade_window_end_hour is not None and not (0 <= trade_window_end_hour <= 23):
-        return jsonify({"error": "tradeWindowEndHourUtc must be between 0 and 23"}), 400
+        return _json_error("tradeWindowEndHourUtc must be between 0 and 23")
 
     result = {}
 
@@ -602,14 +738,14 @@ def update_symbol_cooldown():
     cooldown_seconds_raw = body.get("cooldownSeconds")
 
     if not symbol:
-        return jsonify({"error": "Missing symbol"}), 400
+        return _json_error("Missing symbol")
 
     if cooldown_seconds_raw is None:
         cooldown_seconds = None
     else:
         cooldown_seconds = _to_float(cooldown_seconds_raw, fallback=None)
         if cooldown_seconds is None:
-            return jsonify({"error": "cooldownSeconds must be a number"}), 400
+            return _json_error("cooldownSeconds must be a number")
         cooldown_seconds = max(1.0, cooldown_seconds)
 
     result = {}
@@ -756,7 +892,7 @@ def manual_sell():
     symbol = _normalize_symbol(body.get("symbol"))
 
     if not symbol:
-        return jsonify({"error": "Missing symbol"}), 400
+        return _json_error("Missing symbol")
 
     with state_transaction_lock(STATE_DIR, timeout=12.0):
         paper_state = read_json_file(PAPER_STATE_PATH, default={})
@@ -776,21 +912,33 @@ def manual_sell():
 
         position = positions.get(symbol)
         if not isinstance(position, dict):
-            return jsonify({"error": f"No open position for {symbol}"}), 404
+            return _json_error(f"No open position for {symbol}", status=404, code="not_found")
 
         try:
             entry_price = float(position.get("price", 0))
             size = float(position.get("size", 0))
         except (TypeError, ValueError):
-            return jsonify({"error": f"Invalid position data for {symbol}"}), 422
+            return _json_error(
+                f"Invalid position data for {symbol}",
+                status=422,
+                code="invalid_position",
+            )
 
         if entry_price <= 0 or size <= 0:
-            return jsonify({"error": f"Invalid position data for {symbol}"}), 422
+            return _json_error(
+                f"Invalid position data for {symbol}",
+                status=422,
+                code="invalid_position",
+            )
 
         market_price = _read_latest_snapshot_price(symbol)
         sell_price = market_price if market_price and market_price > 0 else entry_price
         if sell_price <= 0:
-            return jsonify({"error": f"Unable to determine sell price for {symbol}"}), 422
+            return _json_error(
+                f"Unable to determine sell price for {symbol}",
+                status=422,
+                code="price_unavailable",
+            )
 
         try:
             previous_balance = float(paper_state.get("balance", 0))
@@ -841,5 +989,11 @@ def manual_sell():
 
 
 def run():
-    logger.info("Control server starting on port 8001")
-    app.run(host="127.0.0.1", port=8001, debug=False)
+    startup_status = _refresh_startup_status()
+    if not startup_status.get("ok", False):
+        logger.error(f"Control startup checks failed: {startup_status}")
+        if STRICT_STARTUP:
+            raise RuntimeError("Control startup checks failed")
+
+    logger.info(f"Control server starting on {CONTROL_HOST}:{CONTROL_PORT}")
+    app.run(host=CONTROL_HOST, port=CONTROL_PORT, debug=False)

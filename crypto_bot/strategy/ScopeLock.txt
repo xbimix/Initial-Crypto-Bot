@@ -1,0 +1,119 @@
+Scope Lock (non-negotiable)
+
+Keep strategy behavior unchanged (mean_reversion, scalper logic, thresholds, risk logic decisions).
+Keep current UI/controls behavior unchanged (only hardening/performance/reliability).
+Only improve safety, validation, observability, maintainability, local deployment robustness.
+Step-by-Step Local Deployment Hardening Guide (12 weeks, 2-week phases)
+Start with small, reversible batches so I can implement safely.
+
+Phase 0 (Day 1) - Baseline + Guardrails
+Create branch: hardening/local-phase0-baseline.
+Backup state files (config.json, paper_state.json, strategy_state.json, trades.json, state.json).
+Save baseline file hashes for strategy files:
+crypto_bot/strategy/strategy_engine.py
+crypto_bot/strategy/regime.py
+crypto_bot/strategy/scoring.py
+Add a “no-strategy-drift” check script (fails if these hashes change).
+Capture a short baseline run report (bot start, UI start, toggle test, manual sell test).
+Done when:
+
+You can restore state instantly.
+Strategy hash check passes.
+Phase 1 (Weeks 1-2) - Config Safety + Logging + Reproducible Setup
+Pin Python dependencies in crypto_bot/requirements.txt (exact versions).
+Add local setup script (scripts/setup_local.ps1) for one-command bootstrap.
+Add strict config validation layer in loader path:
+Validate types/ranges for risk, symbols, profit_locks, market_data.
+Auto-fill missing keys safely.
+Reject invalid config with clear error.
+Add config schema version + migration function.
+Replace single log file with rotating logs (bot.log, bot.log.1, etc.).
+Add scripts/backup_state.ps1 and scripts/restore_state.ps1.
+Done when:
+
+Invalid config cannot silently run.
+Logs no longer grow unbounded.
+Fresh local setup is reproducible.
+Phase 2 (Weeks 3-4) - Local Control Security + Audit Trail
+Add local API token auth for all mutating Flask endpoints (/control, /kill, /symbols, /risk, /manual-sell, /close-all, etc.).
+Add same auth enforcement in Next API routes + fallback mutating routes.
+Add basic local rate-limit on mutating endpoints.
+Add audit log (state/audit.jsonl) for every manual action:
+who/action/symbol/old/new/result/time.
+Keep 127.0.0.1 binding only.
+Done when:
+
+No state-changing request works without token.
+Every manual override is traceable.
+Phase 3 (Weeks 5-6) - Tests + Regression Safety
+Add pytest and test structure (crypto_bot/tests).
+Add unit tests for:
+utils/state_io.py
+utils/config_loader.py
+risk/risk_manager.py
+Add deterministic strategy regression tests using fixed snapshot fixtures:
+expected decision output must remain unchanged.
+Add API integration tests for control endpoints (including auth failures).
+Add web route smoke tests for fallback behavior.
+Add local CI script (scripts/check_all.ps1) running lint + tests + build.
+Done when:
+
+Strategy regression tests pass unchanged.
+Core risk/state/control tests pass automatically.
+Phase 4 (Weeks 7-8) - Runtime Hardening (No Strategy Changes)
+Add /health and /ready endpoints.
+Add robust startup checks (state files, config validity, writable dirs).
+Add safer error handling around control operations with consistent error payloads.
+Add watchdog scripts:
+scripts/start_bot.ps1
+scripts/start_control.ps1
+scripts/start_ui.ps1
+optional auto-restart wrapper.
+Improve lock timeout/error observability (clear lock contention logs).
+Done when:
+
+Services are self-checking.
+Crash/restart behavior is predictable and recoverable.
+Phase 5 (Weeks 9-10) - Performance + Proficiency
+Add lightweight performance telemetry:
+loop duration
+per-symbol processing time
+API latency
+blocked-reason counters
+Optimize non-strategy code paths only:
+reduce redundant file reads
+improve log parsing efficiency in dashboard routes
+Add state file size management/compaction tasks.
+Keep behavior parity checks active (strategy regression suite).
+Done when:
+
+Bot runs smoother under same strategy/settings.
+No decision logic drift.
+Phase 6 (Weeks 11-12) - Local “Production-Like” Go-Live
+Finalize runbook:
+start/stop/emergency/restore/update/rollback.
+Run 7-day soak test locally.
+Execute failure drills:
+control server down
+UI down
+stale lock file
+bad config injection
+Final sign-off checklist before “stable local deployment” tag.
+Done when:
+
+7-day run is stable.
+Recovery drills pass.
+Rollback is tested.
+Exact Execution Pattern (for easy implementation by me)
+For each phase I will do this sequence:
+
+Create feature branch.
+Implement only that phase scope.
+Run checks/tests/build.
+Provide changelog + file list + verification output summary.
+Wait for your approval before next phase.
+Suggested first implementation command from you
+Implement Phase 0 and Phase 1 only, no strategy logic changes, and show verification results.
+If you want, I can start exactly with Phase 0 + Phase 1 now.
+
+
