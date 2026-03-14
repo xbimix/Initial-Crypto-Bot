@@ -56,6 +56,13 @@ Expected:
 ```powershell
 .\scripts\backup_state.ps1
 .\scripts\check_local.ps1 -SkipWebBuild
+.\scripts\profile_local_bottlenecks.ps1 -SampleSeconds 10 -SkipPythonBench
+```
+
+Full micro-benchmark pass (run when bot/control are stopped):
+
+```powershell
+.\scripts\profile_local_bottlenecks.ps1 -SampleSeconds 30
 ```
 
 ## 5) Emergency recovery
@@ -105,3 +112,19 @@ $env:REVBOT_CONTROL_STRICT_STARTUP="1"
 ```
 
 Use strict modes only once your state/config files are stable.
+
+## 8) Optional state I/O telemetry (profiling only)
+
+Enable in the terminal before starting bot/control:
+
+```powershell
+$env:REVBOT_STATE_IO_METRICS="1"
+$env:REVBOT_STATE_IO_METRICS_INTERVAL_SECONDS="60"
+```
+
+Disable after profiling to keep logs clean:
+
+```powershell
+Remove-Item Env:REVBOT_STATE_IO_METRICS -ErrorAction SilentlyContinue
+Remove-Item Env:REVBOT_STATE_IO_METRICS_INTERVAL_SECONDS -ErrorAction SilentlyContinue
+```

@@ -678,5 +678,61 @@
     "pnl": 4.897528538520002,
     "balance": 8827.052778085517,
     "reason": "profit_lock_exit_3pct"
+  },
+  {
+    "time": 1773402783.2619202,
+    "symbol": "SEI-USD",
+    "side": "SELL",
+    "price": 0.06645000000000001,
+    "size": 2413.648982,
+    "pnl": 4.585933065800031,
+    "balance": 8987.439752939417,
+    "reason": "profit_lock_exit_3pct"
+  },
+  {
+    "time": 1773413363.6466975,
+    "symbol": "ETH-USD",
+    "side": "SELL",
+    "price": 2167.9,
+    "size": 0.084031,
+    "pnl": 5.247315795000014,
+    "balance": 9169.610557839418,
+    "reason": "profit_lock_exit_3pct"
+  },
+  {
+    "time": 1773417961.5892522,
+    "symbol": "IMX-USD",
+    "side": "BUY",
+    "price": 0.16675,
+    "size": 1199.4003,
+    "balance": 8969.610557814418,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1773424222.754471,
+    "symbol": "ETH-USD",
+    "side": "BUY",
+    "price": 2093.905,
+    "size": 0.095515,
+    "balance": 8769.611221739418,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1773437945.7460163,
+    "symbol": "SUI-USD",
+    "side": "BUY",
+    "price": 0.99725,
+    "size": 200.551517,
+    "balance": 8569.611221411169,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1773440427.503701,
+    "symbol": "BTC-USD",
+    "side": "BUY",
+    "price": 70796.695,
+    "size": 0.002825,
+    "balance": 8369.61055803617,
+    "reason": "bear_market_mean_reversion_buy"
   }
 ]

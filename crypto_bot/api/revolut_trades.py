@@ -29,7 +29,8 @@ def get_last_trades(symbol: str | None = None, limit: int = 50):
     ):
         return _LAST_TRADES_CACHE["data"][:limit]
 
-    logger.info(f"Refreshing global last trades from Revolut for {label}")
+    # Healthy periodic refresh; keep at DEBUG to reduce normal-mode log volume.
+    logger.debug(f"Refreshing global last trades from Revolut for {label}")
 
     try:
         data = _get(

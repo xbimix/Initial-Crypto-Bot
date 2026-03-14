@@ -146,6 +146,30 @@ Detailed operational guide:
 
 `.\scripts\RUNBOOK_LOCAL.md`
 
+## 9) Profile measured bottlenecks
+
+Run local bottleneck profiling (state I/O + log growth + micro-benchmarks):
+
+```powershell
+.\scripts\profile_local_bottlenecks.ps1
+```
+
+Skip Python micro-benchmarks:
+
+```powershell
+.\scripts\profile_local_bottlenecks.ps1 -SkipPythonBench
+```
+
+Sample a longer log-growth window:
+
+```powershell
+.\scripts\profile_local_bottlenecks.ps1 -SampleSeconds 30
+```
+
+Optional state I/O telemetry during runtime (disabled by default):
+- `REVBOT_STATE_IO_METRICS=1`
+- `REVBOT_STATE_IO_METRICS_INTERVAL_SECONDS=60`
+
 ## Control server health/readiness
 
 - `GET /health` -> process is alive

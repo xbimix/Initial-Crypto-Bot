@@ -13,5 +13,6 @@ def get_order_book(symbol: str) -> dict:
       "metadata": {...}
     }
     """
-    logger.info(f"Fetching order book {symbol}")
+    # High-frequency healthy event; keep available at DEBUG to reduce log churn.
+    logger.debug(f"Fetching order book {symbol}")
     return _get(f"/public/order-book/{symbol}")

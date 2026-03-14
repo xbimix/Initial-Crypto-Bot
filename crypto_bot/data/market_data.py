@@ -301,7 +301,8 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
         )
         trade_confirmation_limit = max(0, min(trade_confirmation_limit, max(1, min(lookback, 100))))
 
-        logger.info(f"Fetching market snapshot for {symbol}")
+        # High-frequency healthy event; keep available at DEBUG to reduce log churn.
+        logger.debug(f"Fetching market snapshot for {symbol}")
         order_book = get_order_book(symbol)
         book = _extract_order_book_snapshot(order_book, symbol)
         if book is None:

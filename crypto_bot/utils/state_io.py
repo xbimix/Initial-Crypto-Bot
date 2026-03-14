@@ -18,6 +18,90 @@ LOCK_WAIT_LOG_THRESHOLD_SECONDS = 1.0
 logger = logging.getLogger("state_io")
 
 
+def _parse_bool_env(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _parse_float_env(name: str, default: float, *, minimum: float = 0.0) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return max(value, minimum)
+
+
+STATE_IO_METRICS_ENABLED = _parse_bool_env("REVBOT_STATE_IO_METRICS", default=False)
+STATE_IO_METRICS_INTERVAL_SECONDS = _parse_float_env(
+    "REVBOT_STATE_IO_METRICS_INTERVAL_SECONDS",
+    60.0,
+    minimum=1.0,
+)
+_state_io_metrics: dict[str, dict[str, float | int]] = {}
+_state_io_last_emit_at = time.monotonic()
+
+
+def _emit_state_io_metrics(now: float):
+    global _state_io_last_emit_at
+
+    if not _state_io_metrics:
+        _state_io_last_emit_at = now
+        return
+
+    top_items = sorted(
+        _state_io_metrics.items(),
+        key=lambda item: float(item[1].get("total_ms", 0.0)),
+        reverse=True,
+    )[:8]
+
+    parts: list[str] = []
+    for key, stats in top_items:
+        count = max(int(stats.get("count", 0) or 0), 1)
+        total_ms = float(stats.get("total_ms", 0.0) or 0.0)
+        avg_ms = total_ms / count
+        max_ms = float(stats.get("max_ms", 0.0) or 0.0)
+        parts.append(
+            f"{key} count={count} avg_ms={avg_ms:.3f} max_ms={max_ms:.3f}"
+        )
+
+    logger.info("state_io_metrics_window: " + " | ".join(parts))
+    _state_io_metrics.clear()
+    _state_io_last_emit_at = now
+
+
+def _record_state_io_metric(operation: str, path: str | Path, elapsed_ms: float):
+    if not STATE_IO_METRICS_ENABLED:
+        return
+
+    key = f"{operation}:{Path(path).name}"
+    stats = _state_io_metrics.setdefault(
+        key,
+        {
+            "count": 0,
+            "total_ms": 0.0,
+            "max_ms": 0.0,
+        },
+    )
+
+    stats["count"] = int(stats["count"]) + 1
+    stats["total_ms"] = float(stats["total_ms"]) + float(elapsed_ms)
+    stats["max_ms"] = max(float(stats["max_ms"]), float(elapsed_ms))
+
+    now = time.monotonic()
+    if (now - _state_io_last_emit_at) >= STATE_IO_METRICS_INTERVAL_SECONDS:
+        _emit_state_io_metrics(now)
+
+
 @contextmanager
 def file_lock(
     path: str | Path,
@@ -104,6 +188,7 @@ def read_json_file(
     strict: bool = False,
 ):
     json_path = Path(path)
+    started_at = time.perf_counter() if STATE_IO_METRICS_ENABLED else None
 
     try:
         with open(json_path, "r", encoding="utf-8") as handle:
@@ -116,6 +201,10 @@ def read_json_file(
         if strict:
             raise
         return copy.deepcopy(default)
+    finally:
+        if started_at is not None:
+            elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+            _record_state_io_metric("read", json_path, elapsed_ms)
 
 
 def write_json_atomic(
@@ -161,12 +250,21 @@ def write_json_file(
     timeout: float = DEFAULT_LOCK_TIMEOUT,
     use_lock: bool = True,
 ):
-    if use_lock:
-        with file_lock(path, timeout=timeout):
-            write_json_atomic(path, value, indent=indent)
-        return
+    json_path = Path(path)
+    started_at = time.perf_counter() if STATE_IO_METRICS_ENABLED else None
 
-    write_json_atomic(path, value, indent=indent)
+    try:
+        if use_lock:
+            with file_lock(json_path, timeout=timeout):
+                write_json_atomic(json_path, value, indent=indent)
+            return
+
+        write_json_atomic(json_path, value, indent=indent)
+    finally:
+        if started_at is not None:
+            elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+            metric_name = "write_locked" if use_lock else "write_unlocked"
+            _record_state_io_metric(metric_name, json_path, elapsed_ms)
 
 
 def mutate_json_file(
@@ -177,10 +275,18 @@ def mutate_json_file(
     indent: int = 2,
     timeout: float = DEFAULT_LOCK_TIMEOUT,
 ):
-    with file_lock(path, timeout=timeout):
-        current = read_json_file(path, default=default, strict=False)
-        updated = mutator(current)
-        if updated is None:
-            updated = current
-        write_json_atomic(path, updated, indent=indent)
-        return updated
+    json_path = Path(path)
+    started_at = time.perf_counter() if STATE_IO_METRICS_ENABLED else None
+
+    try:
+        with file_lock(json_path, timeout=timeout):
+            current = read_json_file(json_path, default=default, strict=False)
+            updated = mutator(current)
+            if updated is None:
+                updated = current
+            write_json_atomic(json_path, updated, indent=indent)
+            return updated
+    finally:
+        if started_at is not None:
+            elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+            _record_state_io_metric("mutate_locked", json_path, elapsed_ms)
