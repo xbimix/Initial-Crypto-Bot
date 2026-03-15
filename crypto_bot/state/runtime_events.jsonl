@@ -2,3 +2,4 @@
 {"event_type":"process_exit","time_utc":"2026-03-14T05:49:46.620319+00:00","day_utc":"2026-03-14","pid":21672,"service":"bot","clean_shutdown":true,"reason":"keyboard_interrupt","ended_at_utc":"2026-03-14T05:49:46.618402+00:00"}
 {"event_type":"process_start","time_utc":"2026-03-14T05:49:49.314011+00:00","day_utc":"2026-03-14","pid":8416,"service":"bot","restart_cause":"manual","startup_ok":true}
 {"event_type":"process_exit","time_utc":"2026-03-15T00:30:19.848376+00:00","day_utc":"2026-03-15","pid":8416,"service":"bot","clean_shutdown":true,"reason":"keyboard_interrupt","ended_at_utc":"2026-03-15T00:30:19.847550+00:00"}
+{"event_type":"process_start","time_utc":"2026-03-15T03:01:19.422837+00:00","day_utc":"2026-03-15","pid":19372,"service":"bot","restart_cause":"manual","startup_ok":true}
