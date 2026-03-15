@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { buildMutatingAuthHeaders } from "../lib/mutatingAuthClient";
 import SymbolSelector from "./SymbolSelector";
 
 type DashboardConfig = {
@@ -44,7 +45,7 @@ export default function ConfigForm() {
   async function save() {
     await fetch("/api/config", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildMutatingAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify(config),
     });
     alert("Saved");

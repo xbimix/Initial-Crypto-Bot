@@ -1,6 +1,8 @@
 "use client";
 
 import { startTransition, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { buildMutatingAuthHeaders } from "../lib/mutatingAuthClient";
 
 type DashboardPayload = {
   generatedAt: string;
@@ -47,6 +49,12 @@ type DashboardPayload = {
     firstActivationPct: number;
     trailingActivationPct: number;
     trailingGapPct: number;
+    maxDrawdownDuringTradePct: number;
+    maxDrawdownDuringTradeSymbol: string | null;
+    staleLosingReviewCount: number;
+    staleLosingReviewSymbols: string[];
+    staleLosingReviewThresholdAgeHours: number;
+    staleLosingReviewThresholdUnrealizedPnlPct: number;
     lastTradeAt: number | null;
     lastTradeReason: string | null;
     lastSnapshotAt: string | null;
@@ -69,6 +77,11 @@ type DashboardPayload = {
     volatilityPct: number | null;
     strategyScorePct: number | null;
     buyOpportunityPct: number | null;
+    capitalEfficiencyScore: number | null;
+    capitalWasteRank: number | null;
+    capitalWasteAllocationPct: number | null;
+    capitalWasteUnrealizedPct: number | null;
+    capitalWasteAgeHours: number | null;
   }>;
   chart: {
     points: number[];
@@ -90,9 +103,21 @@ type DashboardPayload = {
     profitLockPct: number | null;
     status: string;
     entryTime: number | null;
+    advisoryStaleLosingReview: boolean;
+    advisoryReviewAgeHours: number | null;
+    advisoryThresholdAgeHours: number;
+    advisoryThresholdUnrealizedPnlPct: number;
+    advisoryMaxDrawdownPctDuringTrade: number;
+    advisoryMaxDrawdownPriceDuringTrade: number | null;
+    advisoryMaxDrawdownAt: number | null;
     thesis: string;
   }>;
 };
+
+function buildActionId(prefix: string): string {
+  const random = Math.random().toString(36).slice(2, 10);
+  return `${prefix}-${Date.now()}-${random}`;
+}
 
 type RiskDraft = {
   maxConcurrentTrades: number;
@@ -425,6 +450,53 @@ function volatilityStyle(value: number | null) {
   };
 }
 
+function formatCapitalEfficiency(value: number | null) {
+  if (value === null) {
+    return "N/A";
+  }
+  return `${value.toFixed(1)} / 100`;
+}
+
+function capitalEfficiencyStyle(value: number | null) {
+  if (value === null) {
+    return {
+      backgroundColor: "rgba(148, 163, 184, 0.14)",
+      borderColor: "rgba(148, 163, 184, 0.35)",
+      color: "#cbd5e1",
+    };
+  }
+
+  if (value >= 75) {
+    return {
+      backgroundColor: "#16a34a",
+      borderColor: "#16a34a",
+      color: "#ffffff",
+    };
+  }
+
+  if (value >= 55) {
+    return {
+      backgroundColor: "#0284c7",
+      borderColor: "#0284c7",
+      color: "#ffffff",
+    };
+  }
+
+  if (value >= 35) {
+    return {
+      backgroundColor: "#d97706",
+      borderColor: "#d97706",
+      color: "#ffffff",
+    };
+  }
+
+  return {
+    backgroundColor: "#dc2626",
+    borderColor: "#dc2626",
+    color: "#ffffff",
+  };
+}
+
 function MiniChart({
   points,
   min,
@@ -630,10 +702,13 @@ export default function RevbotDashboard() {
       const endpoint = action === "kill" ? "/api/kill" : "/api/control";
       const request =
         action === "kill"
-          ? { method: "POST" }
+          ? {
+              method: "POST",
+              headers: buildMutatingAuthHeaders(),
+            }
           : {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: buildMutatingAuthHeaders({ "Content-Type": "application/json" }),
               body: JSON.stringify({ action }),
             };
 
@@ -665,7 +740,7 @@ export default function RevbotDashboard() {
     try {
       const response = await fetch("/api/symbols", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: buildMutatingAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ symbol, side, enabled }),
       });
 
@@ -691,7 +766,7 @@ export default function RevbotDashboard() {
     try {
       const response = await fetch("/api/scalper", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: buildMutatingAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ symbol, enabled }),
       });
 
@@ -752,7 +827,7 @@ export default function RevbotDashboard() {
     try {
       const response = await fetch("/api/risk", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: buildMutatingAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           maxConcurrentTrades,
           maxConcurrentTradesPerToken,
@@ -803,7 +878,7 @@ export default function RevbotDashboard() {
 
       const response = await fetch("/api/cooldown", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: buildMutatingAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify(payload),
       });
 
@@ -859,10 +934,11 @@ export default function RevbotDashboard() {
 
     setBusyCloseAll(true);
     try {
+      const actionId = buildActionId("close-all");
       const response = await fetch("/api/close-all", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: "manual_close_all" }),
+        headers: buildMutatingAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ reason: "manual_close_all", actionId }),
       });
       if (!response.ok) {
         const details = await response.text();
@@ -906,10 +982,11 @@ export default function RevbotDashboard() {
 
     setBusyManualSell(position.symbol);
     try {
+      const actionId = buildActionId(`manual-sell-${position.symbol}`);
       const response = await fetch("/api/manual-sell", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ symbol: position.symbol }),
+        headers: buildMutatingAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ symbol: position.symbol, actionId }),
       });
 
       if (!response.ok) {
@@ -988,8 +1065,18 @@ export default function RevbotDashboard() {
     if (left.hasOpenPosition !== right.hasOpenPosition) {
       return left.hasOpenPosition ? -1 : 1;
     }
+    if (left.hasOpenPosition && right.hasOpenPosition) {
+      const leftRank = left.capitalWasteRank ?? Number.MAX_SAFE_INTEGER;
+      const rightRank = right.capitalWasteRank ?? Number.MAX_SAFE_INTEGER;
+      if (leftRank !== rightRank) {
+        return leftRank - rightRank;
+      }
+    }
     return left.symbol.localeCompare(right.symbol);
   });
+  const worstCapitalWasteControl = sortedSymbolControls.find(
+    (control) => control.hasOpenPosition && control.capitalWasteRank === 1,
+  ) ?? null;
   const comparisonRows = [
     {
       metric: "Runtime",
@@ -1177,18 +1264,24 @@ export default function RevbotDashboard() {
                     Best buy: pending snapshots
                   </span>
                 )}
+                {worstCapitalWasteControl ? (
+                  <span className="rounded-md border border-rose-500/35 bg-rose-500/18 px-3 py-1.5 text-rose-100">
+                    Capital drag: {worstCapitalWasteControl.symbol} ({formatCapitalEfficiency(worstCapitalWasteControl.capitalEfficiencyScore)})
+                  </span>
+                ) : null}
               </div>
             </div>
 
             <div className="mt-4 overflow-x-auto rounded-lg border border-white/8 bg-black/20">
-              <div className="min-w-[1760px]">
-                <div className="grid grid-cols-[170px_minmax(190px,1fr)_170px_150px_170px_170px_190px_190px_190px] border-b border-white/8 bg-white/[0.04] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+              <div className="min-w-[1960px]">
+                <div className="grid grid-cols-[170px_minmax(190px,1fr)_170px_150px_170px_170px_190px_190px_190px_190px] border-b border-white/8 bg-white/[0.04] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                   <span>Token</span>
                   <span>Execution Status</span>
                   <span className="text-center">Regime / Trend</span>
                   <span className="text-center">Volatility</span>
                   <span className="text-center">Scalper</span>
                   <span className="text-center">Buy Opportunity</span>
+                  <span className="text-center">Capital Efficiency</span>
                   <span className="text-center">Executable</span>
                   <span className="text-center">BUY</span>
                   <span className="text-center">SELL</span>
@@ -1215,6 +1308,9 @@ export default function RevbotDashboard() {
                     const buyOpportunityChipStyle = opportunityStyle(
                       control.buyOpportunityPct,
                     );
+                    const capitalEfficiencyChipStyle = capitalEfficiencyStyle(
+                      control.capitalEfficiencyScore,
+                    );
                     const executableChipStyle = executableStyle(control.buyExecutable);
 
                     const buyOn = control.buyEnabled;
@@ -1224,12 +1320,15 @@ export default function RevbotDashboard() {
                     return (
                       <div
                         key={control.symbol}
-                        className="grid grid-cols-[170px_minmax(190px,1fr)_170px_150px_170px_170px_190px_190px_190px] items-center gap-3 border-b border-white/6 px-4 py-2.5 last:border-b-0"
+                        className="grid grid-cols-[170px_minmax(190px,1fr)_170px_150px_170px_170px_190px_190px_190px_190px] items-center gap-3 border-b border-white/6 px-4 py-2.5 last:border-b-0"
                       >
                         <div className="flex items-center gap-2">
-                          <p className="truncate text-sm font-semibold uppercase tracking-[0.08em] text-slate-100">
+                          <Link
+                            href={`/token/${encodeURIComponent(control.symbol)}`}
+                            className="truncate text-sm font-semibold uppercase tracking-[0.08em] text-slate-100 transition hover:text-sky-300"
+                          >
                             {control.symbol}
-                          </p>
+                          </Link>
                           {control.hasOpenPosition ? (
                             <span className="inline-flex rounded-md border border-sky-400/25 bg-sky-500/12 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-200">
                               OPEN
@@ -1301,6 +1400,29 @@ export default function RevbotDashboard() {
                               Best
                             </span>
                           ) : null}
+                        </div>
+
+                        <div className="flex items-center justify-center">
+                          {control.hasOpenPosition ? (
+                            <div className="flex flex-col items-center">
+                              <span
+                                className="inline-flex min-w-[146px] justify-center rounded-md border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
+                                style={capitalEfficiencyChipStyle}
+                              >
+                                {formatCapitalEfficiency(control.capitalEfficiencyScore)}
+                              </span>
+                              <span className="mt-0.5 max-w-[170px] truncate text-[9px] font-medium uppercase tracking-[0.12em] text-slate-400">
+                                {`Rank #${control.capitalWasteRank ?? 0} | Alloc ${control.capitalWasteAllocationPct?.toFixed(1) ?? "0.0"}%`}
+                              </span>
+                              <span className="mt-0.5 max-w-[170px] truncate text-[9px] font-medium uppercase tracking-[0.12em] text-slate-400">
+                                {`P&L ${control.capitalWasteUnrealizedPct?.toFixed(1) ?? "0.0"}% | Age ${control.capitalWasteAgeHours?.toFixed(1) ?? "0.0"}h`}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="inline-flex min-w-[146px] justify-center rounded-md border border-white/12 bg-white/[0.03] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+                              No open capital
+                            </span>
+                          )}
                         </div>
 
                         <div className="flex items-center justify-center">
@@ -1871,6 +1993,11 @@ export default function RevbotDashboard() {
                     <span className="rounded-md border border-sky-400/15 bg-sky-500/[0.07] px-3 py-1.5 text-sky-100">
                       {data.summary.openPositions} open positions
                     </span>
+                    {data.summary.staleLosingReviewCount > 0 ? (
+                      <span className="rounded-md border border-amber-300/30 bg-amber-500/[0.12] px-3 py-1.5 text-amber-100">
+                        {data.summary.staleLosingReviewCount} review flags
+                      </span>
+                    ) : null}
                     <span className="rounded-md border border-white/8 bg-white/[0.03] px-3 py-1.5 text-slate-300">
                       BUY on {data.summary.activeSymbols} / {data.summary.trackedSymbols}
                     </span>
@@ -1899,6 +2026,17 @@ export default function RevbotDashboard() {
                 <span className="rounded-md border border-sky-400/15 bg-sky-500/[0.07] px-4 py-2 text-sky-100">
                   {data.summary.openPositions} open positions
                 </span>
+                {data.summary.staleLosingReviewCount > 0 ? (
+                  <span className="rounded-md border border-amber-300/30 bg-amber-500/[0.12] px-4 py-2 text-amber-100">
+                    {data.summary.staleLosingReviewCount} stale-loss review
+                  </span>
+                ) : null}
+                {data.summary.maxDrawdownDuringTradePct < 0 ? (
+                  <span className="rounded-md border border-rose-300/30 bg-rose-500/[0.12] px-4 py-2 text-rose-100">
+                    Worst DD: {data.summary.maxDrawdownDuringTradeSymbol ?? "n/a"}{" "}
+                    {formatPercent(data.summary.maxDrawdownDuringTradePct)}
+                  </span>
+                ) : null}
                 <span className="rounded-md border border-white/10 bg-white/[0.04] px-4 py-2 text-slate-300">
                   BUY on {data.summary.activeSymbols} / {data.summary.trackedSymbols}
                 </span>
@@ -1950,7 +2088,9 @@ export default function RevbotDashboard() {
                       <tr
                         key={position.symbol}
                         className={`text-[14px] text-slate-200 transition hover:bg-white/[0.045] ${
-                          position.symbol === topWinnerSymbol
+                          position.advisoryStaleLosingReview
+                            ? "bg-amber-500/[0.05]"
+                            : position.symbol === topWinnerSymbol
                             ? "bg-emerald-500/[0.04]"
                             : position.symbol === topExposureSymbol
                               ? "bg-sky-500/[0.035]"
@@ -1964,9 +2104,12 @@ export default function RevbotDashboard() {
                           </div>
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                              <p className="text-sm font-semibold text-white">
+                              <Link
+                                href={`/token/${encodeURIComponent(position.symbol)}`}
+                                className="text-sm font-semibold text-white transition hover:text-sky-300"
+                              >
                                 {position.symbol}
-                              </p>
+                              </Link>
                               {position.symbol === topExposureSymbol ? (
                                 <span className="rounded-md border border-sky-400/20 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-200">
                                   Top size
@@ -1977,10 +2120,35 @@ export default function RevbotDashboard() {
                                   Top gain
                                 </span>
                               ) : null}
+                              {position.advisoryStaleLosingReview ? (
+                                <span className="rounded-md border border-amber-300/40 bg-amber-500/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-100">
+                                  Review
+                                </span>
+                              ) : null}
                             </div>
                             <p className="mt-1 truncate text-[10px] font-medium uppercase tracking-[0.14em] text-slate-500">
                               {position.thesis.replaceAll("_", " ")}
                             </p>
+                            {position.advisoryStaleLosingReview ? (
+                              <p className="mt-1 text-[10px] font-medium text-amber-200">
+                                Age {position.advisoryReviewAgeHours?.toFixed(1) ?? "?"}h
+                                {" · "}
+                                {formatPercent(position.unrealizedPct)}
+                                {" <= "}
+                                {formatPercent(position.advisoryThresholdUnrealizedPnlPct)}
+                              </p>
+                            ) : null}
+                            {position.advisoryMaxDrawdownPctDuringTrade < 0 ? (
+                              <p className="mt-1 text-[10px] font-medium text-rose-200">
+                                Max DD {formatPercent(position.advisoryMaxDrawdownPctDuringTrade)}
+                                {position.advisoryMaxDrawdownPriceDuringTrade !== null
+                                  ? ` @ ${formatPrice(position.advisoryMaxDrawdownPriceDuringTrade)}`
+                                  : ""}
+                                {position.advisoryMaxDrawdownAt
+                                  ? ` (${formatRelativeTime(position.advisoryMaxDrawdownAt)})`
+                                  : ""}
+                              </p>
+                            ) : null}
                           </div>
                         </div>
                       </td>
@@ -2084,6 +2252,11 @@ export default function RevbotDashboard() {
               {topWinnerSymbol ? (
                 <span className="rounded-md border border-emerald-400/15 bg-emerald-500/8 px-3 py-1.5 text-emerald-200">
                   Strongest winner: {topWinnerSymbol}
+                </span>
+              ) : null}
+              {data.summary.staleLosingReviewCount > 0 ? (
+                <span className="rounded-md border border-amber-300/20 bg-amber-500/10 px-3 py-1.5 text-amber-200">
+                  Review rule: age {" >= "} {data.summary.staleLosingReviewThresholdAgeHours.toFixed(1)}h and P&L {" <= "} {formatPercent(data.summary.staleLosingReviewThresholdUnrealizedPnlPct)}
                 </span>
               ) : null}
             </div>

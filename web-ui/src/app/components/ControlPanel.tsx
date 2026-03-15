@@ -1,9 +1,12 @@
 "use client";
 
+import { buildMutatingAuthHeaders } from "../lib/mutatingAuthClient";
+
 export default function ControlPanel() {
   async function send(action: "start" | "stop") {
     await fetch("/api/control", {
       method: "POST",
+      headers: buildMutatingAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({ action }),
     });
   }

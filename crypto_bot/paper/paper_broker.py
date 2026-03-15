@@ -2,7 +2,7 @@ import time
 from pathlib import Path
 
 from utils.logger import setup_logger
-from utils.state_io import read_json_file, state_transaction_lock, write_json_file
+from utils.state_storage import get_state_storage
 
 logger = setup_logger("paper")
 
@@ -17,6 +17,7 @@ class PaperBroker:
         self.balance = starting_balance
         self.positions = {}
         self._state_mtime = None
+        self.storage = get_state_storage()
 
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         self._ensure_balance_file()
@@ -25,7 +26,7 @@ class PaperBroker:
 
     def _ensure_balance_file(self):
         if not BALANCE_FILE.exists():
-            write_json_file(
+            self.storage.write(
                 BALANCE_FILE,
                 {"balance": self.starting_balance, "positions": {}},
             )
@@ -33,7 +34,7 @@ class PaperBroker:
 
     def _ensure_trades_file(self):
         if not TRADES_FILE.exists():
-            write_json_file(TRADES_FILE, [])
+            self.storage.write(TRADES_FILE, [])
 
     def _get_state_mtime(self):
         try:
@@ -65,17 +66,17 @@ class PaperBroker:
 
     def _record_trade(self, trade: dict, *, use_lock: bool = True):
         try:
-            data = read_json_file(TRADES_FILE, default=[])
+            data = self.storage.read(TRADES_FILE, default=[])
             if not isinstance(data, list):
                 data = []
             data.append(trade)
-            write_json_file(TRADES_FILE, data, use_lock=use_lock)
+            self.storage.write(TRADES_FILE, data, use_lock=use_lock)
         except Exception as exc:
             logger.error(f"Failed to record trade: {exc}")
 
     def _load_state(self):
         try:
-            data = read_json_file(
+            data = self.storage.read(
                 BALANCE_FILE,
                 default={"balance": self.starting_balance, "positions": {}},
             )
@@ -97,7 +98,7 @@ class PaperBroker:
 
     def _save_state(self, *, use_lock: bool = True):
         try:
-            write_json_file(
+            self.storage.write(
                 BALANCE_FILE,
                 {"balance": self.balance, "positions": self.positions},
                 use_lock=use_lock,
@@ -107,7 +108,7 @@ class PaperBroker:
             logger.error(f"Failed to save paper state: {exc}")
 
     def buy(self, symbol: str, price: float, size: float, reason: str):
-        with state_transaction_lock(STATE_DIR):
+        with self.storage.transaction(STATE_DIR):
             self._load_state()
 
             cost = price * size
@@ -142,7 +143,7 @@ class PaperBroker:
         return True
 
     def sell(self, symbol: str, price: float, reason: str):
-        with state_transaction_lock(STATE_DIR):
+        with self.storage.transaction(STATE_DIR):
             self._load_state()
 
             pos = self.positions.get(symbol)

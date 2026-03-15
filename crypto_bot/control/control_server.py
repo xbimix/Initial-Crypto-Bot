@@ -1,15 +1,27 @@
 import re
 import time
+import json
+import hmac
+from collections import defaultdict, deque
 from datetime import datetime, timezone
 import os
 from pathlib import Path
 
-from flask import Flask, jsonify, request
+from flask import Flask, g, jsonify, request
 from werkzeug.exceptions import HTTPException
 
 from utils.config_loader import load_config, update_config
 from utils.logger import setup_logger
-from utils.state_io import read_json_file, state_transaction_lock, write_json_file
+from utils.runtime_events import append_runtime_event
+from utils.runtime_guard import (
+    check_disk_space,
+    check_timestamp_sanity,
+    cleanup_stale_locks,
+    cleanup_temp_files,
+)
+from utils.state_snapshot import create_state_snapshot, ensure_daily_snapshot
+from utils.state_storage import get_state_storage
+from utils.state_validator import validate_state_files
 
 logger = setup_logger("control")
 app = Flask(__name__)
@@ -18,6 +30,7 @@ STATE_DIR = Path(__file__).resolve().parent.parent / "state"
 PAPER_STATE_PATH = STATE_DIR / "paper_state.json"
 STRATEGY_STATE_PATH = STATE_DIR / "strategy_state.json"
 TRADES_PATH = STATE_DIR / "trades.json"
+MANUAL_ACTION_CACHE_PATH = STATE_DIR / "manual_action_cache.json"
 LOG_PATH = STATE_DIR / "bot.log"
 LOG_TAIL_BYTES = 256 * 1024
 CONTROL_HOST = os.getenv("REVBOT_CONTROL_HOST", "127.0.0.1").strip() or "127.0.0.1"
@@ -39,7 +52,53 @@ REQUIRED_STATE_JSON_FILES = (
     STRATEGY_STATE_PATH,
     TRADES_PATH,
 )
+AUDIT_LOG_PATH = STATE_DIR / "audit_actions.jsonl"
+MUTATING_ENDPOINTS = {
+    "/config",
+    "/control",
+    "/kill",
+    "/symbols",
+    "/scalper",
+    "/risk",
+    "/cooldown",
+    "/close-all",
+    "/manual-sell",
+}
+LOCAL_LOOPBACKS = {"127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost"}
+try:
+    MUTATING_PAYLOAD_MAX_BYTES = max(
+        1024,
+        int(os.getenv("REVBOT_MUTATING_PAYLOAD_MAX_BYTES", "65536")),
+    )
+except ValueError:
+    MUTATING_PAYLOAD_MAX_BYTES = 65536
+try:
+    RATE_LIMIT_WINDOW_SECONDS = max(
+        1,
+        int(os.getenv("REVBOT_RATE_LIMIT_WINDOW_SECONDS", "60")),
+    )
+except ValueError:
+    RATE_LIMIT_WINDOW_SECONDS = 60
+try:
+    RATE_LIMIT_MAX_REQUESTS = max(
+        1,
+        int(os.getenv("REVBOT_RATE_LIMIT_MAX_REQUESTS", "120")),
+    )
+except ValueError:
+    RATE_LIMIT_MAX_REQUESTS = 120
+ALLOW_NON_LOCAL_REQUESTS = os.getenv("REVBOT_ALLOW_NON_LOCAL_REQUESTS", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+try:
+    MANUAL_ACTION_CACHE_LIMIT = max(50, int(os.getenv("REVBOT_MANUAL_ACTION_CACHE_LIMIT", "500")))
+except ValueError:
+    MANUAL_ACTION_CACHE_LIMIT = 500
 _startup_status = None
+STORAGE = get_state_storage()
+_rate_limit_buckets: dict[str, deque[float]] = defaultdict(deque)
 
 
 def _now_utc_iso() -> str:
@@ -55,6 +114,204 @@ def _json_error(message, *, status=400, code="bad_request", details=None):
     if details is not None:
         payload["details"] = details
     return jsonify(payload), status
+
+
+def _is_mutating_request() -> bool:
+    method = str(request.method or "").upper()
+    if method not in {"POST", "PUT", "PATCH", "DELETE"}:
+        return False
+    path = request.path or ""
+    return path in MUTATING_ENDPOINTS
+
+
+def _extract_client_ip() -> str:
+    if request.access_route:
+        route_ip = str(request.access_route[0] or "").strip()
+        if route_ip:
+            return route_ip
+    remote = str(request.remote_addr or "").strip()
+    return remote
+
+
+def _is_local_request() -> bool:
+    client_ip = _extract_client_ip().lower()
+    if not client_ip:
+        return False
+    if client_ip in LOCAL_LOOPBACKS:
+        return True
+    if client_ip.startswith("127."):
+        return True
+    return False
+
+
+def _extract_auth_token() -> str:
+    bearer = str(request.headers.get("Authorization", "") or "").strip()
+    if bearer.lower().startswith("bearer "):
+        return bearer[7:].strip()
+    direct = str(request.headers.get("X-Revbot-Token", "") or "").strip()
+    if direct:
+        return direct
+    return ""
+
+
+def _extract_actor() -> str:
+    actor = str(request.headers.get("X-Revbot-Actor", "") or "").strip()
+    if actor:
+        return actor
+    ip = _extract_client_ip()
+    if ip:
+        return f"ip:{ip}"
+    return "unknown"
+
+
+def _resolve_expected_auth_token() -> str:
+    env_token = os.getenv("REVBOT_CONTROL_AUTH_TOKEN", "").strip()
+    if env_token:
+        return env_token
+
+    try:
+        cfg = load_config()
+    except Exception:
+        return ""
+
+    if isinstance(cfg, dict):
+        value = cfg.get("control_auth_token")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        control_cfg = cfg.get("control")
+        if isinstance(control_cfg, dict):
+            nested = control_cfg.get("auth_token")
+            if isinstance(nested, str) and nested.strip():
+                return nested.strip()
+    return ""
+
+
+def _check_payload_size():
+    if not _is_mutating_request():
+        return None
+
+    content_length = request.content_length
+    if content_length is not None and content_length > MUTATING_PAYLOAD_MAX_BYTES:
+        return _json_error(
+            "Payload too large",
+            status=413,
+            code="payload_too_large",
+            details={"max_bytes": MUTATING_PAYLOAD_MAX_BYTES},
+        )
+
+    if content_length is None:
+        payload = request.get_data(cache=True, as_text=False)
+        if len(payload) > MUTATING_PAYLOAD_MAX_BYTES:
+            return _json_error(
+                "Payload too large",
+                status=413,
+                code="payload_too_large",
+                details={"max_bytes": MUTATING_PAYLOAD_MAX_BYTES},
+            )
+    return None
+
+
+def _check_rate_limit():
+    if not _is_mutating_request():
+        return None
+
+    client_ip = _extract_client_ip() or "unknown"
+    bucket_key = f"{client_ip}:{request.path}"
+    now = time.time()
+    window_start = now - RATE_LIMIT_WINDOW_SECONDS
+
+    bucket = _rate_limit_buckets[bucket_key]
+    while bucket and bucket[0] < window_start:
+        bucket.popleft()
+
+    if len(bucket) >= RATE_LIMIT_MAX_REQUESTS:
+        return _json_error(
+            "Too many requests",
+            status=429,
+            code="rate_limited",
+            details={
+                "limit": RATE_LIMIT_MAX_REQUESTS,
+                "window_seconds": RATE_LIMIT_WINDOW_SECONDS,
+            },
+        )
+
+    bucket.append(now)
+    return None
+
+
+def _check_mutating_auth():
+    if not _is_mutating_request():
+        return None
+
+    expected = _resolve_expected_auth_token()
+    if not expected:
+        return _json_error(
+            "Mutating auth token is not configured",
+            status=503,
+            code="auth_not_configured",
+        )
+
+    provided = _extract_auth_token()
+    if not provided or not hmac.compare_digest(provided, expected):
+        return _json_error(
+            "Unauthorized",
+            status=401,
+            code="unauthorized",
+        )
+
+    return None
+
+
+def _write_audit_event(action: str, *, old=None, new=None, result=None, extra=None):
+    now = datetime.now(timezone.utc)
+    event = {
+        "time_utc": now.isoformat(),
+        "day_utc": now.date().isoformat(),
+        "action": action,
+        "path": request.path,
+        "method": request.method,
+        "actor": getattr(g, "revbot_actor", _extract_actor()),
+        "remote_addr": _extract_client_ip(),
+    }
+    if old is not None:
+        event["old"] = old
+    if new is not None:
+        event["new"] = new
+    if result is not None:
+        event["result"] = result
+    if isinstance(extra, dict) and extra:
+        event["extra"] = extra
+
+    AUDIT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with AUDIT_LOG_PATH.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, separators=(",", ":")) + "\n")
+
+
+@app.before_request
+def _enforce_mutating_safety():
+    if not _is_mutating_request():
+        return None
+
+    g.revbot_actor = _extract_actor()
+    if not ALLOW_NON_LOCAL_REQUESTS and not _is_local_request():
+        return _json_error(
+            "Non-local requests are not allowed",
+            status=403,
+            code="non_local_forbidden",
+        )
+
+    payload_check = _check_payload_size()
+    if payload_check is not None:
+        return payload_check
+
+    auth_check = _check_mutating_auth()
+    if auth_check is not None:
+        return auth_check
+
+    rate_check = _check_rate_limit()
+    if rate_check is not None:
+        return rate_check
+    return None
 
 
 def _probe_directory_writable(directory: Path):
@@ -82,6 +339,59 @@ def _run_startup_checks():
         checks.append({"name": "state_dir_writable", "ok": False, "detail": str(exc)})
         ok = False
 
+    lock_cleanup = cleanup_stale_locks(STATE_DIR)
+    checks.append(
+        {
+            "name": "stale_lock_cleanup",
+            "ok": True,
+            "removed_count": lock_cleanup.get("removed_count", 0),
+        }
+    )
+
+    temp_cleanup = cleanup_temp_files(STATE_DIR)
+    checks.append(
+        {
+            "name": "temp_file_cleanup",
+            "ok": True,
+            "removed_count": temp_cleanup.get("removed_count", 0),
+        }
+    )
+
+    disk = check_disk_space(STATE_DIR)
+    checks.append(
+        {
+            "name": "disk_space",
+            "ok": bool(disk.get("ok", False)),
+            "free_mb": disk.get("free_mb"),
+            "required_min_free_mb": disk.get("required_min_free_mb"),
+        }
+    )
+    if not disk.get("ok", False):
+        ok = False
+
+    timestamp_check = check_timestamp_sanity(STATE_DIR)
+    checks.append(
+        {
+            "name": "timestamp_sanity",
+            "ok": bool(timestamp_check.get("ok", False)),
+            "future_files": timestamp_check.get("future_files", []),
+        }
+    )
+    if not timestamp_check.get("ok", False):
+        ok = False
+
+    expected_token = _resolve_expected_auth_token()
+    auth_ok = bool(expected_token)
+    checks.append({"name": "mutating_auth_configured", "ok": auth_ok})
+
+    checks.append(
+        {
+            "name": "non_local_requests_allowed",
+            "ok": True,
+            "value": bool(ALLOW_NON_LOCAL_REQUESTS),
+        }
+    )
+
     for path in REQUIRED_STATE_JSON_FILES:
         exists = path.exists()
         checks.append({"name": f"{path.name}_present", "ok": exists})
@@ -89,11 +399,22 @@ def _run_startup_checks():
             continue
 
         try:
-            read_json_file(path, strict=True)
+            STORAGE.read(path, strict=True)
             checks.append({"name": f"{path.name}_json_valid", "ok": True})
         except Exception as exc:
             checks.append({"name": f"{path.name}_json_valid", "ok": False, "detail": str(exc)})
             ok = False
+
+    state_validation = validate_state_files(STATE_DIR, strict_files_exist=False)
+    checks.append(
+        {
+            "name": "state_integrity",
+            "ok": bool(state_validation.get("ok", False)),
+            "error_count": len(state_validation.get("errors", [])),
+        }
+    )
+    if not state_validation.get("ok", False):
+        ok = False
 
     try:
         cfg = load_config()
@@ -170,6 +491,54 @@ def _to_float(value, fallback=None):
         return float(value)
     except (TypeError, ValueError):
         return fallback
+
+
+def _normalized_action_id(value):
+    if not isinstance(value, str):
+        return ""
+    return value.strip()
+
+
+def _read_manual_action_cache():
+    cache = STORAGE.read(MANUAL_ACTION_CACHE_PATH, default={})
+    if not isinstance(cache, dict):
+        return {}
+    return cache
+
+
+def _save_manual_action_cache(cache):
+    if not isinstance(cache, dict):
+        cache = {}
+    STORAGE.write(MANUAL_ACTION_CACHE_PATH, cache, use_lock=False)
+
+
+def _get_cached_manual_action(action_name: str, action_id: str):
+    if not action_id:
+        return None
+    cache = _read_manual_action_cache()
+    key = f"{action_name}:{action_id}"
+    payload = cache.get(key)
+    if isinstance(payload, dict):
+        replay = dict(payload)
+        replay["idempotent_replay"] = True
+        return replay
+    return None
+
+
+def _store_cached_manual_action(action_name: str, action_id: str, payload):
+    if not action_id or not isinstance(payload, dict):
+        return
+
+    cache = _read_manual_action_cache()
+    key = f"{action_name}:{action_id}"
+    cache[key] = payload
+
+    if len(cache) > MANUAL_ACTION_CACHE_LIMIT:
+        overflow = len(cache) - MANUAL_ACTION_CACHE_LIMIT
+        for old_key in list(cache.keys())[:overflow]:
+            cache.pop(old_key, None)
+
+    _save_manual_action_cache(cache)
 
 
 def _remove_strategy_symbol(state, symbol):
@@ -370,12 +739,24 @@ def update_config_route():
     if not isinstance(updates, dict):
         return _json_error("Request body must be an object")
 
+    before_cfg = load_config()
+    old_values = {
+        key: before_cfg.get(key)
+        for key in updates.keys()
+    } if isinstance(before_cfg, dict) else {}
+
     def _mutate(cfg):
         cfg.update(updates)
         return cfg
 
     cfg = update_config(_mutate)
     logger.info(f"Config updated: {updates}")
+    _write_audit_event(
+        "config_update",
+        old=old_values,
+        new=updates,
+        result={"status": "ok"},
+    )
     return jsonify({"status": "ok", "config": cfg})
 
 
@@ -389,6 +770,11 @@ def control():
     if error:
         return _json_error(error)
 
+    _write_audit_event(
+        "control_action",
+        new={"action": str(action).upper(), "reason": reason},
+        result=payload,
+    )
     return jsonify(payload)
 
 
@@ -401,6 +787,11 @@ def kill():
     if error:
         return _json_error(error)
 
+    _write_audit_event(
+        "kill_action",
+        new={"action": "KILL", "reason": reason},
+        result=payload,
+    )
     return jsonify(payload)
 
 
@@ -424,6 +815,16 @@ def update_symbols():
         side = side_raw.strip().lower()
         if side not in {"buy", "sell"}:
             return _json_error("side must be buy, sell, or omitted")
+
+    cfg_before = load_config()
+    old_payload = {}
+    if isinstance(cfg_before, dict):
+        old_payload = {
+            "symbols": cfg_before.get("symbols"),
+            "symbol_enabled": cfg_before.get("symbol_enabled"),
+            "symbol_buy_enabled": cfg_before.get("symbol_buy_enabled"),
+            "symbol_sell_enabled": cfg_before.get("symbol_sell_enabled"),
+        }
 
     result = {}
 
@@ -464,6 +865,12 @@ def update_symbols():
         return cfg
 
     update_config(_mutate)
+    _write_audit_event(
+        "symbols_update",
+        old=old_payload,
+        new={"symbol": symbol, "side": side, "enabled": enabled},
+        result=result,
+    )
     return jsonify(result)
 
 
@@ -478,6 +885,14 @@ def update_scalper():
 
     if not isinstance(enabled, bool):
         return _json_error("enabled must be a boolean")
+
+    cfg_before = load_config()
+    old_payload = {}
+    if isinstance(cfg_before, dict):
+        old_payload = {
+            "symbol_strategies": cfg_before.get("symbol_strategies"),
+            "volatility_scalper": cfg_before.get("volatility_scalper"),
+        }
 
     result = {}
 
@@ -524,6 +939,12 @@ def update_scalper():
         return cfg
 
     update_config(_mutate)
+    _write_audit_event(
+        "scalper_update",
+        old=old_payload,
+        new={"symbol": symbol, "enabled": enabled},
+        result=result,
+    )
     return jsonify(result)
 
 
@@ -668,6 +1089,9 @@ def update_risk():
     if trade_window_end_hour is not None and not (0 <= trade_window_end_hour <= 23):
         return _json_error("tradeWindowEndHourUtc must be between 0 and 23")
 
+    cfg_before = load_config()
+    old_risk = cfg_before.get("risk") if isinstance(cfg_before, dict) else None
+
     result = {}
 
     def _mutate(cfg):
@@ -728,6 +1152,12 @@ def update_risk():
         return cfg
 
     update_config(_mutate)
+    _write_audit_event(
+        "risk_update",
+        old={"risk": old_risk},
+        new=body,
+        result=result,
+    )
     return jsonify(result)
 
 
@@ -747,6 +1177,17 @@ def update_symbol_cooldown():
         if cooldown_seconds is None:
             return _json_error("cooldownSeconds must be a number")
         cooldown_seconds = max(1.0, cooldown_seconds)
+
+    cfg_before = load_config()
+    old_payload = {}
+    if isinstance(cfg_before, dict):
+        old_payload = {
+            "symbol_cooldown_seconds": (
+                cfg_before.get("risk", {}).get("symbol_cooldown_seconds", {})
+                if isinstance(cfg_before.get("risk", {}), dict)
+                else {}
+            )
+        }
 
     result = {}
 
@@ -782,6 +1223,12 @@ def update_symbol_cooldown():
         return cfg
 
     update_config(_mutate)
+    _write_audit_event(
+        "cooldown_update",
+        old=old_payload,
+        new={"symbol": symbol, "cooldownSeconds": cooldown_seconds},
+        result=result,
+    )
     return jsonify(result)
 
 
@@ -789,11 +1236,26 @@ def update_symbol_cooldown():
 def close_all_positions():
     body = request.get_json(silent=True) or {}
     reason = str(body.get("reason") or "manual_close_all").strip() or "manual_close_all"
+    action_id = _normalized_action_id(body.get("action_id") or body.get("actionId"))
 
-    with state_transaction_lock(STATE_DIR, timeout=12.0):
-        paper_state = read_json_file(PAPER_STATE_PATH, default={})
-        strategy_state = read_json_file(STRATEGY_STATE_PATH, default={})
-        trades = read_json_file(TRADES_PATH, default=[])
+    with STORAGE.transaction(STATE_DIR, timeout=12.0):
+        cached = _get_cached_manual_action("close_all", action_id)
+        if cached is not None:
+            _write_audit_event(
+                "close_all",
+                new={"reason": reason, "action_id": action_id},
+                result={
+                    "closedCount": cached.get("closedCount"),
+                    "totalPnl": cached.get("totalPnl"),
+                    "balance": cached.get("balance"),
+                    "idempotent_replay": True,
+                },
+            )
+            return jsonify(cached)
+
+        paper_state = STORAGE.read(PAPER_STATE_PATH, default={})
+        strategy_state = STORAGE.read(STRATEGY_STATE_PATH, default={})
+        trades = STORAGE.read(TRADES_PATH, default=[])
 
         if not isinstance(paper_state, dict):
             paper_state = {}
@@ -807,15 +1269,25 @@ def close_all_positions():
             positions = {}
 
         if not positions:
-            return jsonify(
-                {
-                    "status": "ok",
+            payload = {
+                "status": "ok",
+                "closedCount": 0,
+                "totalPnl": 0.0,
+                "balance": _to_float(paper_state.get("balance"), fallback=0.0) or 0.0,
+                "reason": reason,
+            }
+            _store_cached_manual_action("close_all", action_id, payload)
+            _write_audit_event(
+                "close_all",
+                new={"reason": reason, "action_id": action_id},
+                result={
                     "closedCount": 0,
                     "totalPnl": 0.0,
-                    "balance": _to_float(paper_state.get("balance"), fallback=0.0) or 0.0,
-                    "reason": reason,
-                }
+                    "balance": payload.get("balance"),
+                    "idempotent_replay": False,
+                },
             )
+            return jsonify(payload)
 
         try:
             balance = float(paper_state.get("balance", 0))
@@ -867,37 +1339,64 @@ def close_all_positions():
         paper_state["positions"] = positions
         paper_state["balance"] = balance
 
-        write_json_file(PAPER_STATE_PATH, paper_state)
-        write_json_file(STRATEGY_STATE_PATH, strategy_state)
-        write_json_file(TRADES_PATH, trades)
+        STORAGE.write(PAPER_STATE_PATH, paper_state)
+        STORAGE.write(STRATEGY_STATE_PATH, strategy_state)
+        STORAGE.write(TRADES_PATH, trades)
+
+    payload = {
+        "status": "ok",
+        "closedCount": len(closed_items),
+        "closed": closed_items,
+        "totalPnl": total_pnl,
+        "balance": balance,
+        "reason": reason,
+    }
+    _store_cached_manual_action("close_all", action_id, payload)
+    _write_audit_event(
+        "close_all",
+        new={"reason": reason, "action_id": action_id},
+        result={
+            "closedCount": payload.get("closedCount"),
+            "totalPnl": payload.get("totalPnl"),
+            "balance": payload.get("balance"),
+            "idempotent_replay": payload.get("idempotent_replay", False),
+        },
+    )
 
     logger.warning(
         f"Close-all executed: closed={len(closed_items)} total_pnl={total_pnl:.2f} reason={reason}"
     )
-    return jsonify(
-        {
-            "status": "ok",
-            "closedCount": len(closed_items),
-            "closed": closed_items,
-            "totalPnl": total_pnl,
-            "balance": balance,
-            "reason": reason,
-        }
-    )
+    return jsonify(payload)
 
 
 @app.route("/manual-sell", methods=["POST"])
 def manual_sell():
     body = request.get_json(silent=True) or {}
     symbol = _normalize_symbol(body.get("symbol"))
+    action_id = _normalized_action_id(body.get("action_id") or body.get("actionId"))
 
     if not symbol:
         return _json_error("Missing symbol")
 
-    with state_transaction_lock(STATE_DIR, timeout=12.0):
-        paper_state = read_json_file(PAPER_STATE_PATH, default={})
-        strategy_state = read_json_file(STRATEGY_STATE_PATH, default={})
-        trades = read_json_file(TRADES_PATH, default=[])
+    with STORAGE.transaction(STATE_DIR, timeout=12.0):
+        cached = _get_cached_manual_action("manual_sell", action_id)
+        if cached is not None:
+            _write_audit_event(
+                "manual_sell",
+                new={"symbol": symbol, "action_id": action_id},
+                result={
+                    "price": cached.get("price"),
+                    "size": cached.get("size"),
+                    "pnl": cached.get("pnl"),
+                    "balance": cached.get("balance"),
+                    "idempotent_replay": True,
+                },
+            )
+            return jsonify(cached)
+
+        paper_state = STORAGE.read(PAPER_STATE_PATH, default={})
+        strategy_state = STORAGE.read(STRATEGY_STATE_PATH, default={})
+        trades = STORAGE.read(TRADES_PATH, default=[])
 
         if not isinstance(paper_state, dict):
             paper_state = {}
@@ -967,33 +1466,76 @@ def manual_sell():
         }
         trades.append(trade_entry)
 
-        write_json_file(PAPER_STATE_PATH, paper_state)
-        write_json_file(STRATEGY_STATE_PATH, strategy_state)
-        write_json_file(TRADES_PATH, trades)
+        STORAGE.write(PAPER_STATE_PATH, paper_state)
+        STORAGE.write(STRATEGY_STATE_PATH, strategy_state)
+        STORAGE.write(TRADES_PATH, trades)
+
+    payload = {
+        "status": "ok",
+        "symbol": symbol,
+        "price": sell_price,
+        "size": size,
+        "pnl": pnl,
+        "balance": next_balance,
+        "reason": trade_entry["reason"],
+    }
+    _store_cached_manual_action("manual_sell", action_id, payload)
+    _write_audit_event(
+        "manual_sell",
+        new={"symbol": symbol, "action_id": action_id},
+        result={
+            "price": payload.get("price"),
+            "size": payload.get("size"),
+            "pnl": payload.get("pnl"),
+            "balance": payload.get("balance"),
+            "idempotent_replay": payload.get("idempotent_replay", False),
+        },
+    )
 
     logger.info(
         f"Manual SELL {symbol} @ {sell_price:.6f} size={size:.6f} pnl={pnl:.2f}"
     )
 
-    return jsonify(
-        {
-            "status": "ok",
-            "symbol": symbol,
-            "price": sell_price,
-            "size": size,
-            "pnl": pnl,
-            "balance": next_balance,
-            "reason": trade_entry["reason"],
-        }
-    )
+    return jsonify(payload)
 
 
 def run():
+    restart_cause = os.getenv("REVBOT_RESTART_CAUSE", "manual").strip() or "manual"
+
+    try:
+        snapshot_path = create_state_snapshot(reason="control_prestart", state_dir=STATE_DIR)
+        logger.info(f"Control pre-start snapshot: {snapshot_path}")
+    except Exception as exc:
+        logger.warning(f"Control pre-start snapshot failed: {exc}")
+
+    try:
+        daily_snapshot = ensure_daily_snapshot(
+            reason="daily_control_prestart",
+            state_dir=STATE_DIR,
+        )
+        if daily_snapshot is not None:
+            logger.info(f"Control daily snapshot created: {daily_snapshot}")
+    except Exception as exc:
+        logger.warning(f"Control daily snapshot failed: {exc}")
+
     startup_status = _refresh_startup_status()
+    append_runtime_event(
+        "process_start",
+        service="control",
+        restart_cause=restart_cause,
+        startup_ok=bool(startup_status.get("ok", False)),
+    )
     if not startup_status.get("ok", False):
         logger.error(f"Control startup checks failed: {startup_status}")
         if STRICT_STARTUP:
             raise RuntimeError("Control startup checks failed")
 
     logger.info(f"Control server starting on {CONTROL_HOST}:{CONTROL_PORT}")
-    app.run(host=CONTROL_HOST, port=CONTROL_PORT, debug=False)
+    try:
+        app.run(host=CONTROL_HOST, port=CONTROL_PORT, debug=False)
+    finally:
+        append_runtime_event(
+            "process_exit",
+            service="control",
+            clean_shutdown=True,
+        )

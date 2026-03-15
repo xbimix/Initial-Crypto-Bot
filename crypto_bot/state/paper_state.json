@@ -1,5 +1,5 @@
 {
-  "balance": 8369.61055803617,
+  "balance": 8169.610558011169,
   "positions": {
     "DOT-USD": {
       "price": 1.54135,
@@ -59,6 +59,12 @@
       "price": 70796.695,
       "size": 0.002825,
       "entry_time": 1773440427.5037003,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "POLS-USD": {
+      "price": 0.063,
+      "size": 3174.603175,
+      "entry_time": 1773506205.845191,
       "reason": "bear_market_mean_reversion_buy"
     }
   }

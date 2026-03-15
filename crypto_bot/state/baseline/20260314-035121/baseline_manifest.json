@@ -1,0 +1,58 @@
+﻿{
+    "created_at_utc":  "2026-03-14T03:51:21.4688618Z",
+    "baseline_dir":  "D:\\Python-Codes\\RevBot\\crypto_bot\\state\\baseline\\20260314-035121",
+    "state_backup":  "D:\\Python-Codes\\RevBot\\crypto_bot\\state\\backups\\20260314-035051",
+    "replay_report":  "D:\\Python-Codes\\RevBot\\crypto_bot\\state\\reports\\strategy_replay_20260314-034939.json",
+    "files":  [
+                  {
+                      "file":  "strategy_hash_baseline.json",
+                      "source":  "D:\\Python-Codes\\RevBot\\crypto_bot\\strategy\\strategy_hash_baseline.json",
+                      "sha256":  "57A33D10A92885A8324F24DB7A85DF921CBC8B21D0BD33A0A9C6E59D708FF019"
+                  },
+                  {
+                      "file":  "strategy_replay_cases.json",
+                      "source":  "D:\\Python-Codes\\RevBot\\crypto_bot\\tests\\fixtures\\strategy_replay_cases.json",
+                      "sha256":  "A657D5FA6A353335D11A912CCD5AA6EE275D754A0675C57D31A4075B1F3EF855"
+                  },
+                  {
+                      "file":  "BEHAVIOR_LOCK.md",
+                      "source":  "D:\\Python-Codes\\RevBot\\scripts\\BEHAVIOR_LOCK.md",
+                      "sha256":  "61015057AC5F34575EA4AB975CDF3E8A3CE379F166FAB869EA8287A320356348"
+                  },
+                  {
+                      "file":  "BASELINE_POLICY.md",
+                      "source":  "D:\\Python-Codes\\RevBot\\scripts\\BASELINE_POLICY.md",
+                      "sha256":  "6A94EFF558B39EE1AB917AD145D1CDFCAA0353441B6BCA9A86421166ADCC2393"
+                  },
+                  {
+                      "file":  "check_local.ps1",
+                      "source":  "D:\\Python-Codes\\RevBot\\scripts\\check_local.ps1",
+                      "sha256":  "3A90EE3DD5B2ABF85DF3809866B174DC20EFCF2B5AA87665E063D95E4410A076"
+                  },
+                  {
+                      "file":  "run_strategy_replay.ps1",
+                      "source":  "D:\\Python-Codes\\RevBot\\scripts\\run_strategy_replay.ps1",
+                      "sha256":  "C80995A37AA8BED9F1A025C59973B06C92E083C47184B3588573B868A196BC80"
+                  },
+                  {
+                      "file":  "build_strategy_replay_fixture.py",
+                      "source":  "D:\\Python-Codes\\RevBot\\scripts\\build_strategy_replay_fixture.py",
+                      "sha256":  "2AFBD753202C5BF14CE7B3F93DDF134FBACE7B930F19C1895B1596216A0A3A3D"
+                  },
+                  {
+                      "file":  "replay_strategy_regression.py",
+                      "source":  "D:\\Python-Codes\\RevBot\\scripts\\replay_strategy_regression.py",
+                      "sha256":  "AA34F97C3B09F2C353143DE4992BCE7EE2C63019489ABF5D4DBA812C4913C01D"
+                  },
+                  {
+                      "file":  "strategy_replay_20260314-034939.json",
+                      "source":  "D:\\Python-Codes\\RevBot\\crypto_bot\\state\\reports\\strategy_replay_20260314-034939.json",
+                      "sha256":  "9D0F6F0BFB1424A1E36AB7D14F4C27E35C45F5D1587BA316378BC5913E88F5BE"
+                  },
+                  {
+                      "file":  "manifest.json",
+                      "source":  "D:\\Python-Codes\\RevBot\\crypto_bot\\state\\backups\\20260314-035051\\manifest.json",
+                      "sha256":  "D729A638EEC2B9BB6B177151177BA1BE7F9D8672DCC06EBF75405F11C36D6338"
+                  }
+              ]
+}

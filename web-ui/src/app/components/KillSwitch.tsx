@@ -1,8 +1,13 @@
 "use client";
 
+import { buildMutatingAuthHeaders } from "../lib/mutatingAuthClient";
+
 export default function KillSwitch() {
   async function kill() {
-    await fetch("/api/kill", { method: "POST" });
+    await fetch("/api/kill", {
+      method: "POST",
+      headers: buildMutatingAuthHeaders(),
+    });
     alert("BOT DISABLED");
   }
 

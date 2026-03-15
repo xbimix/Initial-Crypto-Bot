@@ -1,0 +1,26 @@
+﻿{
+    "created_at_utc":  "2026-03-14T03:50:51.9776172Z",
+    "state_dir":  "D:\\Python-Codes\\RevBot\\crypto_bot\\state",
+    "files":  [
+                  {
+                      "file":  "config.json",
+                      "sha256":  "1A168E05A23945B2C6D768076BACD54837A6FCAADDB71683ECDDAADAE16AE25D"
+                  },
+                  {
+                      "file":  "paper_state.json",
+                      "sha256":  "00FDDDB9BBEDFC4BBBA622214022478DDB2A42586FACCA0CEB6B18F7FE1EA4EB"
+                  },
+                  {
+                      "file":  "strategy_state.json",
+                      "sha256":  "F136AA1583F882FA4D4C122B9AD27A7571313D402BD86C65D9A7CC05B45A42BA"
+                  },
+                  {
+                      "file":  "trades.json",
+                      "sha256":  "AA4EAB17E353024BBE494DB8E2D5C1355F3E9C00043F0F7993724B674D07FE80"
+                  },
+                  {
+                      "file":  "state.json",
+                      "sha256":  "68262DCAC8D9E8C74E58AE897CE5782B65D9BCA9B5BB23AFCC587A72B270085C"
+                  }
+              ]
+}

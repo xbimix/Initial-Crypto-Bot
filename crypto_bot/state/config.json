@@ -46,6 +46,8 @@
     "daily_loss_limit_usd": 0,
     "daily_loss_auto_pause": true,
     "daily_loss_close_all": false,
+    "stale_losing_review_age_hours": 36,
+    "stale_losing_review_unrealized_pnl_pct": -10,
     "signal_confirmation_cycles": 1,
     "trade_window_utc": {
       "enabled": false,

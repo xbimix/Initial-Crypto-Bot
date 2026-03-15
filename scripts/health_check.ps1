@@ -5,6 +5,35 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
+$stateDir = Join-Path $repoRoot "crypto_bot\state"
+$runtimeEventsPath = Join-Path $stateDir "runtime_events.jsonl"
+
+function Write-RuntimeEvent {
+    param(
+        [Parameter(Mandatory = $true)][string]$EventType,
+        [hashtable]$Fields = @{}
+    )
+
+    try {
+        New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
+        $now = [DateTimeOffset]::UtcNow
+        $payload = [ordered]@{
+            event_type = $EventType
+            time_utc = $now.ToString("o")
+            day_utc = $now.ToString("yyyy-MM-dd")
+            service = "health_check"
+            pid = $PID
+        }
+        foreach ($key in $Fields.Keys) {
+            $payload[$key] = $Fields[$key]
+        }
+        ($payload | ConvertTo-Json -Compress) + "`n" | Out-File -FilePath $runtimeEventsPath -Encoding utf8 -Append
+    }
+    catch {
+        # Do not block health output on event logging errors.
+    }
+}
 
 function Invoke-Endpoint {
     param(
@@ -52,5 +81,22 @@ foreach ($result in $results) {
 }
 
 if (-not $allOk) {
+    $failed = @(
+        $results |
+        Where-Object { -not $_.ok } |
+        ForEach-Object { $_.name }
+    )
+    Write-RuntimeEvent -EventType "health_check" -Fields @{
+        ok = $false
+        base_url = $BaseUrl
+        include_status = [bool]$IncludeStatus
+        failed_endpoints = $failed
+    }
     exit 1
+}
+
+Write-RuntimeEvent -EventType "health_check" -Fields @{
+    ok = $true
+    base_url = $BaseUrl
+    include_status = [bool]$IncludeStatus
 }

@@ -16,6 +16,26 @@ Use the one-page checklist first:
 
 Creates a timestamped backup folder under `crypto_bot/state/backups/`.
 
+## Control/Auth environment (required for mutating actions)
+
+Set an auth token before using mutating control endpoints (`/control`, `/kill`, `/risk`, `/symbols`, `/manual-sell`, `/close-all`, etc):
+
+```powershell
+$env:REVBOT_CONTROL_AUTH_TOKEN = "change-this-local-token"
+```
+
+For the web UI controls, set the client-visible token too:
+
+```powershell
+$env:NEXT_PUBLIC_REVBOT_CONTROL_TOKEN = "change-this-local-token"
+```
+
+Optional controls:
+- `REVBOT_ALLOW_NON_LOCAL_REQUESTS=1` to allow non-loopback mutating requests (default: local-only).
+- `REVBOT_MUTATING_PAYLOAD_MAX_BYTES` (default: `65536`).
+- `REVBOT_RATE_LIMIT_WINDOW_SECONDS` / `REVBOT_RATE_LIMIT_MAX_REQUESTS` for control server rate limit.
+- `REVBOT_UI_RATE_LIMIT_WINDOW_SECONDS` / `REVBOT_UI_RATE_LIMIT_MAX_REQUESTS` for Next API route limit.
+
 ## 2) Restore state
 
 ```powershell
@@ -48,6 +68,23 @@ Fails if any of these files changed:
 - `strategy_engine.py`
 - `regime.py`
 - `scoring.py`
+
+Behavior lock and baseline policy docs:
+
+- `.\scripts\BEHAVIOR_LOCK.md`
+- `.\scripts\BASELINE_POLICY.md`
+
+Run strategy replay regression (from real log-derived fixture):
+
+```powershell
+.\scripts\run_strategy_replay.ps1
+```
+
+Optional rebuild of replay fixture from logs:
+
+```powershell
+python .\scripts\build_strategy_replay_fixture.py
+```
 
 ## 5) Local setup
 
@@ -169,6 +206,40 @@ Sample a longer log-growth window:
 Optional state I/O telemetry during runtime (disabled by default):
 - `REVBOT_STATE_IO_METRICS=1`
 - `REVBOT_STATE_IO_METRICS_INTERVAL_SECONDS=60`
+
+## 10) Generate daily paper summary
+
+Create a daily report with realized/unrealized split, trade reasons, and run-quality counts:
+
+```powershell
+python .\scripts\generate_daily_summary.py
+```
+
+Generate for a specific UTC day:
+
+```powershell
+python .\scripts\generate_daily_summary.py --day 2026-03-14
+```
+
+Write to a custom output file:
+
+```powershell
+python .\scripts\generate_daily_summary.py --day 2026-03-14 --output .\crypto_bot\state\reports\daily_summary_2026-03-14.json
+```
+
+## 11) Generate weekly validation summary
+
+Create a weekly operational summary from daily artifacts:
+
+```powershell
+python .\scripts\generate_weekly_summary.py --days 7
+```
+
+Set an explicit end day:
+
+```powershell
+python .\scripts\generate_weekly_summary.py --end-day 2026-03-14 --days 7
+```
 
 ## Control server health/readiness
 

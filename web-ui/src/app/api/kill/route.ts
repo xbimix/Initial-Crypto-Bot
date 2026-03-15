@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { buildMutatingHeaders, requireMutatingAuth } from "../_lib/mutatingAuth";
 import {
   applyControlLocal,
   formatRouteError,
@@ -7,9 +8,17 @@ import {
 
 const BASE = "http://127.0.0.1:8001";
 
-export async function POST() {
+export async function POST(req: Request) {
+  const auth = await requireMutatingAuth(req);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   try {
-    const res = await fetch(`${BASE}/kill`, { method: "POST" });
+    const res = await fetch(`${BASE}/kill`, {
+      method: "POST",
+      headers: buildMutatingHeaders(auth),
+    });
     const text = await res.text();
 
     if (res.ok && text.trim()) {

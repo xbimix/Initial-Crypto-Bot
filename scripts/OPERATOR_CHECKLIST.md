@@ -13,6 +13,8 @@ cd d:\Python-Codes\RevBot
 2. Strategy safety + local checks:
 
 ```powershell
+$env:REVBOT_CONTROL_AUTH_TOKEN="change-this-local-token"
+$env:NEXT_PUBLIC_REVBOT_CONTROL_TOKEN="change-this-local-token"
 .\scripts\check_strategy_hashes.ps1
 .\scripts\check_local.ps1 -SkipWebBuild
 ```
@@ -63,7 +65,7 @@ Expected: `health` and `ready` show `[OK]`.
 1. Emergency stop from UI (`KILL`) or API:
 
 ```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8001/kill" -Method Post
+Invoke-RestMethod -Uri "http://127.0.0.1:8001/kill" -Method Post -Headers @{ "X-Revbot-Token" = $env:REVBOT_CONTROL_AUTH_TOKEN }
 ```
 
 2. Confirm disabled/emergency state:
@@ -89,13 +91,15 @@ Or specific backup:
 1. Stop bot from UI (`STOP`) or API:
 
 ```powershell
-Invoke-RestMethod -Uri "http://127.0.0.1:8001/control" -Method Post -ContentType "application/json" -Body '{"action":"STOP"}'
+Invoke-RestMethod -Uri "http://127.0.0.1:8001/control" -Method Post -Headers @{ "X-Revbot-Token" = $env:REVBOT_CONTROL_AUTH_TOKEN } -ContentType "application/json" -Body '{"action":"STOP"}'
 ```
 
 2. Final backup:
 
 ```powershell
 .\scripts\backup_state.ps1
+python .\scripts\generate_daily_summary.py
+python .\scripts\generate_weekly_summary.py --days 7
 ```
 
 3. Optional cleanup of temp artifacts:

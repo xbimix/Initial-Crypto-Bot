@@ -1,0 +1,93 @@
+{
+  "generated_at_utc": "2026-03-14T04:46:43.258715+00:00",
+  "window": {
+    "start_day_utc": "2026-03-08",
+    "end_day_utc": "2026-03-14",
+    "requested_day_count": 7,
+    "available_day_count": 1,
+    "missing_days": [
+      "2026-03-08",
+      "2026-03-09",
+      "2026-03-10",
+      "2026-03-11",
+      "2026-03-12",
+      "2026-03-13"
+    ]
+  },
+  "summary": {
+    "realized_pnl_total_usd": 0.0,
+    "latest_unrealized_pnl_usd": -72.49,
+    "latest_net_paper_pnl_usd": -72.49,
+    "worst_open_drawdown_pct": -36.827,
+    "crash_count_total": 0,
+    "restart_count_total": 3,
+    "data_gap_incidents_total": 2735,
+    "stale_data_blocks_total": 45245
+  },
+  "blocked_reasons_top": {},
+  "anomaly_notes": [
+    "2026-03-14: data_gap_incidents=2735",
+    "2026-03-14: stale_data_blocks=45245 (high)"
+  ],
+  "daily_rows": [
+    {
+      "generated_at_utc": "2026-03-14T04:41:59.475883+00:00",
+      "day_utc": "2026-03-14",
+      "summary": {
+        "total_buys": 0,
+        "total_sells": 0,
+        "realized_pnl_usd": 0,
+        "unrealized_pnl_usd": -72.49,
+        "net_paper_pnl_usd": -72.49,
+        "open_positions_count": 10,
+        "win_rate_pct": 0.0,
+        "avg_closed_trade_pnl_usd": 0.0,
+        "avg_closed_trade_gain_usd": 0.0,
+        "avg_closed_trade_loss_usd": 0.0,
+        "avg_holding_seconds": 0.0,
+        "max_open_drawdown_pct": -36.827
+      },
+      "trade_reasons": {
+        "entry_reasons": {},
+        "exit_reasons": {},
+        "blocked_reasons": {},
+        "hold_reasons": {
+          "insufficient_data": 42520,
+          "atr_too_low": 21122,
+          "price_above_buy_zone": 15253,
+          "waiting_for_first_lock": 4087,
+          "insufficient_volatility_stretch": 2551,
+          "spread_too_wide": 1881,
+          "price_below_buy_zone": 782,
+          "warming_up_history": 602,
+          "spread_too_wide,warming_up_history": 151,
+          "scalper_missing_volatility": 97,
+          "spread_too_wide,order_book_tape_mismatch": 84,
+          "scalper_volatility_too_low": 23,
+          "in_position": 6,
+          "regime_unknown": 6,
+          "spread_too_wide,warming_up_history,order_book_tape_mismatch": 6,
+          "warming_up_history,order_book_tape_mismatch": 1
+        }
+      },
+      "run_quality": {
+        "crash_count": 0,
+        "restart_count": 3,
+        "stale_data_blocks": 45245,
+        "health_check_issues": 0,
+        "data_gap_incidents": 2735
+      },
+      "paper_honesty": {
+        "estimated_spread_cost_usd": 0.0,
+        "spread_sample_count": 0,
+        "estimated_slippage_penalty_usd": 0.0,
+        "fill_realism_notes": "Paper fills use snapshot-derived prices; spread estimate is approximate and slippage is not modeled."
+      },
+      "state_references": {
+        "paper_state_path": "D:\\Python-Codes\\RevBot\\crypto_bot\\state\\paper_state.json",
+        "strategy_state_path": "D:\\Python-Codes\\RevBot\\crypto_bot\\state\\strategy_state.json",
+        "trades_path": "D:\\Python-Codes\\RevBot\\crypto_bot\\state\\trades.json"
+      }
+    }
+  ]
+}

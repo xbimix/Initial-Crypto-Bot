@@ -6,6 +6,8 @@ type JsonMap = Record<string, unknown>;
 
 type ManualSellBody = {
   symbol?: unknown;
+  actionId?: unknown;
+  action_id?: unknown;
 };
 
 type RiskBody = {
@@ -42,6 +44,8 @@ type CooldownBody = {
 
 type CloseAllBody = {
   reason?: unknown;
+  actionId?: unknown;
+  action_id?: unknown;
 };
 
 const STATE_DIR = path.resolve(process.cwd(), "..", "crypto_bot", "state");
@@ -49,15 +53,45 @@ const CONFIG_PATH = path.join(STATE_DIR, "config.json");
 const PAPER_STATE_PATH = path.join(STATE_DIR, "paper_state.json");
 const STRATEGY_STATE_PATH = path.join(STATE_DIR, "strategy_state.json");
 const TRADES_PATH = path.join(STATE_DIR, "trades.json");
+const AUDIT_LOG_PATH = path.join(STATE_DIR, "audit_actions.jsonl");
+const MANUAL_ACTION_CACHE_PATH = path.join(STATE_DIR, "manual_action_cache.json");
 const LOG_PATH = path.join(STATE_DIR, "bot.log");
 const STATE_TXN_LOCK_PATH = path.join(STATE_DIR, ".state_txn.lock");
 const LOG_TAIL_BYTES = 256 * 1024;
 const LOCK_TIMEOUT_MS = 8000;
 const LOCK_STALE_MS = 120_000;
 const LOCK_POLL_MS = 50;
+const MANUAL_ACTION_CACHE_LIMIT = 500;
 
 const SNAPSHOT_PATTERN =
   /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+\s+\|\s+INFO\s+\|\s+SNAPSHOT\s+([A-Z0-9-]+)\s+\|\s+price=([0-9.]+)/;
+
+async function appendAuditEvent(
+  action: string,
+  payload: {
+    old?: unknown;
+    new?: unknown;
+    result?: unknown;
+    actor?: string;
+  },
+) {
+  const now = new Date();
+  const event = {
+    time_utc: now.toISOString(),
+    day_utc: now.toISOString().slice(0, 10),
+    action,
+    actor: String(payload.actor ?? "web-ui-fallback"),
+    old: payload.old ?? null,
+    new: payload.new ?? null,
+    result: payload.result ?? null,
+  };
+  await fs.mkdir(path.dirname(AUDIT_LOG_PATH), { recursive: true });
+  await fs.appendFile(
+    AUDIT_LOG_PATH,
+    `${JSON.stringify(event)}\n`,
+    "utf8",
+  );
+}
 
 export class RouteError extends Error {
   status: number;
@@ -217,6 +251,63 @@ function asFiniteNumber(value: unknown): number | null {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+function normalizeActionId(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim();
+}
+
+async function readManualActionCache(): Promise<JsonMap> {
+  return toObject(await readJson<JsonMap>(MANUAL_ACTION_CACHE_PATH, {}));
+}
+
+async function writeManualActionCache(cache: JsonMap) {
+  await writeJsonAtomic(MANUAL_ACTION_CACHE_PATH, cache);
+}
+
+async function getCachedManualAction(
+  actionName: "manual_sell" | "close_all",
+  actionId: string,
+): Promise<JsonMap | null> {
+  if (!actionId) {
+    return null;
+  }
+  const cache = await readManualActionCache();
+  const key = `${actionName}:${actionId}`;
+  const payload = toObject(cache[key]);
+  if (Object.keys(payload).length === 0) {
+    return null;
+  }
+  return {
+    ...payload,
+    idempotent_replay: true,
+  };
+}
+
+async function storeManualAction(
+  actionName: "manual_sell" | "close_all",
+  actionId: string,
+  payload: JsonMap,
+) {
+  if (!actionId) {
+    return;
+  }
+  const cache = await readManualActionCache();
+  const key = `${actionName}:${actionId}`;
+  cache[key] = payload;
+
+  const keys = Object.keys(cache);
+  if (keys.length > MANUAL_ACTION_CACHE_LIMIT) {
+    const removeCount = keys.length - MANUAL_ACTION_CACHE_LIMIT;
+    for (const staleKey of keys.slice(0, removeCount)) {
+      delete cache[staleKey];
+    }
+  }
+
+  await writeManualActionCache(cache);
+}
+
 function parseAction(value: unknown): "START" | "STOP" | "KILL" {
   const action = String(value ?? "").trim().toUpperCase();
   if (action === "START" || action === "STOP" || action === "KILL") {
@@ -297,13 +388,17 @@ export async function applyControlLocal(body: {
     }
 
     await writeJsonAtomic(CONFIG_PATH, cfg);
-
-    return {
+    const payload = {
       action,
       enabled: Boolean(cfg.enabled),
       emergency_stop: Boolean(cfg.emergency_stop),
       fallback: true,
     };
+    await appendAuditEvent("control_action_fallback", {
+      new: { action, reason },
+      result: payload,
+    });
+    return payload;
   });
 }
 
@@ -357,7 +452,7 @@ export async function updateSymbolsLocal(body: SymbolsBody) {
     cfg.symbol_sell_enabled = sellMap;
     await writeJsonAtomic(CONFIG_PATH, cfg);
 
-    return {
+    const payload = {
       symbol,
       side,
       enabled,
@@ -367,6 +462,11 @@ export async function updateSymbolsLocal(body: SymbolsBody) {
       symbol_enabled: legacyMap,
       fallback: true,
     };
+    await appendAuditEvent("symbols_update_fallback", {
+      new: { symbol, side, enabled },
+      result: payload,
+    });
+    return payload;
   });
 }
 
@@ -409,7 +509,7 @@ export async function updateScalperLocal(body: ScalperBody) {
     cfg.volatility_scalper = volatilityScalper;
     await writeJsonAtomic(CONFIG_PATH, cfg);
 
-    return {
+    const payload = {
       symbol,
       enabled,
       strategy: normalizeStrategyName(symbolStrategies[symbol]),
@@ -417,6 +517,11 @@ export async function updateScalperLocal(body: ScalperBody) {
       volatility_scalper: volatilityScalper,
       fallback: true,
     };
+    await appendAuditEvent("scalper_update_fallback", {
+      new: { symbol, enabled },
+      result: payload,
+    });
+    return payload;
   });
 }
 
@@ -613,7 +718,7 @@ export async function updateRiskLocal(body: RiskBody) {
     cfg.risk = risk;
     await writeJsonAtomic(CONFIG_PATH, cfg);
 
-    return {
+    const payload = {
       risk,
       maxConcurrentTrades: risk.max_concurrent_trades,
       maxConcurrentTradesPerToken: risk.max_concurrent_trades_per_token,
@@ -628,6 +733,11 @@ export async function updateRiskLocal(body: RiskBody) {
       tradeWindowUtc: risk.trade_window_utc,
       fallback: true,
     };
+    await appendAuditEvent("risk_update_fallback", {
+      new: body,
+      result: payload,
+    });
+    return payload;
   });
 }
 
@@ -667,20 +777,35 @@ export async function updateCooldownLocal(body: CooldownBody) {
     cfg.risk = risk;
     await writeJsonAtomic(CONFIG_PATH, cfg);
 
-    return {
+    const payload = {
       symbol,
       cooldownSeconds: symbolCooldown[symbol] ?? null,
       symbolCooldownSeconds: symbolCooldown,
       fallback: true,
     };
+    await appendAuditEvent("cooldown_update_fallback", {
+      new: { symbol, cooldownSeconds },
+      result: payload,
+    });
+    return payload;
   });
 }
 
 export async function closeAllLocal(body: CloseAllBody) {
   const rawReason = String(body.reason ?? "").trim();
   const reason = rawReason || "manual_close_all";
+  const actionId = normalizeActionId(body.action_id ?? body.actionId);
 
   return withStateTransaction(async () => {
+    const cached = await getCachedManualAction("close_all", actionId);
+    if (cached) {
+      await appendAuditEvent("close_all_fallback", {
+        new: { reason, actionId },
+        result: cached,
+      });
+      return cached;
+    }
+
     const paperState = toObject(await readJson<JsonMap>(PAPER_STATE_PATH, {}));
     const strategyState = toObject(
       await readJson<JsonMap>(STRATEGY_STATE_PATH, {}),
@@ -691,7 +816,7 @@ export async function closeAllLocal(body: CloseAllBody) {
     const positions = toObject(paperState.positions);
     const symbols = Object.keys(positions);
     if (symbols.length === 0) {
-      return {
+      const payload = {
         status: "ok",
         closedCount: 0,
         totalPnl: 0,
@@ -699,6 +824,12 @@ export async function closeAllLocal(body: CloseAllBody) {
         reason,
         fallback: true,
       };
+      await storeManualAction("close_all", actionId, payload);
+      await appendAuditEvent("close_all_fallback", {
+        new: { reason, actionId },
+        result: payload,
+      });
+      return payload;
     }
 
     let balance = asFiniteNumber(paperState.balance) ?? 0;
@@ -769,7 +900,7 @@ export async function closeAllLocal(body: CloseAllBody) {
     await writeJsonAtomic(STRATEGY_STATE_PATH, strategyState);
     await writeJsonAtomic(TRADES_PATH, trades);
 
-    return {
+    const payload = {
       status: "ok",
       closedCount: closed.length,
       closed,
@@ -778,16 +909,32 @@ export async function closeAllLocal(body: CloseAllBody) {
       reason,
       fallback: true,
     };
+    await storeManualAction("close_all", actionId, payload);
+    await appendAuditEvent("close_all_fallback", {
+      new: { reason, actionId },
+      result: payload,
+    });
+    return payload;
   });
 }
 
 export async function manualSellLocal(body: ManualSellBody) {
   const symbol = normalizeSymbol(body.symbol);
+  const actionId = normalizeActionId(body.action_id ?? body.actionId);
   if (!symbol) {
     throw new RouteError(400, "Missing symbol");
   }
 
   return withStateTransaction(async () => {
+    const cached = await getCachedManualAction("manual_sell", actionId);
+    if (cached) {
+      await appendAuditEvent("manual_sell_fallback", {
+        new: { symbol, actionId },
+        result: cached,
+      });
+      return cached;
+    }
+
     const paperState = toObject(await readJson<JsonMap>(PAPER_STATE_PATH, {}));
     const strategyState = toObject(
       await readJson<JsonMap>(STRATEGY_STATE_PATH, {}),
@@ -855,7 +1002,7 @@ export async function manualSellLocal(body: ManualSellBody) {
     await writeJsonAtomic(STRATEGY_STATE_PATH, strategyState);
     await writeJsonAtomic(TRADES_PATH, trades);
 
-    return {
+    const payload = {
       status: "ok",
       symbol,
       price: sellPrice,
@@ -865,5 +1012,11 @@ export async function manualSellLocal(body: ManualSellBody) {
       reason: trade.reason,
       fallback: true,
     };
+    await storeManualAction("manual_sell", actionId, payload);
+    await appendAuditEvent("manual_sell_fallback", {
+      new: { symbol, actionId },
+      result: payload,
+    });
+    return payload;
   });
 }

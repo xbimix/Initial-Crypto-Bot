@@ -29,6 +29,26 @@ def test_normalize_config_warn_mode_populates_defaults():
     assert normalized["risk"]["trade_window_utc"]["enabled"] is True
     assert normalized["risk"]["trade_window_utc"]["start_hour_utc"] == 23
     assert normalized["risk"]["trade_window_utc"]["end_hour_utc"] == 0
+    assert normalized["risk"]["stale_losing_review_age_hours"] == 36.0
+    assert normalized["risk"]["stale_losing_review_unrealized_pnl_pct"] == -10.0
+
+
+def test_normalize_config_stale_losing_review_thresholds_are_clamped():
+    raw = {
+        "enabled": True,
+        "symbols": ["btc-usd"],
+        "risk": {
+            "stale_losing_review_age_hours": -5,
+            "stale_losing_review_unrealized_pnl_pct": 4,
+        },
+    }
+
+    normalized, warnings, changed = normalize_config(raw, strict=False)
+
+    assert changed is True
+    assert warnings
+    assert normalized["risk"]["stale_losing_review_age_hours"] == 0.0
+    assert normalized["risk"]["stale_losing_review_unrealized_pnl_pct"] == 0.0
 
 
 def test_normalize_config_strict_mode_raises_on_warnings():

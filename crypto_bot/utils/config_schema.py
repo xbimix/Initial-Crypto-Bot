@@ -310,6 +310,20 @@ def normalize_config(
     normalize_float(risk, "daily_loss_limit_usd", 0.0, "risk.daily_loss_limit_usd", min_value=0.0)
     normalize_bool(risk, "daily_loss_auto_pause", True, "risk.daily_loss_auto_pause")
     normalize_bool(risk, "daily_loss_close_all", False, "risk.daily_loss_close_all")
+    normalize_float(
+        risk,
+        "stale_losing_review_age_hours",
+        36.0,
+        "risk.stale_losing_review_age_hours",
+        min_value=0.0,
+    )
+    normalize_float(
+        risk,
+        "stale_losing_review_unrealized_pnl_pct",
+        -10.0,
+        "risk.stale_losing_review_unrealized_pnl_pct",
+        max_value=0.0,
+    )
     normalize_int(
         risk,
         "signal_confirmation_cycles",

@@ -1,0 +1,850 @@
+{
+  "generated_at_utc": "2026-03-14T03:52:20.887983+00:00",
+  "case_count": 60,
+  "matched_count": 60,
+  "mismatch_count": 0,
+  "mismatches": [],
+  "results": [
+    {
+      "id": "log_replay_0001_sei-usd_insufficient_data",
+      "symbol": "SEI-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_data",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_data"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0003_asm-usd_insufficient_data",
+      "symbol": "ASM-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_data",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_data"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0005_xcn-usd_insufficient_data",
+      "symbol": "XCN-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_data",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_data"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0006_ponke-usd_insufficient_volatility_stretch",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0008_ach-usd_atr_too_low",
+      "symbol": "ACH-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "atr_too_low",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "atr_too_low"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0009_api3-usd_atr_too_low",
+      "symbol": "API3-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "atr_too_low",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "atr_too_low"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0010_spa-usd_insufficient_data",
+      "symbol": "SPA-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_data",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_data"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0011_prime-usd_insufficient_data",
+      "symbol": "PRIME-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_data",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_data"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0012_hopr-usd_insufficient_data",
+      "symbol": "HOPR-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_data",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_data"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0013_arpa-usd_insufficient_data",
+      "symbol": "ARPA-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_data",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_data"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0014_btc-usd_atr_too_low",
+      "symbol": "BTC-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "atr_too_low",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "atr_too_low"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0015_bnb-usd_atr_too_low",
+      "symbol": "BNB-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "atr_too_low",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "atr_too_low"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0017_xlm-usd_atr_too_low",
+      "symbol": "XLM-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "atr_too_low",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "atr_too_low"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0018_sei-usd_insufficient_data",
+      "symbol": "SEI-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_data",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_data"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0019_asm-usd_insufficient_data",
+      "symbol": "ASM-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_data",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_data"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0021_xcn-usd_insufficient_data",
+      "symbol": "XCN-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_data",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_data"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0022_ponke-usd_insufficient_volatility_stretch",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0023_ach-usd_atr_too_low",
+      "symbol": "ACH-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "atr_too_low",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "atr_too_low"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0024_api3-usd_atr_too_low",
+      "symbol": "API3-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "atr_too_low",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "atr_too_low"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0025_spa-usd_insufficient_data",
+      "symbol": "SPA-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_data",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_data"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0026_prime-usd_insufficient_data",
+      "symbol": "PRIME-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_data",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_data"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0029_btc-usd_atr_too_low",
+      "symbol": "BTC-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "atr_too_low",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "atr_too_low"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0030_bnb-usd_atr_too_low",
+      "symbol": "BNB-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "atr_too_low",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "atr_too_low"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0033_xlm-usd_atr_too_low",
+      "symbol": "XLM-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "atr_too_low",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "atr_too_low"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0036_lcx-usd_price_above_buy_zone",
+      "symbol": "LCX-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0038_ponke-usd_insufficient_volatility_stretch",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0040_ach-usd_atr_too_low",
+      "symbol": "ACH-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "atr_too_low",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "atr_too_low"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0041_api3-usd_atr_too_low",
+      "symbol": "API3-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "atr_too_low",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "atr_too_low"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0052_lcx-usd_price_above_buy_zone",
+      "symbol": "LCX-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0054_ponke-usd_insufficient_volatility_stretch",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0067_lcx-usd_price_above_buy_zone",
+      "symbol": "LCX-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0069_ponke-usd_insufficient_volatility_stretch",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0072_api3-usd_price_above_buy_zone",
+      "symbol": "API3-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0082_lcx-usd_price_above_buy_zone",
+      "symbol": "LCX-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0084_ponke-usd_insufficient_volatility_stretch",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0097_lcx-usd_price_above_buy_zone",
+      "symbol": "LCX-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0100_ponke-usd_price_below_buy_zone",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0102_api3-usd_price_above_buy_zone",
+      "symbol": "API3-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0114_ponke-usd_price_below_buy_zone",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0118_api3-usd_price_above_buy_zone",
+      "symbol": "API3-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0129_lcx-usd_price_above_buy_zone",
+      "symbol": "LCX-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0131_ponke-usd_price_below_buy_zone",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0133_api3-usd_price_above_buy_zone",
+      "symbol": "API3-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0144_ponke-usd_price_below_buy_zone",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0146_api3-usd_price_above_buy_zone",
+      "symbol": "API3-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0157_ponke-usd_price_below_buy_zone",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0159_api3-usd_price_above_buy_zone",
+      "symbol": "API3-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_above_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0171_ponke-usd_price_below_buy_zone",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0201_ponke-usd_insufficient_volatility_stretch",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0215_ponke-usd_insufficient_volatility_stretch",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0228_ponke-usd_insufficient_volatility_stretch",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0267_ponke-usd_insufficient_volatility_stretch",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0273_ponke-usd_insufficient_volatility_stretch",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0280_ponke-usd_insufficient_volatility_stretch",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "insufficient_volatility_stretch"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0317_ponke-usd_price_below_buy_zone",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0319_ponke-usd_price_below_buy_zone",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0325_ponke-usd_price_below_buy_zone",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0330_ponke-usd_price_below_buy_zone",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0331_ponke-usd_price_below_buy_zone",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone"
+      },
+      "matched": true
+    },
+    {
+      "id": "log_replay_0339_ponke-usd_price_below_buy_zone",
+      "symbol": "PONKE-USD",
+      "expected": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone",
+        "reason_prefix": null
+      },
+      "actual": {
+        "action": "HOLD",
+        "reason": "price_below_buy_zone"
+      },
+      "matched": true
+    }
+  ],
+  "fixture_path": "D:\\Python-Codes\\RevBot\\crypto_bot\\tests\\fixtures\\strategy_replay_cases.json"
+}

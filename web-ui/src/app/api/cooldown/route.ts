@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { buildMutatingHeaders, requireMutatingAuth } from "../_lib/mutatingAuth";
 import {
   formatRouteError,
   shouldUseLocalFallback,
@@ -8,6 +9,11 @@ import {
 const BACKEND = "http://127.0.0.1:8001";
 
 export async function POST(req: Request) {
+  const auth = await requireMutatingAuth(req);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   const body = (await req.json()) as {
     symbol?: unknown;
     cooldownSeconds?: unknown;
@@ -16,7 +22,7 @@ export async function POST(req: Request) {
   try {
     const response = await fetch(`${BACKEND}/cooldown`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildMutatingHeaders(auth),
       body: JSON.stringify(body),
     });
 

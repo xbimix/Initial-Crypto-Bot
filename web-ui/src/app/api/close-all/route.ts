@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { buildMutatingHeaders, requireMutatingAuth } from "../_lib/mutatingAuth";
 import {
   closeAllLocal,
   formatRouteError,
@@ -8,12 +9,17 @@ import {
 const BACKEND = "http://127.0.0.1:8001";
 
 export async function POST(req: Request) {
+  const auth = await requireMutatingAuth(req);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   const body = (await req.json().catch(() => ({}))) as { reason?: unknown };
 
   try {
     const response = await fetch(`${BACKEND}/close-all`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildMutatingHeaders(auth),
       body: JSON.stringify(body),
     });
 

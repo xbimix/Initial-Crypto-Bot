@@ -1,6 +1,27 @@
 from __future__ import annotations
 
+import json
+import time
+from pathlib import Path
+
+import pytest
+
 from control import control_server
+
+AUTH_HEADERS = {
+    "X-Revbot-Token": "test-token",
+    "X-Revbot-Actor": "pytest",
+}
+
+
+@pytest.fixture(autouse=True)
+def _set_control_auth_token(monkeypatch):
+    monkeypatch.setenv("REVBOT_CONTROL_AUTH_TOKEN", "test-token")
+
+
+def _write_json(path: Path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def test_control_start_and_kill_routes(monkeypatch):
@@ -14,13 +35,13 @@ def test_control_start_and_kill_routes(monkeypatch):
     monkeypatch.setattr(control_server, "update_config", fake_update_config)
     client = control_server.app.test_client()
 
-    start = client.post("/control", json={"action": "START"})
+    start = client.post("/control", json={"action": "START"}, headers=AUTH_HEADERS)
     assert start.status_code == 200
     payload = start.get_json()
     assert payload["enabled"] is True
     assert payload["emergency_stop"] is False
 
-    kill = client.post("/kill", json={"reason": "test"})
+    kill = client.post("/kill", json={"reason": "test"}, headers=AUTH_HEADERS)
     assert kill.status_code == 200
     payload = kill.get_json()
     assert payload["enabled"] is False
@@ -29,7 +50,7 @@ def test_control_start_and_kill_routes(monkeypatch):
 
 def test_control_rejects_unknown_action():
     client = control_server.app.test_client()
-    response = client.post("/control", json={"action": "INVALID"})
+    response = client.post("/control", json={"action": "INVALID"}, headers=AUTH_HEADERS)
     assert response.status_code == 400
     assert "Unknown action" in response.get_json()["error"]
 
@@ -48,6 +69,7 @@ def test_symbols_route_updates_side_specific_map(monkeypatch):
     response = client.post(
         "/symbols",
         json={"symbol": "ada-usd", "side": "buy", "enabled": False},
+        headers=AUTH_HEADERS,
     )
     assert response.status_code == 200
     payload = response.get_json()
@@ -90,3 +112,102 @@ def test_ready_route_not_ready(monkeypatch):
     payload = response.get_json()
     assert payload["status"] == "error"
     assert payload["code"] == "not_ready"
+
+
+def test_manual_sell_action_id_is_idempotent(tmp_path: Path, monkeypatch):
+    state_dir = tmp_path / "state"
+    paper_path = state_dir / "paper_state.json"
+    strategy_path = state_dir / "strategy_state.json"
+    trades_path = state_dir / "trades.json"
+    cache_path = state_dir / "manual_action_cache.json"
+
+    _write_json(
+        paper_path,
+        {
+            "balance": 1000.0,
+            "positions": {
+                "BTC-USD": {
+                    "price": 100.0,
+                    "size": 1.0,
+                    "entry_time": time.time() - 60,
+                }
+            },
+        },
+    )
+    _write_json(strategy_path, {})
+    _write_json(trades_path, [])
+    _write_json(cache_path, {})
+
+    monkeypatch.setattr(control_server, "STATE_DIR", state_dir)
+    monkeypatch.setattr(control_server, "PAPER_STATE_PATH", paper_path)
+    monkeypatch.setattr(control_server, "STRATEGY_STATE_PATH", strategy_path)
+    monkeypatch.setattr(control_server, "TRADES_PATH", trades_path)
+    monkeypatch.setattr(control_server, "MANUAL_ACTION_CACHE_PATH", cache_path)
+    monkeypatch.setattr(control_server, "_read_latest_snapshot_price", lambda _symbol: 101.0)
+
+    client = control_server.app.test_client()
+    first = client.post(
+        "/manual-sell",
+        json={"symbol": "BTC-USD", "actionId": "abc-1"},
+        headers=AUTH_HEADERS,
+    )
+    assert first.status_code == 200
+    second = client.post(
+        "/manual-sell",
+        json={"symbol": "BTC-USD", "actionId": "abc-1"},
+        headers=AUTH_HEADERS,
+    )
+    assert second.status_code == 200
+    payload_second = second.get_json()
+    assert payload_second["idempotent_replay"] is True
+
+    trades = json.loads(trades_path.read_text(encoding="utf-8"))
+    assert len(trades) == 1
+
+
+def test_close_all_action_id_is_idempotent(tmp_path: Path, monkeypatch):
+    state_dir = tmp_path / "state"
+    paper_path = state_dir / "paper_state.json"
+    strategy_path = state_dir / "strategy_state.json"
+    trades_path = state_dir / "trades.json"
+    cache_path = state_dir / "manual_action_cache.json"
+
+    _write_json(
+        paper_path,
+        {
+            "balance": 1000.0,
+            "positions": {
+                "BTC-USD": {"price": 100.0, "size": 1.0, "entry_time": time.time() - 60},
+                "ETH-USD": {"price": 50.0, "size": 2.0, "entry_time": time.time() - 60},
+            },
+        },
+    )
+    _write_json(strategy_path, {})
+    _write_json(trades_path, [])
+    _write_json(cache_path, {})
+
+    monkeypatch.setattr(control_server, "STATE_DIR", state_dir)
+    monkeypatch.setattr(control_server, "PAPER_STATE_PATH", paper_path)
+    monkeypatch.setattr(control_server, "STRATEGY_STATE_PATH", strategy_path)
+    monkeypatch.setattr(control_server, "TRADES_PATH", trades_path)
+    monkeypatch.setattr(control_server, "MANUAL_ACTION_CACHE_PATH", cache_path)
+    monkeypatch.setattr(control_server, "_read_latest_snapshot_price", lambda _symbol: 110.0)
+
+    client = control_server.app.test_client()
+    first = client.post(
+        "/close-all",
+        json={"reason": "test", "actionId": "xyz-1"},
+        headers=AUTH_HEADERS,
+    )
+    assert first.status_code == 200
+    second = client.post(
+        "/close-all",
+        json={"reason": "test", "actionId": "xyz-1"},
+        headers=AUTH_HEADERS,
+    )
+    assert second.status_code == 200
+    payload_second = second.get_json()
+    assert payload_second["idempotent_replay"] is True
+
+    trades = json.loads(trades_path.read_text(encoding="utf-8"))
+    assert len(trades) == 2

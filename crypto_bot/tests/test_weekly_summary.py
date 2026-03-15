@@ -1,0 +1,84 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from reporting import weekly_summary
+
+
+def _write_json(path: Path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, indent=2), encoding="utf-8")
+
+
+def test_weekly_summary_build_and_write(tmp_path: Path, monkeypatch):
+    reports_dir = tmp_path / "reports"
+    monkeypatch.setattr(weekly_summary, "REPORTS_DIR", reports_dir)
+
+    _write_json(
+        reports_dir / "daily_summary_2026-03-12.json",
+        {
+            "day_utc": "2026-03-12",
+            "summary": {
+                "realized_pnl_usd": 12.5,
+                "unrealized_pnl_usd": -3.0,
+                "net_paper_pnl_usd": 9.5,
+                "max_open_drawdown_pct": -4.2,
+                "max_drawdown_during_trade_pct": -5.5,
+                "max_drawdown_during_trade_symbol": "ADA-USD",
+                "stale_losing_review_count": 2,
+            },
+            "run_quality": {
+                "crash_count": 0,
+                "restart_count": 2,
+                "data_gap_incidents": 1,
+                "stale_data_blocks": 120,
+            },
+            "trade_reasons": {
+                "blocked_reasons": {"spread_too_wide": 2},
+            },
+        },
+    )
+    _write_json(
+        reports_dir / "daily_summary_2026-03-13.json",
+        {
+            "day_utc": "2026-03-13",
+            "summary": {
+                "realized_pnl_usd": -5.0,
+                "unrealized_pnl_usd": 8.0,
+                "net_paper_pnl_usd": 3.0,
+                "max_open_drawdown_pct": -6.0,
+                "max_drawdown_during_trade_pct": -8.25,
+                "max_drawdown_during_trade_symbol": "BTC-USD",
+                "stale_losing_review_count": 1,
+            },
+            "run_quality": {
+                "crash_count": 1,
+                "restart_count": 6,
+                "data_gap_incidents": 0,
+                "stale_data_blocks": 700,
+            },
+            "trade_reasons": {
+                "blocked_reasons": {"spread_too_wide": 1, "warming_up_history": 3},
+            },
+        },
+    )
+
+    report = weekly_summary.build_weekly_summary("2026-03-13", day_count=2)
+    assert report["window"]["available_day_count"] == 2
+    assert report["summary"]["realized_pnl_total_usd"] == 7.5
+    assert report["summary"]["latest_unrealized_pnl_usd"] == 8.0
+    assert report["summary"]["latest_stale_losing_review_count"] == 1
+    assert report["summary"]["stale_losing_review_count_total"] == 3
+    assert report["summary"]["latest_max_drawdown_during_trade_pct"] == -8.25
+    assert report["summary"]["latest_max_drawdown_during_trade_symbol"] == "BTC-USD"
+    assert report["summary"]["worst_max_drawdown_during_trade_pct"] == -8.25
+    assert report["summary"]["restart_count_total"] == 8
+    assert report["summary"]["crash_count_total"] == 1
+    assert report["blocked_reasons_top"]["spread_too_wide"] == 3
+    assert report["blocked_reasons_top"]["warming_up_history"] == 3
+    assert report["anomaly_notes"]
+
+    output_path = weekly_summary.write_weekly_summary(report)
+    assert output_path.exists()
+    assert (reports_dir / "weekly_summary_latest.json").exists()

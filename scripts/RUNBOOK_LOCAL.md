@@ -8,6 +8,8 @@ It does not require strategy logic changes.
 From repo root (`d:\Python-Codes\RevBot`):
 
 ```powershell
+$env:REVBOT_CONTROL_AUTH_TOKEN="change-this-local-token"
+$env:NEXT_PUBLIC_REVBOT_CONTROL_TOKEN="change-this-local-token"
 .\scripts\check_strategy_hashes.ps1
 .\scripts\setup_local.ps1 -InstallDev -SkipWebInstall
 ```
@@ -57,12 +59,25 @@ Expected:
 .\scripts\backup_state.ps1
 .\scripts\check_local.ps1 -SkipWebBuild
 .\scripts\profile_local_bottlenecks.ps1 -SampleSeconds 10 -SkipPythonBench
+python .\scripts\generate_daily_summary.py
 ```
 
 Full micro-benchmark pass (run when bot/control are stopped):
 
 ```powershell
 .\scripts\profile_local_bottlenecks.ps1 -SampleSeconds 30
+```
+
+Phase-H verification example (measure daily summary runtime before/after local optimizations):
+
+```powershell
+Measure-Command { python .\scripts\generate_daily_summary.py --day 2026-03-14 | Out-Null } | Select-Object TotalSeconds
+```
+
+Weekly validation report (Phase I):
+
+```powershell
+python .\scripts\generate_weekly_summary.py --days 7
 ```
 
 ## 5) Emergency recovery

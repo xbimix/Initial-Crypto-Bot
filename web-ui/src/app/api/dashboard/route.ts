@@ -44,6 +44,8 @@ type ConfigState = {
     daily_loss_limit_usd?: number;
     daily_loss_auto_pause?: boolean;
     daily_loss_close_all?: boolean;
+    stale_losing_review_age_hours?: number;
+    stale_losing_review_unrealized_pnl_pct?: number;
     signal_confirmation_cycles?: number;
     trade_window_utc?: {
       enabled?: boolean;
@@ -116,6 +118,13 @@ type PositionRow = {
   profitLockPct: number | null;
   status: string;
   entryTime: number | null;
+  advisoryStaleLosingReview: boolean;
+  advisoryReviewAgeHours: number | null;
+  advisoryThresholdAgeHours: number;
+  advisoryThresholdUnrealizedPnlPct: number;
+  advisoryMaxDrawdownPctDuringTrade: number;
+  advisoryMaxDrawdownPriceDuringTrade: number | null;
+  advisoryMaxDrawdownAt: number | null;
   thesis: string;
 };
 
@@ -132,6 +141,11 @@ type SymbolControl = {
   volatilityPct: number | null;
   strategyScorePct: number | null;
   buyOpportunityPct: number | null;
+  capitalEfficiencyScore: number | null;
+  capitalWasteRank: number | null;
+  capitalWasteAllocationPct: number | null;
+  capitalWasteUnrealizedPct: number | null;
+  capitalWasteAgeHours: number | null;
 };
 
 type SnapshotMetrics = {
@@ -144,6 +158,22 @@ type SnapshotMetrics = {
   high24h: number | null;
   spreadBps: number | null;
   quality: string | null;
+};
+
+type SnapshotPoint = {
+  tsEpoch: number;
+  price: number;
+};
+
+type CapitalEfficiencyRow = {
+  symbol: string;
+  costBasis: number;
+  unrealizedPct: number;
+  ageHours: number | null;
+  allocationPct: number;
+  score: number;
+  wasteScore: number;
+  rank: number;
 };
 
 const STATE_DIR = path.resolve(process.cwd(), "..", "crypto_bot", "state");
@@ -190,6 +220,19 @@ async function readLogTail(filePath: string, bytes: number): Promise<string> {
   }
 }
 
+function parseLogTimestampToEpoch(raw: string): number | null {
+  const isoLike = raw.replace(" ", "T");
+  const localParsed = Date.parse(isoLike);
+  if (!Number.isNaN(localParsed)) {
+    return localParsed / 1000;
+  }
+  const utcParsed = Date.parse(`${isoLike}Z`);
+  if (Number.isNaN(utcParsed)) {
+    return null;
+  }
+  return utcParsed / 1000;
+}
+
 function parseSnapshotMetrics(rawFields: string): SnapshotMetrics {
   const values: Record<string, string> = {};
   const fieldPattern = /([a-z0-9_]+)=([^\s]+)/gi;
@@ -221,11 +264,12 @@ function parseSnapshotMetrics(rawFields: string): SnapshotMetrics {
 
 async function readLatestSnapshots(symbols: string[]) {
   const snapshots: Record<string, SnapshotMetrics> = {};
+  const snapshotHistory: Record<string, SnapshotPoint[]> = {};
   let lastSnapshotAt: string | null = null;
   const wanted = new Set(symbols);
 
   if (wanted.size === 0) {
-    return { snapshots, lastSnapshotAt };
+    return { snapshots, snapshotHistory, lastSnapshotAt };
   }
 
   const tail = await readLogTail(LOG_PATH, LOG_TAIL_BYTES);
@@ -233,29 +277,56 @@ async function readLatestSnapshots(symbols: string[]) {
   const snapshotPattern =
     /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+\s+\|\s+INFO\s+\|\s+SNAPSHOT\s+([A-Z0-9-]+)\s+\|\s+(.+)$/;
 
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
+  for (let index = 0; index < lines.length; index += 1) {
     const match = lines[index].match(snapshotPattern);
     if (!match) {
       continue;
     }
 
-    if (!lastSnapshotAt) {
-      lastSnapshotAt = match[1];
-    }
-
     const symbol = match[2];
-    if (!wanted.has(symbol) || symbol in snapshots) {
+    if (!wanted.has(symbol)) {
       continue;
     }
 
-    snapshots[symbol] = parseSnapshotMetrics(match[3]);
+    const parsed = parseSnapshotMetrics(match[3]);
+    snapshots[symbol] = parsed;
+    lastSnapshotAt = match[1];
 
-    if (Object.keys(snapshots).length >= wanted.size) {
-      break;
+    if (parsed.price !== null && parsed.price > 0) {
+      const tsEpoch = parseLogTimestampToEpoch(match[1]);
+      if (tsEpoch !== null) {
+        if (!(symbol in snapshotHistory)) {
+          snapshotHistory[symbol] = [];
+        }
+        snapshotHistory[symbol].push({
+          tsEpoch,
+          price: parsed.price,
+        });
+      }
     }
   }
 
-  return { snapshots, lastSnapshotAt };
+  return { snapshots, snapshotHistory, lastSnapshotAt };
+}
+
+function findMinPricePointSinceEntry(
+  history: SnapshotPoint[],
+  entryTimeEpoch: number | null,
+) {
+  let minPoint: SnapshotPoint | null = null;
+  for (const point of history) {
+    if (
+      entryTimeEpoch !== null
+      && entryTimeEpoch > 0
+      && point.tsEpoch < entryTimeEpoch
+    ) {
+      continue;
+    }
+    if (minPoint === null || point.price < minPoint.price) {
+      minPoint = point;
+    }
+  }
+  return minPoint;
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -1047,7 +1118,7 @@ export async function GET() {
     positionSymbols,
   );
 
-  const { snapshots, lastSnapshotAt } = await readLatestSnapshots(allSymbols);
+  const { snapshots, snapshotHistory, lastSnapshotAt } = await readLatestSnapshots(allSymbols);
   const openPositionsCount = positionSymbols.length;
   const startingBalance = Number(config.starting_balance ?? 10000);
   const cashBalance = Number(paper.balance ?? 0);
@@ -1085,6 +1156,80 @@ export async function GET() {
   const dailyBuyPaused = dailyLossLimitUsd > 0
     && dailyLossAutoPause
     && dailyRealizedPnlUsd <= -dailyLossLimitUsd;
+  const staleLosingReviewAgeHours = Math.max(
+    asFiniteNumber(config.risk?.stale_losing_review_age_hours) ?? 36,
+    0,
+  );
+  const staleLosingReviewUnrealizedPnlPct = Math.min(
+    asFiniteNumber(config.risk?.stale_losing_review_unrealized_pnl_pct) ?? -10,
+    0,
+  );
+  const nowEpochSeconds = Date.now() / 1000;
+  const capitalEfficiencyBySymbol: Record<string, CapitalEfficiencyRow> = {};
+
+  {
+    const positionBaseRows = positionSymbols.map((symbol) => {
+      const position = positions[symbol] ?? {};
+      const entryPrice = Number(
+        strategy.entry_price?.[symbol] ?? position.price ?? 0,
+      );
+      const units = Number(position.size ?? 0);
+      const costBasis = entryPrice > 0 && units > 0 ? entryPrice * units : 0;
+      const currentPrice = snapshots[symbol]?.price ?? null;
+      const unrealizedPct = currentPrice === null || entryPrice <= 0
+        ? 0
+        : ((currentPrice - entryPrice) / entryPrice) * 100;
+      const entryTimeRaw = asFiniteNumber(position.entry_time);
+      const ageHours = (
+        entryTimeRaw === null || entryTimeRaw <= 0
+      )
+        ? null
+        : Math.max((nowEpochSeconds - entryTimeRaw) / 3600, 0);
+
+      return {
+        symbol,
+        costBasis,
+        unrealizedPct,
+        ageHours,
+      };
+    });
+
+    const totalOpenCostBasis = sum(positionBaseRows.map((row) => row.costBasis));
+    const scoredRows: CapitalEfficiencyRow[] = positionBaseRows.map((row) => {
+      const allocationPct = totalOpenCostBasis <= 0
+        ? 0
+        : (row.costBasis / totalOpenCostBasis) * 100;
+      const ageSeverity = clamp((row.ageHours ?? 24) / 72, 0, 1);
+      const capitalSeverity = clamp(allocationPct / 40, 0, 1);
+      const lossSeverity = clamp(Math.max(-row.unrealizedPct, 0) / 20, 0, 1);
+      const inefficiency = row.unrealizedPct < 0
+        ? (0.5 * lossSeverity) + (0.3 * capitalSeverity) + (0.2 * ageSeverity)
+        : (0.15 * capitalSeverity * ageSeverity);
+      const score = clamp(100 - (inefficiency * 100), 0, 100);
+      const wasteScore = 100 - score;
+
+      return {
+        symbol: row.symbol,
+        costBasis: row.costBasis,
+        unrealizedPct: row.unrealizedPct,
+        ageHours: row.ageHours,
+        allocationPct,
+        score,
+        wasteScore,
+        rank: 0,
+      };
+    });
+
+    const ranked = [...scoredRows].sort(
+      (left, right) => (
+        right.wasteScore - left.wasteScore
+      ) || left.symbol.localeCompare(right.symbol),
+    );
+    ranked.forEach((row, index) => {
+      row.rank = index + 1;
+      capitalEfficiencyBySymbol[row.symbol] = row;
+    });
+  }
 
   const symbolControls: SymbolControl[] = allSymbols.map((symbol) => {
     const snapshot = snapshots[symbol] ?? null;
@@ -1099,6 +1244,7 @@ export async function GET() {
     );
     const buyEnabled = buyMap[symbol] ?? legacyMap[symbol] ?? true;
     const hasOpenPosition = symbol in positions;
+    const capitalEfficiency = capitalEfficiencyBySymbol[symbol];
     const symbolAllocatedUsd = symbolCostBasisUsd[symbol] ?? 0;
     const executableStatus = computeBuyExecutableStatus({
       buyEnabled,
@@ -1135,6 +1281,11 @@ export async function GET() {
         snapshot,
         config,
       ),
+      capitalEfficiencyScore: capitalEfficiency?.score ?? null,
+      capitalWasteRank: capitalEfficiency?.rank ?? null,
+      capitalWasteAllocationPct: capitalEfficiency?.allocationPct ?? null,
+      capitalWasteUnrealizedPct: capitalEfficiency?.unrealizedPct ?? null,
+      capitalWasteAgeHours: capitalEfficiency?.ageHours ?? null,
     };
   });
   const buyEnabledSymbolsCount = symbolControls.filter(
@@ -1181,6 +1332,42 @@ export async function GET() {
       currentPrice === null || entryPrice <= 0
         ? 0
         : ((currentPrice - entryPrice) / entryPrice) * 100;
+    const entryTimeRaw = asFiniteNumber(position.entry_time);
+    const minPointSinceEntry = findMinPricePointSinceEntry(
+      snapshotHistory[symbol] ?? [],
+      entryTimeRaw,
+    );
+    let advisoryMaxDrawdownPriceDuringTrade =
+      minPointSinceEntry?.price ?? null;
+    let advisoryMaxDrawdownAt = minPointSinceEntry?.tsEpoch ?? null;
+    if (
+      currentPrice !== null
+      && currentPrice > 0
+      && (
+        advisoryMaxDrawdownPriceDuringTrade === null
+        || currentPrice < advisoryMaxDrawdownPriceDuringTrade
+      )
+    ) {
+      advisoryMaxDrawdownPriceDuringTrade = currentPrice;
+      advisoryMaxDrawdownAt = null;
+    }
+    const drawdownReferencePrice = advisoryMaxDrawdownPriceDuringTrade
+      ?? (currentPrice !== null && currentPrice > 0 ? currentPrice : entryPrice);
+    const advisoryMaxDrawdownPctDuringTrade = entryPrice <= 0
+      ? 0
+      : Math.min(((drawdownReferencePrice - entryPrice) / entryPrice) * 100, 0);
+    const advisoryReviewAgeHours = (
+      entryTimeRaw === null || entryTimeRaw <= 0
+    )
+      ? null
+      : Math.max((nowEpochSeconds - entryTimeRaw) / 3600, 0);
+    const advisoryStaleLosingReview = (
+      advisoryReviewAgeHours !== null
+      && currentPrice !== null
+      && entryPrice > 0
+      && advisoryReviewAgeHours >= staleLosingReviewAgeHours
+      && unrealizedPct <= staleLosingReviewUnrealizedPnlPct
+    );
     const profitLock = strategy.profit_lock?.[symbol] ?? null;
     const peakPnlPct = Number(strategy.peak_pnl?.[symbol] ?? 0) * 100;
 
@@ -1207,7 +1394,14 @@ export async function GET() {
       profitLockPct:
         profitLock === null ? null : Number(profitLock) * 100,
       status,
-      entryTime: position.entry_time ?? null,
+      entryTime: entryTimeRaw,
+      advisoryStaleLosingReview,
+      advisoryReviewAgeHours,
+      advisoryThresholdAgeHours: staleLosingReviewAgeHours,
+      advisoryThresholdUnrealizedPnlPct: staleLosingReviewUnrealizedPnlPct,
+      advisoryMaxDrawdownPctDuringTrade,
+      advisoryMaxDrawdownPriceDuringTrade,
+      advisoryMaxDrawdownAt,
       thesis: position.reason ?? "state_sync",
     };
   });
@@ -1239,6 +1433,20 @@ export async function GET() {
   const buyCount = sortedTrades.filter((trade) => trade.side === "BUY").length;
   const sellCount = sortedTrades.filter((trade) => trade.side === "SELL").length;
   const chartPoints = buildEquityCurve(startingBalance, sortedTrades, totalEquity);
+  const staleLosingReviewRows = positionRows.filter(
+    (row) => row.advisoryStaleLosingReview,
+  );
+  const worstDrawdownRow = positionRows.reduce<PositionRow | null>(
+    (worst, row) => {
+      if (!worst) {
+        return row;
+      }
+      return row.advisoryMaxDrawdownPctDuringTrade < worst.advisoryMaxDrawdownPctDuringTrade
+        ? row
+        : worst;
+    },
+    null,
+  );
 
   return NextResponse.json({
     generatedAt: new Date().toISOString(),
@@ -1303,6 +1511,18 @@ export async function GET() {
       firstActivationPct: round(firstActivation * 100, 2),
       trailingActivationPct: round(trailingActivation * 100, 2),
       trailingGapPct: round(trailingGap * 100, 2),
+      maxDrawdownDuringTradePct: round(
+        worstDrawdownRow?.advisoryMaxDrawdownPctDuringTrade ?? 0,
+        2,
+      ),
+      maxDrawdownDuringTradeSymbol: worstDrawdownRow?.symbol ?? null,
+      staleLosingReviewCount: staleLosingReviewRows.length,
+      staleLosingReviewSymbols: staleLosingReviewRows.map((row) => row.symbol),
+      staleLosingReviewThresholdAgeHours: round(staleLosingReviewAgeHours, 2),
+      staleLosingReviewThresholdUnrealizedPnlPct: round(
+        staleLosingReviewUnrealizedPnlPct,
+        2,
+      ),
       lastTradeAt: lastTrade?.time ?? null,
       lastTradeReason: lastTrade?.reason ?? null,
       lastSnapshotAt,
@@ -1333,6 +1553,23 @@ export async function GET() {
         control.buyOpportunityPct === null
           ? null
           : round(control.buyOpportunityPct, 1),
+      capitalEfficiencyScore:
+        control.capitalEfficiencyScore === null
+          ? null
+          : round(control.capitalEfficiencyScore, 1),
+      capitalWasteRank: control.capitalWasteRank,
+      capitalWasteAllocationPct:
+        control.capitalWasteAllocationPct === null
+          ? null
+          : round(control.capitalWasteAllocationPct, 2),
+      capitalWasteUnrealizedPct:
+        control.capitalWasteUnrealizedPct === null
+          ? null
+          : round(control.capitalWasteUnrealizedPct, 2),
+      capitalWasteAgeHours:
+        control.capitalWasteAgeHours === null
+          ? null
+          : round(control.capitalWasteAgeHours, 2),
     })),
     chart: {
       points: chartPoints,
@@ -1355,6 +1592,22 @@ export async function GET() {
       peakPnlPct: round(row.peakPnlPct, 2),
       profitLockPct:
         row.profitLockPct === null ? null : round(row.profitLockPct, 2),
+      advisoryReviewAgeHours:
+        row.advisoryReviewAgeHours === null
+          ? null
+          : round(row.advisoryReviewAgeHours, 2),
+      advisoryMaxDrawdownPctDuringTrade: round(
+        row.advisoryMaxDrawdownPctDuringTrade,
+        2,
+      ),
+      advisoryMaxDrawdownPriceDuringTrade:
+        row.advisoryMaxDrawdownPriceDuringTrade === null
+          ? null
+          : round(row.advisoryMaxDrawdownPriceDuringTrade, 6),
+      advisoryMaxDrawdownAt:
+        row.advisoryMaxDrawdownAt === null
+          ? null
+          : round(row.advisoryMaxDrawdownAt, 3),
     })),
   });
 }
