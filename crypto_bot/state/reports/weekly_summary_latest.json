@@ -1,5 +1,20 @@
 {
-  "generated_at_utc": "2026-03-14T04:46:43.258715+00:00",
+  "generated_at": "2026-03-15T05:52:11.911153+00:00",
+  "generated_at_utc": "2026-03-15T05:52:11.911153+00:00",
+  "coverage": {
+    "window_type": "weekly",
+    "start_day_utc": "2026-03-08",
+    "end_day_utc": "2026-03-14",
+    "start_utc": "2026-03-08T00:00:00+00:00",
+    "end_utc": "2026-03-15T00:00:00+00:00",
+    "requested_day_count": 7,
+    "available_day_count": 1
+  },
+  "freshness": {
+    "indicator": "fresh",
+    "is_fresh": true,
+    "coverage_end_age_hours": 5.87
+  },
   "window": {
     "start_day_utc": "2026-03-08",
     "end_day_utc": "2026-03-14",
@@ -18,13 +33,31 @@
     "realized_pnl_total_usd": 0.0,
     "latest_unrealized_pnl_usd": -72.49,
     "latest_net_paper_pnl_usd": -72.49,
+    "latest_stale_losing_review_count": 0,
+    "stale_losing_review_count_total": 0,
+    "latest_max_drawdown_during_trade_pct": -36.827,
+    "latest_max_drawdown_during_trade_symbol": null,
+    "latest_rotation_rising_count": 0,
+    "latest_rotation_strong_count": 0,
+    "latest_rotation_weakening_count": 0,
+    "latest_rotation_cold_count": 0,
+    "latest_rotation_capital_trap_risk_count": 0,
+    "worst_max_drawdown_during_trade_pct": -36.827,
     "worst_open_drawdown_pct": -36.827,
     "crash_count_total": 0,
     "restart_count_total": 3,
     "data_gap_incidents_total": 2735,
-    "stale_data_blocks_total": 45245
+    "stale_data_blocks_total": 45245,
+    "latest_high_opportunity_symbol_count": 0,
+    "top_high_opportunity_symbols": []
   },
   "blocked_reasons_top": {},
+  "volatility_opportunity": {
+    "high_signal_frequency_by_symbol": {},
+    "average_opportunity_score_by_symbol": {},
+    "top_high_opportunity_symbols": [],
+    "note": "Advisory-only aggregation from daily volatility opportunity radar; no execution behavior changes."
+  },
   "anomaly_notes": [
     "2026-03-14: data_gap_incidents=2735",
     "2026-03-14: stale_data_blocks=45245 (high)"

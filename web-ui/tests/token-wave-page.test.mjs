@@ -5,6 +5,8 @@ import { resolve } from "node:path";
 const pagePath = resolve("src/app/token/[symbol]/page.tsx");
 const routePath = resolve("src/app/api/token/[symbol]/route.ts");
 const analyzerPath = resolve("src/app/lib/waveZoneAnalyzer.mjs");
+const dashboardRoutePath = resolve("src/app/api/dashboard/route.ts");
+const dashboardPagePath = resolve("src/app/components/RevbotDashboard.tsx");
 
 async function run(name, fn) {
   try {
@@ -27,14 +29,37 @@ await run("token detail page renders Wave Zone Analyzer section and timeframe la
   assert.match(pageSource, /HIGH MAGNET/);
   assert.match(pageSource, /BALANCED/);
   assert.match(pageSource, /Insufficient data/);
+  assert.match(pageSource, /insufficient_reason_code|Code:/);
+  assert.match(pageSource, /latest_snapshot_age_minutes|Latest snapshot age/);
+  assert.match(pageSource, /Rolling Symbol Rotation Monitor/);
+  assert.match(pageSource, /Volatility Opportunity/);
+  assert.match(pageSource, /volatilityOpportunity|volatility opportunity/i);
+  assert.match(pageSource, /Sort Score|LOW MAGNET|HIGH MAGNET/);
+  assert.match(pageSource, /Capital Trap Risk/);
   assert.match(pageSource, /"1h", "4h", "8h", "16h", "24h", "3d", "7d"/);
 });
 
 await run("token API payload includes waveZoneAnalyzer advisory block", async () => {
   const routeSource = await readFile(routePath, "utf8");
   const analyzerSource = await readFile(analyzerPath, "utf8");
+  const dashboardRouteSource = await readFile(dashboardRoutePath, "utf8");
+  const dashboardPageSource = await readFile(dashboardPagePath, "utf8");
 
   assert.match(routeSource, /analyzeWaveZones/);
   assert.match(routeSource, /waveZoneAnalyzer/);
+  assert.match(routeSource, /readSnapshotHistory\(/);
+  assert.match(routeSource, /historySource|rotated_logs|bot_log_tail_fallback/);
+  assert.match(routeSource, /nowEpoch:\s*analysisAnchorEpoch/);
+  assert.match(routeSource, /wallClockEpoch/);
+  assert.match(routeSource, /rotationMonitor/);
+  assert.match(routeSource, /volatilityOpportunity:\s*\{/);
+  assert.match(routeSource, /volatilityOpportunityScorePct/);
+  assert.match(routeSource, /rotationShortTermScore|rotationMediumTermScore/);
   assert.match(analyzerSource, /data_quality_note|data quality note/i);
+  assert.match(analyzerSource, /insufficient_reason_code/);
+  assert.match(analyzerSource, /stale_snapshot_history/);
+  assert.match(dashboardRouteSource, /rotationShortTermScore|rotationStatus|buildSymbolRotationAdvisory/);
+  assert.match(dashboardRouteSource, /volatilityOpportunityScore|highOpportunitySymbolCount|topVolatilityOpportunitySymbols/);
+  assert.match(dashboardPageSource, /Rolling Symbol Rotation|rotationStatusStyle|Trap Risk/);
+  assert.match(dashboardPageSource, /Volatility Opportunity Radar|Sort Volatility|volatilityOpportunityScore/);
 });

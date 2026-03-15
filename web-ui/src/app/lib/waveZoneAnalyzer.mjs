@@ -8,6 +8,10 @@ const TIMEFRAME_CONFIG = [
   { key: "7d", windowSeconds: 7 * 24 * 60 * 60, pivotWidth: 5, weight: 0.1 },
 ];
 
+const DEFAULT_STALE_SNAPSHOT_THRESHOLD_SECONDS = 20 * 60;
+const MIN_HISTORY_SPAN_RATIO_BY_WINDOW = 0.25;
+const MIN_HISTORY_SPAN_FLOOR_MINUTES = 12;
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -343,31 +347,111 @@ function deriveLikelihoods(lowZone, highZone) {
   return { low, high };
 }
 
-function analyzeSingleTimeframe(points, currentPrice, nowEpoch, timeframe) {
+function buildInsufficientResult({
+  reasonCode,
+  reasonMessage,
+  sampleCount,
+  candleCount,
+  spanMinutes,
+}) {
+  return {
+    strongest_low_zone: null,
+    most_touched_low_zone: null,
+    strongest_high_zone: null,
+    most_touched_high_zone: null,
+    low_revisit_likelihood_pct: 0,
+    high_revisit_likelihood_pct: 0,
+    insufficient_data: true,
+    insufficient_reason_code: reasonCode,
+    insufficient_reason_message: reasonMessage,
+    observed_history_span_minutes: Number(spanMinutes.toFixed(3)),
+    observed_candle_count: candleCount,
+    sample_count: sampleCount,
+    candle_count: candleCount,
+    data_note: "Insufficient data",
+  };
+}
+
+function analyzeSingleTimeframe(points, currentPrice, nowEpoch, timeframe, options = {}) {
   const rows = normalizePricePoints(points).filter(
     (row) => row.tsEpoch >= nowEpoch - timeframe.windowSeconds && row.tsEpoch <= nowEpoch,
   );
   const bucketSeconds = Math.max(60, Math.round(timeframe.windowSeconds / 120));
   const candles = buildCandlesFromSnapshots(rows, bucketSeconds);
   const timeframeHours = timeframe.windowSeconds / 3600;
+  const observedHistorySpanMinutes = rows.length >= 2
+    ? Math.max((rows[rows.length - 1].tsEpoch - rows[0].tsEpoch) / 60, 0)
+    : 0;
+  const observedCandleCount = candles.length;
+  const latestSnapshotTs = rows.length > 0
+    ? rows[rows.length - 1].tsEpoch
+    : (points[points.length - 1]?.tsEpoch ?? null);
+  const wallClockEpoch = Number.isFinite(options.wallClockEpoch) && options.wallClockEpoch > 0
+    ? options.wallClockEpoch
+    : nowEpoch;
+  const staleThresholdSeconds = Number.isFinite(options.staleHistoryThresholdSeconds)
+    && options.staleHistoryThresholdSeconds > 0
+    ? options.staleHistoryThresholdSeconds
+    : DEFAULT_STALE_SNAPSHOT_THRESHOLD_SECONDS;
+  const snapshotAgeSeconds = latestSnapshotTs === null
+    ? null
+    : Math.max(wallClockEpoch - latestSnapshotTs, 0);
+  const minHistorySpanMinutes = Math.max(
+    (timeframe.windowSeconds / 60) * MIN_HISTORY_SPAN_RATIO_BY_WINDOW,
+    MIN_HISTORY_SPAN_FLOOR_MINUTES,
+  );
+
+  if (snapshotAgeSeconds !== null && snapshotAgeSeconds > staleThresholdSeconds) {
+    return buildInsufficientResult({
+      reasonCode: "stale_snapshot_history",
+      reasonMessage: (
+        `Latest snapshot is ${(snapshotAgeSeconds / 60).toFixed(1)}m old `
+        + `(threshold ${(staleThresholdSeconds / 60).toFixed(1)}m).`
+      ),
+      sampleCount: rows.length,
+      candleCount: observedCandleCount,
+      spanMinutes: observedHistorySpanMinutes,
+    });
+  }
+
+  if (observedHistorySpanMinutes < minHistorySpanMinutes) {
+    return buildInsufficientResult({
+      reasonCode: "insufficient_history_span",
+      reasonMessage: (
+        `Observed span ${observedHistorySpanMinutes.toFixed(1)}m is below `
+        + `${minHistorySpanMinutes.toFixed(1)}m required for ${timeframe.key}.`
+      ),
+      sampleCount: rows.length,
+      candleCount: observedCandleCount,
+      spanMinutes: observedHistorySpanMinutes,
+    });
+  }
+
   const minCandlesRequired = Math.max(18, (timeframe.pivotWidth * 2) + 8);
 
   if (candles.length < minCandlesRequired || currentPrice <= 0) {
-    return {
-      strongest_low_zone: null,
-      most_touched_low_zone: null,
-      strongest_high_zone: null,
-      most_touched_high_zone: null,
-      low_revisit_likelihood_pct: 0,
-      high_revisit_likelihood_pct: 0,
-      insufficient_data: true,
-      sample_count: rows.length,
-      candle_count: candles.length,
-      data_note: "Insufficient data",
-    };
+    return buildInsufficientResult({
+      reasonCode: "insufficient_candle_count",
+      reasonMessage: (
+        `Observed ${candles.length} candles, required at least ${minCandlesRequired}.`
+      ),
+      sampleCount: rows.length,
+      candleCount: observedCandleCount,
+      spanMinutes: observedHistorySpanMinutes,
+    });
   }
 
   const pivots = detectSwingPivots(candles, timeframe.pivotWidth);
+  if (pivots.highs.length === 0 && pivots.lows.length === 0) {
+    return buildInsufficientResult({
+      reasonCode: "no_valid_pivots",
+      reasonMessage: "No valid swing highs/lows detected for this window.",
+      sampleCount: rows.length,
+      candleCount: observedCandleCount,
+      spanMinutes: observedHistorySpanMinutes,
+    });
+  }
+
   const avgRange = mean(candles.map((row) => row.high - row.low));
   const zoneWidthAbs = Math.max(currentPrice * 0.005, 0.25 * avgRange);
   const zoneWidthPct = (zoneWidthAbs / currentPrice) * 100;
@@ -394,6 +478,15 @@ function analyzeSingleTimeframe(points, currentPrice, nowEpoch, timeframe) {
   const mostTouchedHigh = selectMostTouchedZone(highZones);
 
   const likelihood = deriveLikelihoods(strongestLow, strongestHigh);
+  if (strongestLow === null && strongestHigh === null) {
+    return buildInsufficientResult({
+      reasonCode: "no_valid_pivots",
+      reasonMessage: "No meaningful support/resistance zones were produced.",
+      sampleCount: rows.length,
+      candleCount: observedCandleCount,
+      spanMinutes: observedHistorySpanMinutes,
+    });
+  }
 
   return {
     strongest_low_zone: formatZone(strongestLow),
@@ -402,7 +495,11 @@ function analyzeSingleTimeframe(points, currentPrice, nowEpoch, timeframe) {
     most_touched_high_zone: formatZone(mostTouchedHigh),
     low_revisit_likelihood_pct: Number(likelihood.low.toFixed(3)),
     high_revisit_likelihood_pct: Number(likelihood.high.toFixed(3)),
-    insufficient_data: strongestLow === null && strongestHigh === null,
+    insufficient_data: false,
+    insufficient_reason_code: null,
+    insufficient_reason_message: null,
+    observed_history_span_minutes: Number(observedHistorySpanMinutes.toFixed(3)),
+    observed_candle_count: observedCandleCount,
     sample_count: rows.length,
     candle_count: candles.length,
     zone_width_pct: Number(zoneWidthPct.toFixed(6)),
@@ -449,6 +546,8 @@ function analyzeWaveZones({
   pricePoints,
   currentPrice,
   nowEpoch,
+  wallClockEpoch,
+  staleHistoryThresholdSeconds,
 }) {
   const rows = normalizePricePoints(pricePoints);
   const latestPrice = Number.isFinite(currentPrice) && currentPrice > 0
@@ -457,6 +556,13 @@ function analyzeWaveZones({
   const anchorNow = Number.isFinite(nowEpoch) && nowEpoch > 0
     ? nowEpoch
     : (rows[rows.length - 1]?.tsEpoch ?? (Date.now() / 1000));
+  const wallClockNow = Number.isFinite(wallClockEpoch) && wallClockEpoch > 0
+    ? wallClockEpoch
+    : (Date.now() / 1000);
+  const latestSnapshotTs = rows[rows.length - 1]?.tsEpoch ?? null;
+  const latestSnapshotAgeMinutes = latestSnapshotTs === null
+    ? null
+    : Math.max((wallClockNow - latestSnapshotTs) / 60, 0);
 
   const timeframeOutput = {};
   for (const timeframe of TIMEFRAME_CONFIG) {
@@ -465,6 +571,10 @@ function analyzeWaveZones({
       latestPrice,
       anchorNow,
       timeframe,
+      {
+        wallClockEpoch: wallClockNow,
+        staleHistoryThresholdSeconds,
+      },
     );
   }
 
@@ -507,6 +617,14 @@ function analyzeWaveZones({
             max: strongestOverallHigh.max,
           }
         : null,
+      analysis_anchor_at: new Date(anchorNow * 1000).toISOString(),
+      latest_snapshot_at: latestSnapshotTs === null
+        ? null
+        : new Date(latestSnapshotTs * 1000).toISOString(),
+      latest_snapshot_age_minutes: latestSnapshotAgeMinutes === null
+        ? null
+        : Number(latestSnapshotAgeMinutes.toFixed(3)),
+      history_point_count: rows.length,
       data_quality_note: (
         "Derived from observed snapshot history available to the UI. Advisory-only likelihood estimates, not execution logic or guarantees."
       ),
@@ -523,4 +641,3 @@ export {
   countZoneTouches,
   analyzeWaveZones,
 };
-

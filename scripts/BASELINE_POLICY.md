@@ -4,11 +4,15 @@ This policy defines what is included in strategy drift checks versus runtime con
 
 ## Strategy Drift Baseline
 
-Strategy drift checks are limited to strategy code files:
+Behavior-sensitive hash drift checks cover:
 
 - `crypto_bot/strategy/strategy_engine.py`
 - `crypto_bot/strategy/regime.py`
 - `crypto_bot/strategy/scoring.py`
+- `crypto_bot/trading/executor.py`
+- `crypto_bot/risk/risk_manager.py`
+- `crypto_bot/main.py`
+- `crypto_bot/paper/paper_broker.py` (included by default; can be excluded when intentionally running `generate_strategy_baseline.ps1 -ExcludePaperBroker`)
 
 Source of truth:
 - `crypto_bot/strategy/strategy_hash_baseline.json`

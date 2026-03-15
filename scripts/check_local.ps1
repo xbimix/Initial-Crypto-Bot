@@ -6,6 +6,20 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
+$compileTargets = @(
+    ".\crypto_bot\analysis",
+    ".\crypto_bot\api",
+    ".\crypto_bot\config",
+    ".\crypto_bot\control",
+    ".\crypto_bot\data",
+    ".\crypto_bot\paper",
+    ".\crypto_bot\reporting",
+    ".\crypto_bot\risk",
+    ".\crypto_bot\strategy",
+    ".\crypto_bot\trading",
+    ".\crypto_bot\ui",
+    ".\crypto_bot\utils"
+)
 
 function Invoke-Checked {
     param(
@@ -31,13 +45,12 @@ try {
         throw "Strategy replay regression failed"
     }
 
-    Invoke-Checked -Command $venvPython -Arguments @(
+    $compileArgs = @(
         "-m",
         "compileall",
-        ".\crypto_bot",
-        "-x",
-        "(state|tests|work_testdirs|pytest-cache-files|_pytest_tmp)"
-    )
+        "-q"
+    ) + $compileTargets
+    Invoke-Checked -Command $venvPython -Arguments $compileArgs
     Invoke-Checked -Command $venvPython -Arguments @(
         "-m",
         "pytest",
@@ -47,6 +60,8 @@ try {
         "no:cacheprovider",
         "-p",
         "no:tmpdir",
+        "-p",
+        "no:stepwise",
         "--ignore-glob=.\crypto_bot\tests\_pytest_tmp_*",
         "--ignore-glob=.\crypto_bot\tests\pytest-cache-files-*",
         "--ignore-glob=.\crypto_bot\state\pytest_*",
@@ -56,6 +71,7 @@ try {
     if (-not $SkipWebBuild) {
         Push-Location .\web-ui
         try {
+            Invoke-Checked -Command "npm" -Arguments @("run", "test:wave-zones")
             Invoke-Checked -Command "npm" -Arguments @("run", "lint")
             Invoke-Checked -Command "npx" -Arguments @("tsc", "--noEmit")
 

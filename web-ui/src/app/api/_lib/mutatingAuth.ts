@@ -1,9 +1,15 @@
 import { NextResponse } from "next/server";
+import fs from "node:fs";
+import path from "node:path";
 
 const DEFAULT_MAX_MUTATING_BODY_BYTES = 64 * 1024;
 const DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60;
 const DEFAULT_RATE_LIMIT_MAX_REQUESTS = 120;
 const rateBuckets = new Map<string, number[]>();
+
+let cachedConfigToken: string | null = null;
+let cachedConfigTokenAt = 0;
+const CONFIG_TOKEN_CACHE_MS = 5_000;
 
 function parseIntEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -17,12 +23,65 @@ function parseIntEnv(name: string, fallback: number): number {
   return Math.max(1024, numeric);
 }
 
+function resolveConfigToken(): string {
+  const now = Date.now();
+  if (cachedConfigToken !== null && (now - cachedConfigTokenAt) < CONFIG_TOKEN_CACHE_MS) {
+    return cachedConfigToken;
+  }
+
+  const candidatePaths = [
+    path.resolve(process.cwd(), "..", "crypto_bot", "state", "config.json"),
+    path.resolve(process.cwd(), "crypto_bot", "state", "config.json"),
+  ];
+
+  for (const candidatePath of candidatePaths) {
+    try {
+      if (!fs.existsSync(candidatePath)) {
+        continue;
+      }
+      const raw = fs.readFileSync(candidatePath, "utf-8");
+      const parsed = JSON.parse(raw) as {
+        control_auth_token?: unknown;
+        control?: { auth_token?: unknown };
+      };
+
+      const rootToken = typeof parsed.control_auth_token === "string"
+        ? parsed.control_auth_token.trim()
+        : "";
+      if (rootToken) {
+        cachedConfigToken = rootToken;
+        cachedConfigTokenAt = now;
+        return rootToken;
+      }
+
+      const nestedToken = typeof parsed.control?.auth_token === "string"
+        ? parsed.control.auth_token.trim()
+        : "";
+      if (nestedToken) {
+        cachedConfigToken = nestedToken;
+        cachedConfigTokenAt = now;
+        return nestedToken;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  cachedConfigToken = "";
+  cachedConfigTokenAt = now;
+  return "";
+}
+
 function resolveExpectedToken(): string {
-  return String(
+  const fromEnv = String(
     process.env.REVBOT_CONTROL_AUTH_TOKEN
     ?? process.env.NEXT_PUBLIC_REVBOT_CONTROL_TOKEN
     ?? "",
   ).trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  return resolveConfigToken();
 }
 
 function extractClientIp(req: Request): string {
@@ -56,6 +115,46 @@ function resolveActor(req: Request): string {
   return "web-ui-client";
 }
 
+function isTrustedSameOriginUiRequest(req: Request): boolean {
+  const actor = resolveActor(req);
+  if (actor !== "web-ui") {
+    return false;
+  }
+
+  const url = new URL(req.url);
+  const host = url.hostname.toLowerCase();
+  if (host !== "127.0.0.1" && host !== "localhost") {
+    return false;
+  }
+
+  const fetchSite = String(req.headers.get("sec-fetch-site") ?? "").trim().toLowerCase();
+  if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "same-site") {
+    return false;
+  }
+
+  const origin = String(req.headers.get("origin") ?? "").trim();
+  if (origin) {
+    try {
+      const originUrl = new URL(origin);
+      if (originUrl.origin !== url.origin) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+  }
+
+  const clientIp = extractClientIp(req).toLowerCase();
+  if (clientIp && clientIp !== "unknown") {
+    if (clientIp === "::1" || clientIp === "localhost" || clientIp.startsWith("127.")) {
+      return true;
+    }
+    return false;
+  }
+
+  return true;
+}
+
 export type MutatingAuthResult =
   | { ok: true; token: string; actor: string }
   | { ok: false; response: NextResponse };
@@ -63,6 +162,14 @@ export type MutatingAuthResult =
 export async function requireMutatingAuth(req: Request): Promise<MutatingAuthResult> {
   const expected = resolveExpectedToken();
   if (!expected) {
+    if (isTrustedSameOriginUiRequest(req)) {
+      return {
+        ok: true,
+        token: "",
+        actor: resolveActor(req),
+      };
+    }
+
     return {
       ok: false,
       response: NextResponse.json(
@@ -74,6 +181,14 @@ export async function requireMutatingAuth(req: Request): Promise<MutatingAuthRes
 
   const provided = extractToken(req);
   if (!provided || provided !== expected) {
+    if (!provided && isTrustedSameOriginUiRequest(req)) {
+      return {
+        ok: true,
+        token: expected,
+        actor: resolveActor(req),
+      };
+    }
+
     return {
       ok: false,
       response: NextResponse.json(

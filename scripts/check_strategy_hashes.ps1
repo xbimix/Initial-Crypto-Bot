@@ -1,16 +1,15 @@
 param(
     [string]$StrategyDir = "",
-    [string]$BaselinePath = ""
+    [string]$BaselinePath = "",
+    [string]$RepoRootPath = ""
 )
 
 $ErrorActionPreference = "Stop"
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-if (-not $StrategyDir) {
-    $StrategyDir = Join-Path $repoRoot "crypto_bot\strategy"
-}
+$repoRoot = if ($RepoRootPath) { (Resolve-Path $RepoRootPath).Path } else { (Resolve-Path (Join-Path $PSScriptRoot "..")).Path }
+$strategyRoot = if ($StrategyDir) { (Resolve-Path $StrategyDir).Path } else { Join-Path $repoRoot "crypto_bot\strategy" }
 if (-not $BaselinePath) {
-    $BaselinePath = Join-Path $StrategyDir "strategy_hash_baseline.json"
+    $BaselinePath = Join-Path $strategyRoot "strategy_hash_baseline.json"
 }
 
 if (-not (Test-Path $BaselinePath)) {
@@ -26,9 +25,20 @@ if (-not $baseline.files) {
 
 $failed = $false
 foreach ($prop in $baseline.files.PSObject.Properties) {
-    $name = $prop.Name
+    $name = [string]$prop.Name
     $expected = [string]$prop.Value
-    $path = Join-Path $StrategyDir $name
+    if ([System.IO.Path]::IsPathRooted($name)) {
+        $path = $name
+    }
+    else {
+        $normalized = $name -replace "/", "\"
+        if ($normalized -like "crypto_bot\*") {
+            $path = Join-Path $repoRoot $normalized
+        }
+        else {
+            $path = Join-Path $strategyRoot $normalized
+        }
+    }
 
     if (-not (Test-Path $path)) {
         Write-Host "MISSING: $name"
@@ -46,8 +56,8 @@ foreach ($prop in $baseline.files.PSObject.Properties) {
 }
 
 if ($failed) {
-    Write-Error "Strategy drift detected."
+    Write-Error "Behavior-sensitive hash drift detected."
     exit 1
 }
 
-Write-Host "Strategy hash check passed."
+Write-Host "Behavior-sensitive hash check passed."

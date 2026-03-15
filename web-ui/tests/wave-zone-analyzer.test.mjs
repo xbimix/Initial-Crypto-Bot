@@ -100,6 +100,7 @@ run("analyzer returns strongest zones + advisory likelihood shape on clean bounc
     pricePoints: points,
     currentPrice: points[points.length - 1].price,
     nowEpoch,
+    wallClockEpoch: nowEpoch,
   });
 
   assert.equal(result.symbol, "TEST-USD");
@@ -123,11 +124,99 @@ run("analyzer handles insufficient data across all configured windows", () => {
     pricePoints: points,
     currentPrice: 100,
     nowEpoch: 1_770_000_300,
+    wallClockEpoch: 1_770_000_300,
   });
 
   for (const timeframe of TIMEFRAME_CONFIG) {
     assert.equal(result.timeframes[timeframe.key].insufficient_data, true);
+    assert.ok(typeof result.timeframes[timeframe.key].insufficient_reason_code === "string");
+    assert.ok(typeof result.timeframes[timeframe.key].insufficient_reason_message === "string");
+    assert.ok(Number.isFinite(result.timeframes[timeframe.key].observed_history_span_minutes));
+    assert.ok(Number.isFinite(result.timeframes[timeframe.key].observed_candle_count));
   }
+});
+
+run("insufficient reason uses stale_snapshot_history when latest snapshots are stale to wall clock", () => {
+  const points = buildSeries({
+    startEpoch: 1_770_000_000,
+    points: 300,
+    stepSeconds: 300,
+    generator: (index) => 100 + Math.sin(index / 5),
+  });
+  const latestTs = points[points.length - 1].tsEpoch;
+  const result = analyzeWaveZones({
+    symbol: "STALE-USD",
+    pricePoints: points,
+    currentPrice: points[points.length - 1].price,
+    nowEpoch: latestTs,
+    wallClockEpoch: latestTs + (2 * 3600),
+    staleHistoryThresholdSeconds: 10 * 60,
+  });
+
+  assert.equal(result.timeframes["1h"].insufficient_data, true);
+  assert.equal(result.timeframes["1h"].insufficient_reason_code, "stale_snapshot_history");
+});
+
+run("insufficient reason uses insufficient_candle_count when span is present but candle density is thin", () => {
+  const startEpoch = 1_770_000_000;
+  const points = [
+    { tsEpoch: startEpoch + 0, price: 100 },
+    { tsEpoch: startEpoch + 600, price: 100.4 },
+    { tsEpoch: startEpoch + 1200, price: 99.8 },
+    { tsEpoch: startEpoch + 1800, price: 100.1 },
+    { tsEpoch: startEpoch + 2400, price: 99.9 },
+  ];
+  const nowEpoch = points[points.length - 1].tsEpoch;
+  const result = analyzeWaveZones({
+    symbol: "THIN-1H-USD",
+    pricePoints: points,
+    currentPrice: points[points.length - 1].price,
+    nowEpoch,
+    wallClockEpoch: nowEpoch,
+  });
+
+  assert.equal(result.timeframes["1h"].insufficient_data, true);
+  assert.equal(result.timeframes["1h"].insufficient_reason_code, "insufficient_candle_count");
+});
+
+run("insufficient reason uses no_valid_pivots when candles are monotonic and pivots cannot form", () => {
+  const points = buildSeries({
+    startEpoch: 1_770_000_000,
+    points: 220,
+    stepSeconds: 30,
+    generator: (index) => 100 + (index * 0.01),
+  });
+  const nowEpoch = points[points.length - 1].tsEpoch;
+  const result = analyzeWaveZones({
+    symbol: "MONO-USD",
+    pricePoints: points,
+    currentPrice: points[points.length - 1].price,
+    nowEpoch,
+    wallClockEpoch: nowEpoch,
+  });
+
+  assert.equal(result.timeframes["1h"].insufficient_data, true);
+  assert.equal(result.timeframes["1h"].insufficient_reason_code, "no_valid_pivots");
+});
+
+run("insufficient reason uses insufficient_history_span for long windows with short observed span", () => {
+  const points = buildSeries({
+    startEpoch: 1_770_000_000,
+    points: 80,
+    stepSeconds: 8,
+    generator: (index) => 100 + (Math.sin(index / 4) * 0.2),
+  });
+  const nowEpoch = points[points.length - 1].tsEpoch;
+  const result = analyzeWaveZones({
+    symbol: "SHORT-SPAN-USD",
+    pricePoints: points,
+    currentPrice: points[points.length - 1].price,
+    nowEpoch,
+    wallClockEpoch: nowEpoch,
+  });
+
+  assert.equal(result.timeframes["4h"].insufficient_data, true);
+  assert.equal(result.timeframes["4h"].insufficient_reason_code, "insufficient_history_span");
 });
 
 run("advisory likelihoods remain in stable ranges for slow bleed and noisy sideways fixtures", () => {
@@ -155,6 +244,7 @@ run("advisory likelihoods remain in stable ranges for slow bleed and noisy sidew
       pricePoints: fixture,
       currentPrice: fixture[fixture.length - 1].price,
       nowEpoch,
+      wallClockEpoch: nowEpoch,
     });
 
     assert.ok(result.summary.weighted_low_revisit_likelihood_pct >= 0);

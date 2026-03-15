@@ -34,6 +34,35 @@ type DashboardSymbolControl = {
   buyExecutableReason?: string;
   capitalEfficiencyScore?: number | null;
   capitalWasteRank?: number | null;
+  rotationShortTermScore?: number | null;
+  rotationMediumTermScore?: number | null;
+  rotationDelta?: number | null;
+  rotationStatus?: string | null;
+  rotationShortTermWinRatePct?: number | null;
+  rotationShortTermAvgRealizedPnlUsd?: number | null;
+  rotationShortTermAvgHoldHours?: number | null;
+  rotationShortTermAvgRecoveryHours?: number | null;
+  rotationShortTermStaleReviewFrequencyPct?: number | null;
+  rotationShortTermAvgMaxDrawdownPct?: number | null;
+  rotationMediumTermWinRatePct?: number | null;
+  rotationMediumTermAvgRealizedPnlUsd?: number | null;
+  rotationMediumTermAvgHoldHours?: number | null;
+  rotationMediumTermAvgRecoveryHours?: number | null;
+  rotationMediumTermStaleReviewFrequencyPct?: number | null;
+  rotationMediumTermAvgMaxDrawdownPct?: number | null;
+  volatilityOpportunityScore?: number | null;
+  volatilityOpportunityLabel?: string | null;
+  volatilityOpportunityReason?: string;
+  volatilityOpportunityConfidenceLabel?: string;
+  volatilityOpportunityStretchScore?: number | null;
+  volatilityOpportunityVolatilitySpikeScore?: number | null;
+  volatilityOpportunityBounceContextScore?: number | null;
+  volatilityOpportunityLiquidityQualityScore?: number | null;
+  volatilityOpportunityObservedHistorySpanMinutes?: number;
+  volatilityOpportunityObservedPointCount?: number;
+  volatilityOpportunityInsufficientData?: boolean;
+  volatilityOpportunityInsufficientReasonCode?: string | null;
+  volatilityOpportunityInsufficientReasonMessage?: string | null;
 };
 
 type DashboardPayload = {
@@ -62,6 +91,8 @@ const STATE_DIR = path.resolve(process.cwd(), "..", "crypto_bot", "state");
 const TRADES_PATH = path.join(STATE_DIR, "trades.json");
 const LOG_PATH = path.join(STATE_DIR, "bot.log");
 const LOG_TAIL_BYTES = 256 * 1024;
+const STALE_SNAPSHOT_THRESHOLD_SECONDS = 20 * 60;
+const MAX_SNAPSHOT_POINTS = 25000;
 
 function normalizeSymbol(value: string) {
   return value.trim().toUpperCase();
@@ -145,20 +176,77 @@ function parseSnapshotHistory(symbol: string, logTail: string): SnapshotPoint[] 
   return rows;
 }
 
-function opportunityLabel(score: number | null) {
-  if (score === null) {
-    return "unknown";
+function parseLogFileSequence(value: string) {
+  if (value === "bot.log") {
+    return 0;
   }
-  if (score >= 70) {
-    return "strong_setup";
+  const match = value.match(/^bot\.log\.(\d+)$/);
+  if (!match) {
+    return Number.POSITIVE_INFINITY;
   }
-  if (score >= 45) {
-    return "developing_setup";
+  return Number(match[1]);
+}
+
+function dedupeAndClampSnapshotRows(rows: SnapshotPoint[]) {
+  const sorted = [...rows].sort(
+    (left, right) => (left.tsEpoch - right.tsEpoch) || (left.price - right.price),
+  );
+  const deduped: SnapshotPoint[] = [];
+  for (const row of sorted) {
+    const previous = deduped[deduped.length - 1];
+    if (previous && previous.tsEpoch === row.tsEpoch && previous.price === row.price) {
+      continue;
+    }
+    deduped.push(row);
   }
-  if (score >= 25) {
-    return "early_setup";
+  if (deduped.length <= MAX_SNAPSHOT_POINTS) {
+    return deduped;
   }
-  return "weak_setup";
+  return deduped.slice(-MAX_SNAPSHOT_POINTS);
+}
+
+async function listSnapshotLogPaths() {
+  try {
+    const files = await fs.readdir(STATE_DIR, { withFileTypes: true });
+    return files
+      .filter((entry) => entry.isFile())
+      .map((entry) => entry.name)
+      .filter((name) => name === "bot.log" || /^bot\.log\.\d+$/.test(name))
+      .sort((left, right) => parseLogFileSequence(right) - parseLogFileSequence(left))
+      .map((name) => path.join(STATE_DIR, name));
+  } catch {
+    return [LOG_PATH];
+  }
+}
+
+async function readSnapshotHistory(symbol: string): Promise<{
+  rows: SnapshotPoint[];
+  source: string;
+}> {
+  const rows: SnapshotPoint[] = [];
+  const logPaths = await listSnapshotLogPaths();
+
+  for (const logPath of logPaths) {
+    try {
+      const fileText = await fs.readFile(logPath, "utf8");
+      rows.push(...parseSnapshotHistory(symbol, fileText));
+    } catch {
+      // Ignore individual log read failures and continue to fallback.
+    }
+  }
+
+  if (rows.length > 0) {
+    return {
+      rows: dedupeAndClampSnapshotRows(rows),
+      source: "rotated_logs",
+    };
+  }
+
+  const tail = await readLogTail(LOG_PATH, LOG_TAIL_BYTES);
+  return {
+    rows: dedupeAndClampSnapshotRows(parseSnapshotHistory(symbol, tail)),
+    source: "bot_log_tail_fallback",
+  };
 }
 
 export async function GET(
@@ -175,10 +263,10 @@ export async function GET(
   }
 
   const origin = new URL(req.url).origin;
-  const [dashboardRes, trades, logTail] = await Promise.all([
+  const [dashboardRes, trades, snapshotRead] = await Promise.all([
     fetch(`${origin}/api/dashboard`, { cache: "no-store" }),
     readJson<TradeEntry[]>(TRADES_PATH, []),
-    readLogTail(LOG_PATH, LOG_TAIL_BYTES),
+    readSnapshotHistory(symbol),
   ]);
 
   if (!dashboardRes.ok) {
@@ -198,8 +286,10 @@ export async function GET(
   const control = symbolControls.find((row) => row.symbol === symbol) ?? null;
   const summary = dashboard.summary ?? {};
 
-  const snapshotHistory = parseSnapshotHistory(symbol, logTail);
+  const snapshotHistory = snapshotRead.rows;
   const latestSnapshot = snapshotHistory[snapshotHistory.length - 1] ?? null;
+  const wallClockEpoch = Date.now() / 1000;
+  const analysisAnchorEpoch = latestSnapshot?.tsEpoch ?? wallClockEpoch;
 
   const currentPrice = position?.currentPrice ?? latestSnapshot?.price ?? null;
   const currentPriceAt = latestSnapshot
@@ -223,7 +313,9 @@ export async function GET(
     symbol,
     pricePoints: snapshotHistory,
     currentPrice: currentPrice ?? 0,
-    nowEpoch: Date.now() / 1000,
+    nowEpoch: analysisAnchorEpoch,
+    wallClockEpoch,
+    staleHistoryThresholdSeconds: STALE_SNAPSHOT_THRESHOLD_SECONDS,
   });
 
   return NextResponse.json({
@@ -251,8 +343,31 @@ export async function GET(
         summary.staleLosingReviewThresholdAgeHours ?? null,
       staleReviewThresholdUnrealizedPnlPct:
         summary.staleLosingReviewThresholdUnrealizedPnlPct ?? null,
-      volatilityOpportunityScorePct: control?.buyOpportunityPct ?? null,
-      volatilityOpportunityLabel: opportunityLabel(control?.buyOpportunityPct ?? null),
+      volatilityOpportunityScorePct: control?.volatilityOpportunityScore ?? null,
+      volatilityOpportunityLabel: control?.volatilityOpportunityLabel ?? "unknown",
+      volatilityOpportunity: {
+        score: control?.volatilityOpportunityScore ?? null,
+        label: control?.volatilityOpportunityLabel ?? null,
+        reason: control?.volatilityOpportunityReason ?? "Insufficient data",
+        confidenceLabel: control?.volatilityOpportunityConfidenceLabel ?? "LOW",
+        stretchScore: control?.volatilityOpportunityStretchScore ?? null,
+        volatilitySpikeScore:
+          control?.volatilityOpportunityVolatilitySpikeScore ?? null,
+        bounceContextScore:
+          control?.volatilityOpportunityBounceContextScore ?? null,
+        liquidityQualityScore:
+          control?.volatilityOpportunityLiquidityQualityScore ?? null,
+        observedHistorySpanMinutes:
+          control?.volatilityOpportunityObservedHistorySpanMinutes ?? 0,
+        observedPointCount:
+          control?.volatilityOpportunityObservedPointCount ?? 0,
+        insufficientData:
+          control?.volatilityOpportunityInsufficientData ?? true,
+        insufficientReasonCode:
+          control?.volatilityOpportunityInsufficientReasonCode ?? null,
+        insufficientReasonMessage:
+          control?.volatilityOpportunityInsufficientReasonMessage ?? null,
+      },
       regime: control?.regime ?? null,
       strategyScorePct: control?.strategyScorePct ?? null,
       volatilityPct: control?.volatilityPct ?? null,
@@ -260,6 +375,30 @@ export async function GET(
       buyExecutableReason: control?.buyExecutableReason ?? null,
       capitalEfficiencyScore: control?.capitalEfficiencyScore ?? null,
       capitalWasteRank: control?.capitalWasteRank ?? null,
+      rotationMonitor: {
+        shortTermScore: control?.rotationShortTermScore ?? null,
+        mediumTermScore: control?.rotationMediumTermScore ?? null,
+        rotationDelta: control?.rotationDelta ?? null,
+        status: control?.rotationStatus ?? "Neutral",
+        shortTerm: {
+          winRatePct: control?.rotationShortTermWinRatePct ?? null,
+          avgRealizedPnlUsd: control?.rotationShortTermAvgRealizedPnlUsd ?? null,
+          avgHoldHours: control?.rotationShortTermAvgHoldHours ?? null,
+          avgRecoveryHours: control?.rotationShortTermAvgRecoveryHours ?? null,
+          staleReviewFrequencyPct:
+            control?.rotationShortTermStaleReviewFrequencyPct ?? null,
+          avgMaxDrawdownPct: control?.rotationShortTermAvgMaxDrawdownPct ?? null,
+        },
+        mediumTerm: {
+          winRatePct: control?.rotationMediumTermWinRatePct ?? null,
+          avgRealizedPnlUsd: control?.rotationMediumTermAvgRealizedPnlUsd ?? null,
+          avgHoldHours: control?.rotationMediumTermAvgHoldHours ?? null,
+          avgRecoveryHours: control?.rotationMediumTermAvgRecoveryHours ?? null,
+          staleReviewFrequencyPct:
+            control?.rotationMediumTermStaleReviewFrequencyPct ?? null,
+          avgMaxDrawdownPct: control?.rotationMediumTermAvgMaxDrawdownPct ?? null,
+        },
+      },
     },
     history: {
       buyCount,
@@ -277,6 +416,8 @@ export async function GET(
     },
     chart: {
       pricePoints: snapshotHistory.slice(-200),
+      pricePointCount: snapshotHistory.length,
+      historySource: snapshotRead.source,
       tradeMarkers: symbolTrades.slice(0, 40).map((trade) => ({
         time: Number(trade.time ?? 0),
         side: String(trade.side ?? "").toUpperCase(),

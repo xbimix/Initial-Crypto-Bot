@@ -62,6 +62,17 @@ type DashboardPayload = {
     sellCount: number;
     bestBuySymbol: string | null;
     bestBuyOpportunityPct: number | null;
+    rotationRisingCount: number;
+    rotationStrongCount: number;
+    rotationNeutralCount: number;
+    rotationWeakeningCount: number;
+    rotationColdCount: number;
+    rotationCapitalTrapRiskCount: number;
+    rotationTopRisingSymbols: string[];
+    rotationTopColdSymbols: string[];
+    topVolatilityOpportunitySymbols: string[];
+    highestVolatilityOpportunityScore: number | null;
+    highOpportunitySymbolCount: number;
     symbolCooldownOverrides: Record<string, number>;
   };
   symbolControls: Array<{
@@ -82,6 +93,35 @@ type DashboardPayload = {
     capitalWasteAllocationPct: number | null;
     capitalWasteUnrealizedPct: number | null;
     capitalWasteAgeHours: number | null;
+    rotationShortTermScore: number | null;
+    rotationMediumTermScore: number | null;
+    rotationDelta: number | null;
+    rotationStatus: string;
+    rotationShortTermWinRatePct: number | null;
+    rotationShortTermAvgRealizedPnlUsd: number | null;
+    rotationShortTermAvgHoldHours: number | null;
+    rotationShortTermAvgRecoveryHours: number | null;
+    rotationShortTermStaleReviewFrequencyPct: number | null;
+    rotationShortTermAvgMaxDrawdownPct: number | null;
+    rotationMediumTermWinRatePct: number | null;
+    rotationMediumTermAvgRealizedPnlUsd: number | null;
+    rotationMediumTermAvgHoldHours: number | null;
+    rotationMediumTermAvgRecoveryHours: number | null;
+    rotationMediumTermStaleReviewFrequencyPct: number | null;
+    rotationMediumTermAvgMaxDrawdownPct: number | null;
+    volatilityOpportunityScore: number | null;
+    volatilityOpportunityLabel: string | null;
+    volatilityOpportunityReason: string;
+    volatilityOpportunityConfidenceLabel: string;
+    volatilityOpportunityStretchScore: number | null;
+    volatilityOpportunityVolatilitySpikeScore: number | null;
+    volatilityOpportunityBounceContextScore: number | null;
+    volatilityOpportunityLiquidityQualityScore: number | null;
+    volatilityOpportunityObservedHistorySpanMinutes: number;
+    volatilityOpportunityObservedPointCount: number;
+    volatilityOpportunityInsufficientData: boolean;
+    volatilityOpportunityInsufficientReasonCode: string | null;
+    volatilityOpportunityInsufficientReasonMessage: string | null;
   }>;
   chart: {
     points: number[];
@@ -119,6 +159,43 @@ function buildActionId(prefix: string): string {
   return `${prefix}-${Date.now()}-${random}`;
 }
 
+async function parseApiErrorMessage(response: Response, fallback: string): Promise<string> {
+  let parsedMessage = "";
+  try {
+    const payload = await response.clone().json() as {
+      error?: unknown;
+      code?: unknown;
+      details?: unknown;
+    };
+    if (typeof payload.error === "string" && payload.error.trim()) {
+      parsedMessage = payload.error.trim();
+    }
+    if (typeof payload.code === "string" && payload.code.trim()) {
+      parsedMessage = parsedMessage
+        ? `${parsedMessage} [${payload.code.trim()}]`
+        : payload.code.trim();
+    }
+  } catch {
+    // Fall through to text body fallback.
+  }
+
+  if (!parsedMessage) {
+    try {
+      const text = (await response.text()).trim();
+      if (text) {
+        parsedMessage = text;
+      }
+    } catch {
+      // Ignore and use generic fallback.
+    }
+  }
+
+  if (!parsedMessage) {
+    return `${fallback} (${response.status})`;
+  }
+  return `${fallback}: ${parsedMessage}`;
+}
+
 type RiskDraft = {
   maxConcurrentTrades: number;
   maxConcurrentTradesPerToken: number;
@@ -142,6 +219,15 @@ const RANGE_OPTIONS = [
 ] as const;
 
 type RangeId = (typeof RANGE_OPTIONS)[number]["id"];
+
+type PositionSortKey =
+  | "attention"
+  | "value"
+  | "pnl"
+  | "pnlPct"
+  | "age"
+  | "worstDip"
+  | "bounce";
 
 const COIN_NAME_BY_BASE: Record<string, string> = {
   ADA: "Cardano",
@@ -402,99 +488,109 @@ function regimeStyle(value: string | null) {
   };
 }
 
-function formatVolatility(value: number | null) {
-  if (value === null) {
-    return "N/A";
-  }
-
-  return `${value.toFixed(3)}%`;
-}
-
-function volatilityStyle(value: number | null) {
-  if (value === null) {
-    return {
-      backgroundColor: "rgba(148, 163, 184, 0.14)",
-      borderColor: "rgba(148, 163, 184, 0.35)",
-      color: "#cbd5e1",
-    };
-  }
-
-  if (value >= 1.2) {
-    return {
-      backgroundColor: "#dc2626",
-      borderColor: "#dc2626",
-      color: "#ffffff",
-    };
-  }
-
-  if (value >= 0.6) {
-    return {
-      backgroundColor: "#d97706",
-      borderColor: "#d97706",
-      color: "#ffffff",
-    };
-  }
-
-  if (value >= 0.25) {
-    return {
-      backgroundColor: "#0284c7",
-      borderColor: "#0284c7",
-      color: "#ffffff",
-    };
-  }
-
-  return {
-    backgroundColor: "#16a34a",
-    borderColor: "#16a34a",
-    color: "#ffffff",
-  };
-}
-
-function formatCapitalEfficiency(value: number | null) {
-  if (value === null) {
-    return "N/A";
-  }
-  return `${value.toFixed(1)} / 100`;
-}
-
-function capitalEfficiencyStyle(value: number | null) {
-  if (value === null) {
-    return {
-      backgroundColor: "rgba(148, 163, 184, 0.14)",
-      borderColor: "rgba(148, 163, 184, 0.35)",
-      color: "#cbd5e1",
-    };
-  }
-
-  if (value >= 75) {
+function rotationStatusStyle(status: string) {
+  if (status === "Rising") {
     return {
       backgroundColor: "#16a34a",
       borderColor: "#16a34a",
       color: "#ffffff",
     };
   }
-
-  if (value >= 55) {
+  if (status === "Strong") {
     return {
       backgroundColor: "#0284c7",
       borderColor: "#0284c7",
       color: "#ffffff",
     };
   }
-
-  if (value >= 35) {
+  if (status === "Weakening") {
     return {
       backgroundColor: "#d97706",
       borderColor: "#d97706",
       color: "#ffffff",
     };
   }
-
+  if (status === "Cold") {
+    return {
+      backgroundColor: "#dc2626",
+      borderColor: "#dc2626",
+      color: "#ffffff",
+    };
+  }
+  if (status === "Capital Trap Risk") {
+    return {
+      backgroundColor: "#991b1b",
+      borderColor: "#991b1b",
+      color: "#ffffff",
+    };
+  }
   return {
-    backgroundColor: "#dc2626",
-    borderColor: "#dc2626",
-    color: "#ffffff",
+    backgroundColor: "rgba(148, 163, 184, 0.14)",
+    borderColor: "rgba(148, 163, 184, 0.35)",
+    color: "#cbd5e1",
   };
+}
+
+function radarLabelStyle(label: string | null) {
+  if (label === "HIGH") {
+    return {
+      backgroundColor: "#16a34a",
+      borderColor: "#16a34a",
+      color: "#ffffff",
+    };
+  }
+  if (label === "MEDIUM") {
+    return {
+      backgroundColor: "#0284c7",
+      borderColor: "#0284c7",
+      color: "#ffffff",
+    };
+  }
+  if (label === "LOW") {
+    return {
+      backgroundColor: "#d97706",
+      borderColor: "#d97706",
+      color: "#ffffff",
+    };
+  }
+  return {
+    backgroundColor: "rgba(148, 163, 184, 0.14)",
+    borderColor: "rgba(148, 163, 184, 0.35)",
+    color: "#cbd5e1",
+  };
+}
+
+function volatilityLabel(label: string | null) {
+  if (label === "HIGH") {
+    return "High Opportunity";
+  }
+  if (label === "MEDIUM") {
+    return "Moderate Opportunity";
+  }
+  if (label === "LOW") {
+    return "Low Opportunity";
+  }
+  return "N/A";
+}
+
+function confidenceLabel(label: string | null) {
+  if (label === "HIGH") {
+    return "High Confidence";
+  }
+  if (label === "MEDIUM") {
+    return "Medium Confidence";
+  }
+  if (label === "LOW") {
+    return "Low Confidence";
+  }
+  return "N/A";
+}
+
+function formatHours(value: number | null) {
+  if (value === null || !Number.isFinite(value) || value < 0) {
+    return "N/A";
+  }
+  return `${value.toFixed(1)}h`;
 }
 
 function MiniChart({
@@ -597,6 +693,16 @@ export default function RevbotDashboard() {
   const [busyCloseAll, setBusyCloseAll] = useState(false);
   const [busyCooldown, setBusyCooldown] = useState(false);
   const [riskDraft, setRiskDraft] = useState<RiskDraft | null>(null);
+  const [volatilitySortKey, setVolatilitySortKey] = useState<
+    "score" | "stretch" | "volatility" | "bounce"
+  >("score");
+  const [positionSort, setPositionSort] = useState<{
+    key: PositionSortKey;
+    direction: "asc" | "desc";
+  }>({
+    key: "attention",
+    direction: "desc",
+  });
   const [cooldownDraft, setCooldownDraft] = useState<{
     symbol: string;
     cooldownSeconds: number;
@@ -715,7 +821,7 @@ export default function RevbotDashboard() {
       const response = await fetch(endpoint, request);
 
       if (!response.ok) {
-        throw new Error(`Action failed (${response.status})`);
+        throw new Error(await parseApiErrorMessage(response, "Action failed"));
       }
 
       await loadDashboard();
@@ -745,7 +851,7 @@ export default function RevbotDashboard() {
       });
 
       if (!response.ok) {
-        throw new Error(`Symbol update failed (${response.status})`);
+        throw new Error(await parseApiErrorMessage(response, "Symbol update failed"));
       }
 
       await loadDashboard();
@@ -771,7 +877,7 @@ export default function RevbotDashboard() {
       });
 
       if (!response.ok) {
-        throw new Error(`Scalper update failed (${response.status})`);
+        throw new Error(await parseApiErrorMessage(response, "Scalper update failed"));
       }
 
       await loadDashboard();
@@ -846,7 +952,7 @@ export default function RevbotDashboard() {
       });
 
       if (!response.ok) {
-        throw new Error(`Risk settings update failed (${response.status})`);
+        throw new Error(await parseApiErrorMessage(response, "Risk settings update failed"));
       }
 
       setRiskDirty(false);
@@ -1006,6 +1112,23 @@ export default function RevbotDashboard() {
     }
   }
 
+  function setPositionSortKey(key: PositionSortKey) {
+    setPositionSort((previous) => {
+      if (previous.key === key) {
+        return {
+          key,
+          direction: previous.direction === "desc" ? "asc" : "desc",
+        };
+      }
+
+      if (key === "pnl" || key === "pnlPct" || key === "worstDip") {
+        return { key, direction: "asc" };
+      }
+
+      return { key, direction: "desc" };
+    });
+  }
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1028,10 +1151,10 @@ export default function RevbotDashboard() {
 
   if (!data) {
     return (
-      <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
-        <div className="mx-auto flex w-full max-w-[1360px] justify-center">
+      <main className="rb-page min-h-screen px-4 py-8 sm:px-6 lg:px-8">
+        <div className="rb-shell mx-auto flex w-full max-w-[1360px] justify-center">
           <div className="hidden w-20 shrink-0 rounded-md border border-white/8 bg-black/40 lg:block" />
-          <div className="flex-1 space-y-6">
+          <div className="flex-1 space-y-8">
             <div className="h-[420px] animate-pulse rounded-md border border-white/8 bg-white/[0.04]" />
             <div className="grid gap-6 lg:grid-cols-3">
               <div className="h-40 animate-pulse rounded-lg border border-white/8 bg-white/[0.04]" />
@@ -1047,15 +1170,26 @@ export default function RevbotDashboard() {
 
   const selectedRange =
     RANGE_OPTIONS.find((option) => option.id === range) ?? RANGE_OPTIONS[1];
-  const visiblePoints =
+  const visiblePointsRaw =
     selectedRange.points === Number.POSITIVE_INFINITY
       ? data.chart.points
       : data.chart.points.slice(-selectedRange.points);
+  const visiblePoints =
+    visiblePointsRaw.length > 0 ? visiblePointsRaw : [data.summary.totalEquity];
   const chartMin = Math.min(...visiblePoints);
   const chartMax = Math.max(...visiblePoints);
   const positiveNet = data.summary.netPnl >= 0;
   const totalPnlLabel = positiveNet ? "Net gain" : "Net drawdown";
-  const topExposureSymbol = data.positions[0]?.symbol ?? null;
+  const nowUnixSeconds = Date.now() / 1000;
+  const snapshotTimestampMs = data.summary.lastSnapshotAt
+    ? Date.parse(data.summary.lastSnapshotAt)
+    : Number.NaN;
+  const snapshotAgeMinutes = Number.isFinite(snapshotTimestampMs)
+    ? Math.max(0, (Date.now() - snapshotTimestampMs) / 60000)
+    : null;
+  const topExposureSymbol =
+    [...data.positions].sort((left, right) => right.marketValue - left.marketValue)[0]
+      ?.symbol ?? null;
   const topWinnerSymbol =
     [...data.positions]
       .filter((position) => position.unrealizedValue > 0)
@@ -1074,9 +1208,284 @@ export default function RevbotDashboard() {
     }
     return left.symbol.localeCompare(right.symbol);
   });
-  const worstCapitalWasteControl = sortedSymbolControls.find(
-    (control) => control.hasOpenPosition && control.capitalWasteRank === 1,
-  ) ?? null;
+  const sortedRotationRows = [...data.symbolControls].sort((left, right) => (
+    Number(right.rotationShortTermScore ?? -1) - Number(left.rotationShortTermScore ?? -1)
+  ) || (
+    Number(right.rotationDelta ?? -999) - Number(left.rotationDelta ?? -999)
+  ) || left.symbol.localeCompare(right.symbol));
+  const sortedVolatilityRadarRows = [...data.symbolControls].sort((left, right) => {
+    const keyOf = (row: DashboardPayload["symbolControls"][number]) => {
+      if (volatilitySortKey === "stretch") {
+        return Number(row.volatilityOpportunityStretchScore ?? -1);
+      }
+      if (volatilitySortKey === "volatility") {
+        return Number(row.volatilityOpportunityVolatilitySpikeScore ?? -1);
+      }
+      if (volatilitySortKey === "bounce") {
+        return Number(row.volatilityOpportunityBounceContextScore ?? -1);
+      }
+      return Number(row.volatilityOpportunityScore ?? -1);
+    };
+    const keyDelta = keyOf(right) - keyOf(left);
+    if (keyDelta !== 0) {
+      return keyDelta;
+    }
+    return left.symbol.localeCompare(right.symbol);
+  });
+  const symbolControlsBySymbol = new Map(
+    data.symbolControls.map((control) => [control.symbol, control]),
+  );
+  const positionsWithMeta = data.positions.map((position) => {
+    const control = symbolControlsBySymbol.get(position.symbol);
+    const ageHours = position.entryTime
+      ? Math.max(0, (nowUnixSeconds - position.entryTime) / 3600)
+      : null;
+    const bounceScore = control?.volatilityOpportunityScore ?? null;
+    const attentionScore =
+      (position.advisoryStaleLosingReview ? 120 : 0)
+      + (position.unrealizedPct < 0 ? Math.min(60, Math.abs(position.unrealizedPct)) : 0)
+      + (position.advisoryMaxDrawdownPctDuringTrade < 0
+        ? Math.min(40, Math.abs(position.advisoryMaxDrawdownPctDuringTrade))
+        : 0);
+    const severity =
+      attentionScore >= 140 || position.unrealizedPct <= -10
+        ? "High"
+        : attentionScore >= 90 || position.unrealizedPct <= -5
+          ? "Medium"
+          : "Low";
+
+    return {
+      ...position,
+      ageHours,
+      bounceScore,
+      bounceLabel: volatilityLabel(control?.volatilityOpportunityLabel ?? null),
+      trendShift: control?.rotationDelta ?? null,
+      attentionScore,
+      severity,
+    };
+  });
+  const sortedPositions = [...positionsWithMeta].sort((left, right) => {
+    const valueFor = (row: (typeof positionsWithMeta)[number]) => {
+      if (positionSort.key === "value") {
+        return row.marketValue;
+      }
+      if (positionSort.key === "pnl") {
+        return row.unrealizedValue;
+      }
+      if (positionSort.key === "pnlPct") {
+        return row.unrealizedPct;
+      }
+      if (positionSort.key === "age") {
+        return row.ageHours ?? -1;
+      }
+      if (positionSort.key === "worstDip") {
+        return row.advisoryMaxDrawdownPctDuringTrade;
+      }
+      if (positionSort.key === "bounce") {
+        return row.bounceScore ?? -1;
+      }
+      return row.attentionScore;
+    };
+
+    const delta = valueFor(left) - valueFor(right);
+    if (delta !== 0) {
+      return positionSort.direction === "asc" ? delta : -delta;
+    }
+
+    if (left.advisoryStaleLosingReview !== right.advisoryStaleLosingReview) {
+      return left.advisoryStaleLosingReview ? -1 : 1;
+    }
+
+    return left.symbol.localeCompare(right.symbol);
+  });
+  const attentionItems: Array<{
+    symbol: string | null;
+    issue: string;
+    severity: "High" | "Medium" | "Low";
+    status: string;
+    action: string;
+  }> = [];
+  if (data.summary.dailyBuyPaused) {
+    attentionItems.push({
+      symbol: null,
+      issue: "Daily loss guard paused BUY",
+      severity: "High",
+      status: "Runtime",
+      action: "Review risk settings",
+    });
+  }
+  const staleSymbols = positionsWithMeta.filter((position) => position.advisoryStaleLosingReview);
+  staleSymbols.slice(0, 2).forEach((position) => {
+    attentionItems.push({
+      symbol: position.symbol,
+      issue: "Needs stale-loss review",
+      severity: "High",
+      status: `Age ${formatHours(position.ageHours)} | ${formatPercent(position.unrealizedPct)}`,
+      action: "Open token page",
+    });
+  });
+  const largestLoser =
+    [...positionsWithMeta].sort((left, right) => left.unrealizedValue - right.unrealizedValue)[0] ??
+    null;
+  if (largestLoser && largestLoser.unrealizedValue < 0) {
+    attentionItems.push({
+      symbol: largestLoser.symbol,
+      issue: "Largest open loser",
+      severity: largestLoser.unrealizedPct <= -10 ? "High" : "Medium",
+      status: `${formatCurrency(largestLoser.unrealizedValue)} (${formatPercent(largestLoser.unrealizedPct)})`,
+      action: "Review position",
+    });
+  }
+  const trapCandidate = sortedRotationRows.find(
+    (control) => control.rotationStatus === "Capital Trap Risk" && control.hasOpenPosition,
+  );
+  if (trapCandidate) {
+    attentionItems.push({
+      symbol: trapCandidate.symbol,
+      issue: "Capital trap risk",
+      severity: "Medium",
+      status: trapCandidate.rotationStatus,
+      action: "Check trend shift",
+    });
+  }
+  const topOpportunity = sortedVolatilityRadarRows.find(
+    (control) => control.volatilityOpportunityScore !== null,
+  );
+  if (topOpportunity && topOpportunity.volatilityOpportunityLabel === "HIGH") {
+    attentionItems.push({
+      symbol: topOpportunity.symbol,
+      issue: "Strong bounce setup",
+      severity: "Low",
+      status: `${topOpportunity.volatilityOpportunityScore?.toFixed(1) ?? "N/A"} score`,
+      action: "Compare with open risk",
+    });
+  }
+  if (snapshotAgeMinutes !== null && snapshotAgeMinutes > 10) {
+    attentionItems.push({
+      symbol: null,
+      issue: "Snapshot feed stale",
+      severity: snapshotAgeMinutes > 30 ? "High" : "Medium",
+      status: `${snapshotAgeMinutes.toFixed(1)}m old`,
+      action: "Check data feed",
+    });
+  }
+  const sortedAttentionItems = [...attentionItems].sort((left, right) => {
+    const rank = { High: 3, Medium: 2, Low: 1 };
+    const delta = rank[right.severity] - rank[left.severity];
+    if (delta !== 0) {
+      return delta;
+    }
+    return (left.symbol ?? "").localeCompare(right.symbol ?? "");
+  });
+  const topStatusCards = [
+    {
+      label: "Bot Status",
+      value: data.summary.enabled ? "Running" : "Paused",
+      helper: `Mode ${String(data.summary.executionMode).toUpperCase()}`,
+      tone: data.summary.enabled ? "text-emerald-200" : "text-rose-200",
+    },
+    {
+      label: "Net P/L",
+      value: `${formatCurrency(data.summary.netPnl)} (${formatPercent(data.summary.netReturnPct)})`,
+      helper: `Realized ${formatCurrency(data.summary.realizedPnl)} | Open ${formatCurrency(
+        data.summary.unrealizedPnl,
+      )}`,
+      tone: valueTone(data.summary.netPnl),
+    },
+    {
+      label: "Cash Available",
+      value: formatCurrency(data.summary.cashBalance),
+      helper: `${percentFormatter.format(100 - data.summary.openExposurePct)}% undeployed`,
+      tone: "text-white",
+    },
+    {
+      label: "Capital Deployed",
+      value: formatCurrency(data.summary.openValue),
+      helper: `${percentFormatter.format(data.summary.openExposurePct)}% exposure`,
+      tone: "text-white",
+    },
+    {
+      label: "Open Positions",
+      value: String(data.summary.openPositions),
+      helper: `${data.summary.buyCount} buys | ${data.summary.sellCount} sells`,
+      tone: "text-white",
+    },
+    {
+      label: "Attention Alerts",
+      value: String(sortedAttentionItems.length),
+      helper:
+        sortedAttentionItems.length > 0
+          ? sortedAttentionItems[0].issue
+          : "No active alerts",
+      tone:
+        sortedAttentionItems.length === 0
+          ? "text-emerald-200"
+          : sortedAttentionItems.some((item) => item.severity === "High")
+            ? "text-rose-200"
+            : "text-amber-200",
+    },
+  ];
+  const performanceMetrics = [
+    { label: "Net P/L", value: `${formatCurrency(data.summary.netPnl)} (${formatPercent(data.summary.netReturnPct)})`, tone: valueTone(data.summary.netPnl) },
+    { label: "Realized P/L", value: formatCurrency(data.summary.realizedPnl), tone: valueTone(data.summary.realizedPnl) },
+    { label: "Open P/L", value: formatCurrency(data.summary.unrealizedPnl), tone: valueTone(data.summary.unrealizedPnl) },
+    {
+      label: "Win Rate",
+      value:
+        data.summary.sellCount > 0
+          ? `${percentFormatter.format((data.summary.sellCount / Math.max(data.summary.buyCount, 1)) * 100)}%`
+          : "N/A",
+      tone: "text-white",
+    },
+    { label: "Total Buys / Sells", value: `${data.summary.buyCount} / ${data.summary.sellCount}`, tone: "text-white" },
+    {
+      label: "Avg Closed Trade P/L",
+      value:
+        data.summary.sellCount > 0
+          ? formatCurrency(data.summary.realizedPnl / Math.max(data.summary.sellCount, 1))
+          : "N/A",
+      tone:
+        data.summary.sellCount > 0
+          ? valueTone(data.summary.realizedPnl / Math.max(data.summary.sellCount, 1))
+          : "text-slate-400",
+    },
+  ];
+  const largestOpenLoser =
+    [...positionsWithMeta].sort((left, right) => left.unrealizedValue - right.unrealizedValue)[0] ??
+    null;
+  const riskMetrics = [
+    { label: "Cash", value: formatCurrency(data.summary.cashBalance), tone: "text-white" },
+    { label: "Exposure", value: formatCurrency(data.summary.openValue), tone: "text-white" },
+    { label: "Deployment %", value: `${percentFormatter.format(data.summary.openExposurePct)}%`, tone: "text-white" },
+    { label: "Needs Review", value: `${data.summary.staleLosingReviewCount}`, tone: data.summary.staleLosingReviewCount > 0 ? "text-amber-200" : "text-emerald-200" },
+    {
+      label: "Worst Open Drawdown",
+      value:
+        data.summary.maxDrawdownDuringTradePct < 0
+          ? `${data.summary.maxDrawdownDuringTradeSymbol ?? "N/A"} ${formatPercent(data.summary.maxDrawdownDuringTradePct)}`
+          : "N/A",
+      tone: data.summary.maxDrawdownDuringTradePct < 0 ? "text-rose-200" : "text-slate-400",
+    },
+    {
+      label: "Largest Open Loser",
+      value:
+        largestOpenLoser && largestOpenLoser.unrealizedValue < 0
+          ? `${largestOpenLoser.symbol} ${formatCurrency(largestOpenLoser.unrealizedValue)}`
+          : "N/A",
+      tone:
+        largestOpenLoser && largestOpenLoser.unrealizedValue < 0
+          ? "text-rose-200"
+          : "text-slate-400",
+    },
+  ];
+  const topRotationRows = sortedRotationRows.slice(0, 12);
+  const topVolatilityRows = sortedVolatilityRadarRows.slice(0, 12);
+  const sortIndicator = (key: PositionSortKey) => {
+    if (positionSort.key !== key) {
+      return "";
+    }
+    return positionSort.direction === "desc" ? "↓" : "↑";
+  };
   const comparisonRows = [
     {
       metric: "Runtime",
@@ -1125,10 +1534,9 @@ export default function RevbotDashboard() {
       stateTone: "text-slate-200",
     },
   ];
-
   return (
-    <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
-      <div className="mx-auto flex w-full max-w-[1360px] justify-center">
+    <main className="rb-page min-h-screen px-4 py-8 sm:px-6 lg:px-8">
+      <div className="rb-shell mx-auto flex w-full max-w-[1360px] justify-center">
         <aside className="hidden">
           <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[linear-gradient(135deg,#f8fafc,#93c5fd_45%,#f59e0b)] text-lg font-bold text-slate-950">
             R
@@ -1151,30 +1559,30 @@ export default function RevbotDashboard() {
           </div>
         </aside>
 
-        <div className="flex-1 space-y-6">
-          <header className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex-1 space-y-8">
+          <header className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.28em] text-slate-500">
+              <p className="rb-kicker">
                 RevBot desk
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-3">
-                <h1 className="text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+                <h1 className="rb-title text-4xl tracking-tight sm:text-5xl">
                   Portfolio Monitor
                 </h1>
                 <span
-                  className={`rounded-md px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] ${
+                  className={`rb-chip ${
                     data.summary.enabled
-                      ? "bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-400/30"
-                      : "bg-rose-500/15 text-rose-200 ring-1 ring-rose-400/30"
+                      ? "rb-chip--positive"
+                      : "rb-chip--negative"
                   }`}
                 >
                   {data.summary.enabled ? "Bot active" : "Bot paused"}
                 </span>
               </div>
-              <p className="mt-3 max-w-2xl text-sm text-slate-400">
+              <p className="rb-helper mt-3 max-w-2xl text-sm">
                 A live paper-trading surface built from local state files,
                 recent journal events, and the latest snapshot lines in
-                <code className="mx-1 rounded bg-white/5 px-1.5 py-0.5 text-slate-200">
+                <code className="mx-1 rounded bg-white/5 px-1.5 py-0.5 text-slate-100">
                   bot.log
                 </code>
                 .
@@ -1185,35 +1593,35 @@ export default function RevbotDashboard() {
               <button
                 onClick={() => runAction("start")}
                 disabled={busyAction !== null}
-                className="rounded-full border border-emerald-400/25 bg-emerald-500/12 px-5 py-3 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/18 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rb-action-btn rb-action-btn--positive"
               >
                 {busyAction === "start" ? "Starting..." : "Start bot"}
               </button>
               <button
                 onClick={() => runAction("stop")}
                 disabled={busyAction !== null}
-                className="rounded-full border border-amber-300/20 bg-amber-400/10 px-5 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-400/16 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rb-action-btn rb-action-btn--warning"
               >
                 {busyAction === "stop" ? "Stopping..." : "Stop bot"}
               </button>
               <button
                 onClick={() => runAction("kill")}
                 disabled={busyAction !== null}
-                className="rounded-full border border-rose-400/20 bg-rose-500/10 px-5 py-3 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/18 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rb-action-btn rb-action-btn--danger"
               >
                 {busyAction === "kill" ? "Locking..." : "Emergency stop"}
               </button>
               <button
                 onClick={() => runAction("refresh")}
                 disabled={busyAction !== null}
-                className="rounded-full border border-white/10 bg-white/[0.05] px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-60"
+                className="rb-action-btn rb-action-btn--neutral"
               >
                 Refresh
               </button>
               <button
                 onClick={closeAllPositions}
                 disabled={busyAction !== null || busyCloseAll || data.positions.length === 0}
-                className="rounded-full border border-orange-400/25 bg-orange-500/12 px-5 py-3 text-sm font-semibold text-orange-100 transition hover:bg-orange-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rb-action-btn rb-action-btn--accent"
               >
                 {busyCloseAll ? "Closing..." : "Close all"}
               </button>
@@ -1221,149 +1629,117 @@ export default function RevbotDashboard() {
           </header>
 
           {error ? (
-            <div className="rounded-lg border border-rose-400/20 bg-rose-500/10 px-5 py-4 text-sm text-rose-100">
+            <div className="rb-content-card border-rose-400/35 bg-rose-500/12 px-5 py-4 text-sm text-rose-100">
               {error}
             </div>
           ) : null}
 
-          <section className="rounded-md border border-white/8 bg-[linear-gradient(160deg,rgba(9,14,24,0.94),rgba(4,8,14,0.96))] p-5 sm:p-6">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <section className="rb-section p-5 sm:p-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
-                  Token controls
+                <p className="rb-kicker">
+                  Token Controls
                 </p>
-                <h2 className="mt-1.5 text-2xl font-semibold tracking-tight text-white">
-                  Auto-trade by symbol
+                <h2 className="mt-1 text-xl font-semibold text-slate-100">
+                  Auto-Trade by Symbol
                 </h2>
-                <p className="mt-2 text-sm text-slate-400">
-                  Turning a symbol off keeps scanning live but blocks BUY and SELL execution.
+                <p className="rb-helper mt-1 text-sm">
+                  First-action control surface for BUY/SELL/scalper toggles.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.14em]">
-                <span className="rounded-md border border-emerald-500 bg-emerald-600 px-3 py-1.5 text-white">
-                  BUY on: {data.summary.activeSymbols}
+              <div className="flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.12em]">
+                <span className="rb-chip rb-chip--positive">
+                  Buy On {data.summary.activeSymbols}
                 </span>
-                <span className="rounded-md border border-rose-500 bg-rose-600 px-3 py-1.5 text-white">
-                  BUY off: {data.summary.disabledSymbols}
+                <span className="rb-chip rb-chip--negative">
+                  Buy Off {data.summary.disabledSymbols}
                 </span>
-                <span className="rounded-md border border-emerald-500 bg-emerald-600 px-3 py-1.5 text-white">
-                  SELL on: {data.summary.sellEnabledSymbols}
+                <span className="rb-chip rb-chip--positive">
+                  Sell On {data.summary.sellEnabledSymbols}
                 </span>
-                <span className="rounded-md border border-rose-500 bg-rose-600 px-3 py-1.5 text-white">
-                  SELL off: {data.summary.sellDisabledSymbols}
+                <span className="rb-chip rb-chip--neutral">
+                  {data.summary.trackedSymbols} tracked
                 </span>
-                <span className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-300">
-                  {data.summary.trackedSymbols} total
-                </span>
-                {data.summary.bestBuySymbol && data.summary.bestBuyOpportunityPct !== null ? (
-                  <span className="rounded-md border border-emerald-500/40 bg-emerald-500/20 px-3 py-1.5 text-emerald-100">
-                    Best buy: {data.summary.bestBuySymbol} {formatOpportunity(data.summary.bestBuyOpportunityPct)}
-                  </span>
-                ) : (
-                  <span className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-300">
-                    Best buy: pending snapshots
-                  </span>
-                )}
-                {worstCapitalWasteControl ? (
-                  <span className="rounded-md border border-rose-500/35 bg-rose-500/18 px-3 py-1.5 text-rose-100">
-                    Capital drag: {worstCapitalWasteControl.symbol} ({formatCapitalEfficiency(worstCapitalWasteControl.capitalEfficiencyScore)})
-                  </span>
-                ) : null}
               </div>
             </div>
 
-            <div className="mt-4 overflow-x-auto rounded-lg border border-white/8 bg-black/20">
-              <div className="min-w-[1960px]">
-                <div className="grid grid-cols-[170px_minmax(190px,1fr)_170px_150px_170px_170px_190px_190px_190px_190px] border-b border-white/8 bg-white/[0.04] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                  <span>Token</span>
-                  <span>Execution Status</span>
-                  <span className="text-center">Regime / Trend</span>
-                  <span className="text-center">Volatility</span>
-                  <span className="text-center">Scalper</span>
-                  <span className="text-center">Buy Opportunity</span>
-                  <span className="text-center">Capital Efficiency</span>
-                  <span className="text-center">Executable</span>
-                  <span className="text-center">BUY</span>
-                  <span className="text-center">SELL</span>
-                </div>
-
-                <div className="max-h-[360px] overflow-y-auto">
+            <div className="rb-table-wrap mt-4 overflow-x-auto">
+              <table className="min-w-[1180px] w-full">
+                <thead>
+                  <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.12em] text-slate-400">
+                    <th className="px-3 py-2">Token</th>
+                    <th className="px-3 py-2">Mode</th>
+                    <th className="px-3 py-2">Regime</th>
+                    <th className="px-3 py-2 text-center">Buy Opportunity</th>
+                    <th className="px-3 py-2 text-center">Buy Executable</th>
+                    <th className="px-3 py-2 text-center">Scalper</th>
+                    <th className="px-3 py-2 text-center">BUY</th>
+                    <th className="px-3 py-2 text-center">SELL</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/6 text-sm">
                   {sortedSymbolControls.map((control) => {
                     const busyBuy = busySymbol === `${control.symbol}:buy`;
                     const busySell = busySymbol === `${control.symbol}:sell`;
+                    const busyScalperRow = busyScalper === control.symbol;
+                    const buyOn = control.buyEnabled;
+                    const sellOn = control.sellEnabled;
+                    const scalperOn = control.scalperEnabled;
+                    const regimeChipStyle = regimeStyle(control.regime);
+                    const buyOpportunityChipStyle = opportunityStyle(control.buyOpportunityPct);
+                    const executableChipStyle = executableStyle(control.buyExecutable);
                     const modeLabel = control.buyEnabled && control.sellEnabled
-                      ? "BUY + SELL enabled"
+                      ? "BUY + SELL"
                       : control.buyEnabled
                         ? "BUY only"
                         : control.sellEnabled
                           ? "SELL only"
-                          : "Execution paused";
-                    const busyScalperRow = busyScalper === control.symbol;
-                    const isBestBuy =
-                      control.symbol === data.summary.bestBuySymbol
-                      && control.buyOpportunityPct !== null
-                      && !control.hasOpenPosition;
-                    const regimeChipStyle = regimeStyle(control.regime);
-                    const volatilityChipStyle = volatilityStyle(control.volatilityPct);
-                    const buyOpportunityChipStyle = opportunityStyle(
-                      control.buyOpportunityPct,
-                    );
-                    const capitalEfficiencyChipStyle = capitalEfficiencyStyle(
-                      control.capitalEfficiencyScore,
-                    );
-                    const executableChipStyle = executableStyle(control.buyExecutable);
-
-                    const buyOn = control.buyEnabled;
-                    const sellOn = control.sellEnabled;
-                    const scalperOn = control.scalperEnabled;
+                          : "Paused";
 
                     return (
-                      <div
-                        key={control.symbol}
-                        className="grid grid-cols-[170px_minmax(190px,1fr)_170px_150px_170px_170px_190px_190px_190px_190px] items-center gap-3 border-b border-white/6 px-4 py-2.5 last:border-b-0"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Link
-                            href={`/token/${encodeURIComponent(control.symbol)}`}
-                            className="truncate text-sm font-semibold uppercase tracking-[0.08em] text-slate-100 transition hover:text-sky-300"
-                          >
-                            {control.symbol}
-                          </Link>
-                          {control.hasOpenPosition ? (
-                            <span className="inline-flex rounded-md border border-sky-400/25 bg-sky-500/12 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-200">
-                              OPEN
-                            </span>
-                          ) : null}
-                        </div>
-
-                        <div className="flex flex-col">
-                          <p className="truncate text-sm font-medium text-slate-300">
-                            {modeLabel}
-                          </p>
-                          <p className="truncate text-[10px] uppercase tracking-[0.12em] text-slate-500">
-                            Cooldown {control.cooldownOverrideSeconds === null ? "default" : `${control.cooldownOverrideSeconds.toFixed(0)}s`}
-                          </p>
-                        </div>
-
-                        <div className="flex items-center justify-center">
+                      <tr key={`top-controls-${control.symbol}`} className="text-slate-200">
+                        <td className="px-3 py-2.5 font-semibold">
+                          <div className="flex items-center gap-2">
+                            <Link
+                              href={`/token/${encodeURIComponent(control.symbol)}`}
+                              className="transition hover:text-sky-300"
+                            >
+                              {control.symbol}
+                            </Link>
+                            {control.hasOpenPosition ? (
+                              <span className="rounded-md border border-sky-400/30 bg-sky-500/20 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-sky-100">
+                                Open
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 text-slate-300">{modeLabel}</td>
+                        <td className="px-3 py-2.5">
                           <span
-                            className="inline-flex min-w-[130px] justify-center rounded-md border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
+                            className="inline-flex min-w-[120px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
                             style={regimeChipStyle}
                           >
                             {control.regime ?? "Unknown"}
                           </span>
-                        </div>
-
-                        <div className="flex items-center justify-center">
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
                           <span
-                            className="inline-flex min-w-[120px] justify-center rounded-md border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
-                            style={volatilityChipStyle}
+                            className="inline-flex min-w-[110px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                            style={buyOpportunityChipStyle}
                           >
-                            {formatVolatility(control.volatilityPct)}
+                            {formatOpportunity(control.buyOpportunityPct)}
                           </span>
-                        </div>
-
-                        <div className="flex items-center justify-center">
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          <span
+                            className="inline-flex min-w-[98px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                            style={executableChipStyle}
+                            title={control.buyExecutableReason}
+                          >
+                            {control.buyExecutable ? "Ready" : "Blocked"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
                           <button
                             onClick={() => setScalperMode(control.symbol, !scalperOn)}
                             disabled={
@@ -1372,77 +1748,16 @@ export default function RevbotDashboard() {
                               || busySymbol !== null
                               || savingRisk
                             }
-                            className="min-w-[86px] rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] disabled:cursor-not-allowed disabled:opacity-60"
+                            className="min-w-[70px] rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:cursor-not-allowed disabled:opacity-60"
                             style={{
                               backgroundColor: scalperOn ? "#16a34a" : "#dc2626",
                               borderColor: scalperOn ? "#16a34a" : "#dc2626",
-                              color: "#ffffff",
                             }}
                           >
                             {busyScalperRow ? "Saving..." : scalperOn ? "ON" : "OFF"}
                           </button>
-                        </div>
-
-                        <div className="flex items-center justify-center">
-                          <div className="flex flex-col items-center">
-                            <span
-                              className="inline-flex min-w-[124px] justify-center rounded-md border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
-                              style={buyOpportunityChipStyle}
-                            >
-                              {formatOpportunity(control.buyOpportunityPct)}
-                            </span>
-                            <span className="mt-0.5 text-[9px] font-medium uppercase tracking-[0.12em] text-slate-400">
-                              Score {control.strategyScorePct === null ? "N/A" : `${control.strategyScorePct.toFixed(1)}%`}
-                            </span>
-                          </div>
-                          {isBestBuy ? (
-                            <span className="ml-2 rounded-md border border-emerald-500/35 bg-emerald-500/15 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-200">
-                              Best
-                            </span>
-                          ) : null}
-                        </div>
-
-                        <div className="flex items-center justify-center">
-                          {control.hasOpenPosition ? (
-                            <div className="flex flex-col items-center">
-                              <span
-                                className="inline-flex min-w-[146px] justify-center rounded-md border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
-                                style={capitalEfficiencyChipStyle}
-                              >
-                                {formatCapitalEfficiency(control.capitalEfficiencyScore)}
-                              </span>
-                              <span className="mt-0.5 max-w-[170px] truncate text-[9px] font-medium uppercase tracking-[0.12em] text-slate-400">
-                                {`Rank #${control.capitalWasteRank ?? 0} | Alloc ${control.capitalWasteAllocationPct?.toFixed(1) ?? "0.0"}%`}
-                              </span>
-                              <span className="mt-0.5 max-w-[170px] truncate text-[9px] font-medium uppercase tracking-[0.12em] text-slate-400">
-                                {`P&L ${control.capitalWasteUnrealizedPct?.toFixed(1) ?? "0.0"}% | Age ${control.capitalWasteAgeHours?.toFixed(1) ?? "0.0"}h`}
-                              </span>
-                            </div>
-                          ) : (
-                            <span className="inline-flex min-w-[146px] justify-center rounded-md border border-white/12 bg-white/[0.03] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-                              No open capital
-                            </span>
-                          )}
-                        </div>
-
-                        <div className="flex items-center justify-center">
-                          <div className="flex flex-col items-center">
-                            <span
-                              className="inline-flex min-w-[134px] justify-center rounded-md border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]"
-                              style={executableChipStyle}
-                            >
-                              {control.buyExecutable ? "Ready" : "Blocked"}
-                            </span>
-                            <span className="mt-0.5 max-w-[170px] truncate text-[9px] font-medium uppercase tracking-[0.12em] text-slate-400">
-                              {control.buyExecutableReason}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-center gap-3">
-                          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                            BUY
-                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
                           <button
                             onClick={() =>
                               setSymbolAutoTrade(
@@ -1457,21 +1772,16 @@ export default function RevbotDashboard() {
                               || savingRisk
                               || busyScalper !== null
                             }
-                            className="min-w-[76px] rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] disabled:cursor-not-allowed disabled:opacity-60"
+                            className="min-w-[70px] rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:cursor-not-allowed disabled:opacity-60"
                             style={{
                               backgroundColor: buyOn ? "#16a34a" : "#dc2626",
                               borderColor: buyOn ? "#16a34a" : "#dc2626",
-                              color: "#ffffff",
                             }}
                           >
                             {busyBuy ? "Saving..." : buyOn ? "ON" : "OFF"}
                           </button>
-                        </div>
-
-                        <div className="flex items-center justify-center gap-3">
-                          <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                            SELL
-                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
                           <button
                             onClick={() =>
                               setSymbolAutoTrade(
@@ -1486,24 +1796,568 @@ export default function RevbotDashboard() {
                               || savingRisk
                               || busyScalper !== null
                             }
-                            className="min-w-[76px] rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] disabled:cursor-not-allowed disabled:opacity-60"
+                            className="min-w-[70px] rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:cursor-not-allowed disabled:opacity-60"
                             style={{
                               backgroundColor: sellOn ? "#16a34a" : "#dc2626",
                               borderColor: sellOn ? "#16a34a" : "#dc2626",
-                              color: "#ffffff",
                             }}
                           >
                             {busySell ? "Saving..." : sellOn ? "ON" : "OFF"}
                           </button>
-                        </div>
-                      </div>
+                        </td>
+                      </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="rb-section p-5 sm:p-6">
+            <p className="rb-kicker">
+              Top Status
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+              {topStatusCards.map((card) => (
+                <article
+                  key={card.label}
+                  className="rb-summary-card px-4 py-3"
+                >
+                  <p className="rb-label">
+                    {card.label}
+                  </p>
+                  <p className={`mt-1.5 text-base font-semibold ${card.tone}`}>
+                    {card.value}
+                  </p>
+                  <p className="rb-helper mt-0.5">{card.helper}</p>
+                </article>
+              ))}
+            </div>
+          </section>
+
+          <section className="grid gap-4 xl:grid-cols-2">
+            <article className="rb-section p-4 sm:p-5">
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    Performance
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold text-white">
+                    Performance Overview
+                  </h2>
                 </div>
+                <span className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-slate-400">
+                  Realized + Open split
+                </span>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {performanceMetrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="rb-content-card px-3 py-2.5"
+                  >
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">
+                      {metric.label}
+                    </p>
+                    <p className={`mt-1 text-sm font-semibold ${metric.tone}`}>
+                      {metric.value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </article>
+
+            <article className="rb-section p-4 sm:p-5">
+              <div className="flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    Risk
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold text-white">
+                    Risk & Exposure
+                  </h2>
+                </div>
+                <span
+                  className={`rounded-md border px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] ${
+                    data.summary.dailyBuyPaused
+                      ? "border-rose-400/40 bg-rose-500/20 text-rose-100"
+                      : "border-emerald-400/30 bg-emerald-500/15 text-emerald-100"
+                  }`}
+                >
+                  Daily Guard {data.summary.dailyBuyPaused ? "Paused" : "Active"}
+                </span>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {riskMetrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="rb-content-card px-3 py-2.5"
+                  >
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">
+                      {metric.label}
+                    </p>
+                    <p className={`mt-1 text-sm font-semibold ${metric.tone}`}>
+                      {metric.value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </article>
+          </section>
+
+          <section className="rb-section border-amber-300/35 p-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-200/80">
+                  Needs Attention
+                </p>
+                <h2 className="mt-1 text-xl font-semibold text-white">
+                  Priority Review Queue
+                </h2>
+              </div>
+              <span className="rounded-md border border-amber-300/25 bg-amber-500/[0.15] px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-amber-100">
+                {sortedAttentionItems.length} active items
+              </span>
+            </div>
+            <div className="mt-4 overflow-x-auto rounded-lg border border-white/10 bg-black/25">
+              <table className="min-w-[760px] w-full">
+                <thead>
+                  <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.12em] text-slate-400">
+                    <th className="px-3 py-2">Token</th>
+                    <th className="px-3 py-2">Issue</th>
+                    <th className="px-3 py-2">Severity</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Action / View</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/6 text-sm">
+                  {sortedAttentionItems.length === 0 ? (
+                    <tr>
+                      <td className="px-3 py-3 text-slate-300" colSpan={5}>
+                        No active attention items right now.
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedAttentionItems.map((item, index) => (
+                      <tr key={`${item.symbol ?? "runtime"}-${index}`} className="text-slate-200">
+                        <td className="px-3 py-2.5 font-semibold">
+                          {item.symbol ? (
+                            <Link
+                              href={`/token/${encodeURIComponent(item.symbol)}`}
+                              className="transition hover:text-sky-300"
+                            >
+                              {item.symbol}
+                            </Link>
+                          ) : (
+                            <span className="text-slate-300">SYSTEM</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5">{item.issue}</td>
+                        <td className="px-3 py-2.5">
+                          <span
+                            className={`inline-flex min-w-[70px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                              item.severity === "High"
+                                ? "border-rose-400/45 bg-rose-500/25 text-rose-100"
+                                : item.severity === "Medium"
+                                  ? "border-amber-400/45 bg-amber-500/25 text-amber-100"
+                                  : "border-sky-400/35 bg-sky-500/20 text-sky-100"
+                            }`}
+                          >
+                            {item.severity}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-slate-300">{item.status}</td>
+                        <td className="px-3 py-2.5 text-slate-300">{item.action}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="rb-section p-5 sm:p-6">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  Open Positions
+                </p>
+                <h2 className="mt-1.5 text-2xl font-semibold tracking-tight text-white">
+                  Main Position Table
+                </h2>
+                <p className="mt-2 text-sm text-slate-400">
+                  Sorted for operator review. Token links open detailed advisory pages.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.12em]">
+                <span className="rounded-md border border-sky-500/40 bg-sky-500/18 px-3 py-1.5 text-sky-100">
+                  {data.summary.openPositions} open
+                </span>
+                <span className="rounded-md border border-amber-400/35 bg-amber-500/18 px-3 py-1.5 text-amber-100">
+                  {data.summary.staleLosingReviewCount} needs review
+                </span>
+                <span className="rounded-md border border-white/12 bg-white/[0.03] px-3 py-1.5 text-slate-300">
+                  Click headers to sort
+                </span>
               </div>
             </div>
 
-            <div className="mt-5 rounded-lg bg-black/20 p-4">
+            <div className="rb-table-wrap mt-5 overflow-x-auto">
+              <table className="min-w-[1400px] w-full">
+                <thead>
+                  <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.12em] text-slate-400">
+                    <th className="px-3 py-2">
+                      <button className="text-left" onClick={() => setPositionSortKey("attention")}>
+                        Token {sortIndicator("attention")}
+                      </button>
+                    </th>
+                    <th className="px-3 py-2">Side</th>
+                    <th className="px-3 py-2 text-right">
+                      <button onClick={() => setPositionSortKey("value")}>
+                        Value {sortIndicator("value")}
+                      </button>
+                    </th>
+                    <th className="px-3 py-2 text-right">
+                      <button onClick={() => setPositionSortKey("pnl")}>
+                        P/L {sortIndicator("pnl")}
+                      </button>
+                    </th>
+                    <th className="px-3 py-2 text-right">
+                      <button onClick={() => setPositionSortKey("pnlPct")}>
+                        P/L % {sortIndicator("pnlPct")}
+                      </button>
+                    </th>
+                    <th className="px-3 py-2 text-right">
+                      <button onClick={() => setPositionSortKey("age")}>
+                        Age {sortIndicator("age")}
+                      </button>
+                    </th>
+                    <th className="px-3 py-2 text-right">
+                      <button onClick={() => setPositionSortKey("worstDip")}>
+                        Worst Dip {sortIndicator("worstDip")}
+                      </button>
+                    </th>
+                    <th className="px-3 py-2 text-center">Needs Review</th>
+                    <th className="px-3 py-2 text-center">
+                      <button onClick={() => setPositionSortKey("bounce")}>
+                        Bounce Setup {sortIndicator("bounce")}
+                      </button>
+                    </th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2 text-center">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/6 text-sm">
+                  {sortedPositions.map((position) => {
+                    const manualSellOnProfit = position.unrealizedValue >= 0;
+                    const control = symbolControlsBySymbol.get(position.symbol);
+                    return (
+                      <tr key={`main-open-${position.symbol}`} className="text-slate-200">
+                        <td className="px-3 py-2.5">
+                          <div className="flex flex-col">
+                            <Link
+                              href={`/token/${encodeURIComponent(position.symbol)}`}
+                              className="font-semibold text-white transition hover:text-sky-300"
+                            >
+                              {position.symbol}
+                            </Link>
+                            <span className="text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                              {coinName(position.symbol)}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]">
+                            LONG
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-semibold">
+                          {formatCurrency(position.marketValue)}
+                        </td>
+                        <td className={`px-3 py-2.5 text-right font-semibold ${valueTone(position.unrealizedValue)}`}>
+                          {formatCurrency(position.unrealizedValue)}
+                        </td>
+                        <td className={`px-3 py-2.5 text-right font-semibold ${valueTone(position.unrealizedPct)}`}>
+                          {formatPercent(position.unrealizedPct)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-slate-300">
+                          {formatHours(position.ageHours)}
+                        </td>
+                        <td className={`px-3 py-2.5 text-right ${valueTone(position.advisoryMaxDrawdownPctDuringTrade)}`}>
+                          {formatPercent(position.advisoryMaxDrawdownPctDuringTrade)}
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          <span
+                            className={`inline-flex min-w-[88px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                              position.advisoryStaleLosingReview
+                                ? "border-amber-400/45 bg-amber-500/25 text-amber-100"
+                                : "border-emerald-400/35 bg-emerald-500/18 text-emerald-100"
+                            }`}
+                          >
+                            {position.advisoryStaleLosingReview ? "Review" : "Clear"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          <div className="flex flex-col items-center gap-1">
+                            <span
+                              className="inline-flex min-w-[96px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                              style={radarLabelStyle(control?.volatilityOpportunityLabel ?? null)}
+                            >
+                              {position.bounceLabel}
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              {position.bounceScore === null ? "N/A" : position.bounceScore.toFixed(1)}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex flex-col gap-1">
+                            <span
+                              className={`inline-flex w-fit rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${statusTone(position.status)}`}
+                            >
+                              {position.status}
+                            </span>
+                            <span className={`text-[10px] ${valueTone(position.trendShift ?? 0)}`}>
+                              Trend Shift{" "}
+                              {position.trendShift === null
+                                ? "N/A"
+                                : `${position.trendShift > 0 ? "+" : ""}${position.trendShift.toFixed(1)}`}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          <button
+                            onClick={() => manualSell(position)}
+                            disabled={
+                              busyAction !== null ||
+                              busyManualSell !== null ||
+                              busySymbol !== null ||
+                              busyScalper !== null ||
+                              savingRisk
+                            }
+                            className="rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white transition disabled:cursor-not-allowed disabled:opacity-60"
+                            style={{
+                              backgroundColor: manualSellOnProfit ? "#16a34a" : "#dc2626",
+                              borderColor: manualSellOnProfit ? "#16a34a" : "#dc2626",
+                            }}
+                          >
+                            {busyManualSell === position.symbol ? "Selling..." : "Sell"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="rb-section p-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  Advisory Analytics
+                </p>
+                <h2 className="mt-1 text-xl font-semibold text-white">
+                  Radar & Rotation (Advisory-Only)
+                </h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Read-time operator intelligence only. No execution impact.
+                </p>
+              </div>
+              <span className="rounded-md border border-white/12 bg-white/[0.04] px-3 py-1 text-xs uppercase tracking-[0.12em] text-slate-400">
+                Advisory only
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-4 xl:grid-cols-2">
+              <article className="rb-content-card p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
+                    Volatility Opportunity Radar
+                  </h3>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      onClick={() => setVolatilitySortKey("score")}
+                      className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] ${
+                        volatilitySortKey === "score"
+                          ? "border-sky-400/40 bg-sky-500/20 text-sky-100"
+                          : "border-white/12 bg-white/[0.03] text-slate-300"
+                      }`}
+                    >
+                      Score
+                    </button>
+                    <button
+                      onClick={() => setVolatilitySortKey("stretch")}
+                      className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] ${
+                        volatilitySortKey === "stretch"
+                          ? "border-sky-400/40 bg-sky-500/20 text-sky-100"
+                          : "border-white/12 bg-white/[0.03] text-slate-300"
+                      }`}
+                    >
+                      Stretch
+                    </button>
+                    <button
+                      onClick={() => setVolatilitySortKey("volatility")}
+                      className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] ${
+                        volatilitySortKey === "volatility"
+                          ? "border-sky-400/40 bg-sky-500/20 text-sky-100"
+                          : "border-white/12 bg-white/[0.03] text-slate-300"
+                      }`}
+                    >
+                      Volatility
+                    </button>
+                    <button
+                      onClick={() => setVolatilitySortKey("bounce")}
+                      className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] ${
+                        volatilitySortKey === "bounce"
+                          ? "border-sky-400/40 bg-sky-500/20 text-sky-100"
+                          : "border-white/12 bg-white/[0.03] text-slate-300"
+                      }`}
+                    >
+                      Bounce
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-[760px] w-full">
+                    <thead>
+                      <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.11em] text-slate-400">
+                        <th className="px-2 py-2">Symbol</th>
+                        <th className="px-2 py-2 text-right">Score</th>
+                        <th className="px-2 py-2">Label</th>
+                        <th className="px-2 py-2 text-right">Stretch</th>
+                        <th className="px-2 py-2 text-right">Vol Spike</th>
+                        <th className="px-2 py-2 text-right">Bounce</th>
+                        <th className="px-2 py-2 text-right">Confidence</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/6 text-sm">
+                      {topVolatilityRows.map((control) => (
+                        <tr key={`top-radar-${control.symbol}`} className="text-slate-200">
+                          <td className="px-2 py-2">
+                            <Link
+                              href={`/token/${encodeURIComponent(control.symbol)}`}
+                              className="font-semibold transition hover:text-sky-300"
+                            >
+                              {control.symbol}
+                            </Link>
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            {control.volatilityOpportunityScore === null
+                              ? "N/A"
+                              : control.volatilityOpportunityScore.toFixed(1)}
+                          </td>
+                          <td className="px-2 py-2">
+                            <span
+                              className="inline-flex min-w-[90px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                              style={radarLabelStyle(control.volatilityOpportunityLabel)}
+                            >
+                              {volatilityLabel(control.volatilityOpportunityLabel)}
+                            </span>
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            {control.volatilityOpportunityStretchScore === null
+                              ? "N/A"
+                              : control.volatilityOpportunityStretchScore.toFixed(1)}
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            {control.volatilityOpportunityVolatilitySpikeScore === null
+                              ? "N/A"
+                              : control.volatilityOpportunityVolatilitySpikeScore.toFixed(1)}
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            {control.volatilityOpportunityBounceContextScore === null
+                              ? "N/A"
+                              : control.volatilityOpportunityBounceContextScore.toFixed(1)}
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            {confidenceLabel(control.volatilityOpportunityConfidenceLabel)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+
+              <article className="rb-content-card p-3">
+                <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
+                  Rolling Symbol Rotation
+                </h3>
+                <div className="mt-3 overflow-x-auto">
+                  <table className="min-w-[720px] w-full">
+                    <thead>
+                      <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.11em] text-slate-400">
+                        <th className="px-2 py-2">Symbol</th>
+                        <th className="px-2 py-2">Status</th>
+                        <th className="px-2 py-2 text-right">Short Score</th>
+                        <th className="px-2 py-2 text-right">Medium Score</th>
+                        <th className="px-2 py-2 text-right">Trend Shift</th>
+                        <th className="px-2 py-2 text-right">Win Rate</th>
+                        <th className="px-2 py-2 text-right">Avg P/L</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/6 text-sm">
+                      {topRotationRows.map((control) => (
+                        <tr key={`top-rotation-${control.symbol}`} className="text-slate-200">
+                          <td className="px-2 py-2">
+                            <Link
+                              href={`/token/${encodeURIComponent(control.symbol)}`}
+                              className="font-semibold transition hover:text-sky-300"
+                            >
+                              {control.symbol}
+                            </Link>
+                          </td>
+                          <td className="px-2 py-2">
+                            <span
+                              className="inline-flex min-w-[100px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                              style={rotationStatusStyle(control.rotationStatus)}
+                            >
+                              {control.rotationStatus}
+                            </span>
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            {control.rotationShortTermScore === null
+                              ? "N/A"
+                              : control.rotationShortTermScore.toFixed(1)}
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            {control.rotationMediumTermScore === null
+                              ? "N/A"
+                              : control.rotationMediumTermScore.toFixed(1)}
+                          </td>
+                          <td className={`px-2 py-2 text-right ${valueTone(control.rotationDelta ?? 0)}`}>
+                            {control.rotationDelta === null
+                              ? "N/A"
+                              : `${control.rotationDelta > 0 ? "+" : ""}${control.rotationDelta.toFixed(1)}`}
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            {control.rotationShortTermWinRatePct === null
+                              ? "N/A"
+                              : `${control.rotationShortTermWinRatePct.toFixed(1)}%`}
+                          </td>
+                          <td className={`px-2 py-2 text-right ${valueTone(control.rotationShortTermAvgRealizedPnlUsd ?? 0)}`}>
+                            {control.rotationShortTermAvgRealizedPnlUsd === null
+                              ? "N/A"
+                              : formatCurrency(control.rotationShortTermAvgRealizedPnlUsd)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <details className="rb-content-card p-4">
+            <summary className="cursor-pointer text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
+              Advanced Panels (Full Controls and Full Tables)
+            </summary>
+            <div className="mt-4 space-y-6">
+
+            <div className="mt-5 rb-content-card p-4">
               <div className="flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.14em]">
                 <span className={`rounded-md border px-3 py-1.5 ${data.summary.dailyBuyPaused ? "border-rose-500 bg-rose-600 text-white" : "border-emerald-500 bg-emerald-600 text-white"}`}>
                   Daily guard: {data.summary.dailyBuyPaused ? "Paused" : "Active"}
@@ -1516,7 +2370,7 @@ export default function RevbotDashboard() {
                 </span>
               </div>
 
-              <div className="mt-4 overflow-x-auto rounded-lg border border-white/8 bg-black/20">
+              <div className="rb-table-wrap mt-4 overflow-x-auto">
                 <div className="min-w-[1160px]">
                   <div className="border-b border-white/8 bg-white/[0.04] px-4 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">
                     Risk Controls
@@ -1814,10 +2668,271 @@ export default function RevbotDashboard() {
                 </div>
               </div>
             </div>
+          <section className="rb-section p-5 sm:p-6">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  Advisory Rotation Monitor
+                </p>
+                <h2 className="mt-1.5 text-2xl font-semibold tracking-tight text-white">
+                  Rolling Symbol Rotation
+                </h2>
+                <p className="mt-2 text-sm text-slate-400">
+                  Read-time advisory ranking for frozen mean-reversion behavior. No execution changes.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.12em]">
+                <span className="rounded-md border border-emerald-500 bg-emerald-600 px-3 py-1.5 text-white">
+                  Rising {data.summary.rotationRisingCount}
+                </span>
+                <span className="rounded-md border border-sky-500 bg-sky-600 px-3 py-1.5 text-white">
+                  Strong {data.summary.rotationStrongCount}
+                </span>
+                <span className="rounded-md border border-slate-500 bg-slate-600 px-3 py-1.5 text-white">
+                  Neutral {data.summary.rotationNeutralCount}
+                </span>
+                <span className="rounded-md border border-amber-500 bg-amber-600 px-3 py-1.5 text-white">
+                  Weakening {data.summary.rotationWeakeningCount}
+                </span>
+                <span className="rounded-md border border-rose-500 bg-rose-600 px-3 py-1.5 text-white">
+                  Cold {data.summary.rotationColdCount}
+                </span>
+                <span className="rounded-md border border-red-700 bg-red-800 px-3 py-1.5 text-white">
+                  Trap Risk {data.summary.rotationCapitalTrapRiskCount}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2 text-[10px] uppercase tracking-[0.12em] text-slate-400">
+              <span className="rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1.5">
+                Top Rising: {data.summary.rotationTopRisingSymbols.length > 0 ? data.summary.rotationTopRisingSymbols.join(", ") : "N/A"}
+              </span>
+              <span className="rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-1.5">
+                Top Cold: {data.summary.rotationTopColdSymbols.length > 0 ? data.summary.rotationTopColdSymbols.join(", ") : "N/A"}
+              </span>
+            </div>
+
+            <div className="rb-table-wrap mt-4 overflow-x-auto">
+              <table className="min-w-[1480px] w-full">
+                <thead>
+                  <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.14em] text-slate-400">
+                    <th className="px-3 py-2">Symbol</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2 text-right">Short Score</th>
+                    <th className="px-3 py-2 text-right">Medium Score</th>
+                    <th className="px-3 py-2 text-right">Delta</th>
+                    <th className="px-3 py-2 text-right">Short Win</th>
+                    <th className="px-3 py-2 text-right">Short Avg PnL</th>
+                    <th className="px-3 py-2 text-right">Short Hold</th>
+                    <th className="px-3 py-2 text-right">Short Recovery</th>
+                    <th className="px-3 py-2 text-right">Short Stale Freq</th>
+                    <th className="px-3 py-2 text-right">Short Avg DD</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/6">
+                  {sortedRotationRows.map((control) => (
+                    <tr key={`rotation-${control.symbol}`} className="text-slate-200">
+                      <td className="px-3 py-2 text-sm font-semibold">
+                        <Link
+                          href={`/token/${encodeURIComponent(control.symbol)}`}
+                          className="transition hover:text-sky-300"
+                        >
+                          {control.symbol}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span
+                          className="inline-flex min-w-[124px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                          style={rotationStatusStyle(control.rotationStatus)}
+                        >
+                          {control.rotationStatus}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {control.rotationShortTermScore === null ? "N/A" : control.rotationShortTermScore.toFixed(1)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {control.rotationMediumTermScore === null ? "N/A" : control.rotationMediumTermScore.toFixed(1)}
+                      </td>
+                      <td className={`px-3 py-2 text-right ${valueTone(control.rotationDelta ?? 0)}`}>
+                        {control.rotationDelta === null ? "N/A" : `${control.rotationDelta > 0 ? "+" : ""}${control.rotationDelta.toFixed(1)}`}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {control.rotationShortTermWinRatePct === null ? "N/A" : `${control.rotationShortTermWinRatePct.toFixed(1)}%`}
+                      </td>
+                      <td className={`px-3 py-2 text-right ${valueTone(control.rotationShortTermAvgRealizedPnlUsd ?? 0)}`}>
+                        {control.rotationShortTermAvgRealizedPnlUsd === null ? "N/A" : formatCurrency(control.rotationShortTermAvgRealizedPnlUsd)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {control.rotationShortTermAvgHoldHours === null ? "N/A" : `${control.rotationShortTermAvgHoldHours.toFixed(1)}h`}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {control.rotationShortTermAvgRecoveryHours === null ? "N/A" : `${control.rotationShortTermAvgRecoveryHours.toFixed(1)}h`}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {control.rotationShortTermStaleReviewFrequencyPct === null ? "N/A" : `${control.rotationShortTermStaleReviewFrequencyPct.toFixed(1)}%`}
+                      </td>
+                      <td className={`px-3 py-2 text-right ${valueTone(control.rotationShortTermAvgMaxDrawdownPct ?? 0)}`}>
+                        {control.rotationShortTermAvgMaxDrawdownPct === null ? "N/A" : `${control.rotationShortTermAvgMaxDrawdownPct.toFixed(2)}%`}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="rb-section p-5 sm:p-6">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                  Volatility Opportunity Radar
+                </p>
+                <h2 className="mt-1.5 text-2xl font-semibold tracking-tight text-white">
+                  Near-Term Mean-Reversion Radar
+                </h2>
+                <p className="mt-2 text-sm text-slate-400">
+                  Advisory-only scoring from recent observed snapshots. This does not change strategy or execution.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.12em]">
+                <span className="rounded-md border border-emerald-500 bg-emerald-600 px-3 py-1.5 text-white">
+                  HIGH {data.summary.highOpportunitySymbolCount}
+                </span>
+                <span className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-300">
+                  Top: {data.summary.topVolatilityOpportunitySymbols.length > 0
+                    ? data.summary.topVolatilityOpportunitySymbols.join(", ")
+                    : "N/A"}
+                </span>
+                <span className="rounded-md border border-white/10 bg-white/[0.03] px-3 py-1.5 text-slate-300">
+                  Best score: {data.summary.highestVolatilityOpportunityScore === null
+                    ? "N/A"
+                    : `${data.summary.highestVolatilityOpportunityScore.toFixed(1)}`}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={() => setVolatilitySortKey("score")}
+                className={`rounded-md border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                  volatilitySortKey === "score"
+                    ? "border-sky-400/40 bg-sky-500/20 text-sky-100"
+                    : "border-white/12 bg-white/[0.03] text-slate-300"
+                }`}
+              >
+                Sort Score
+              </button>
+              <button
+                onClick={() => setVolatilitySortKey("stretch")}
+                className={`rounded-md border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                  volatilitySortKey === "stretch"
+                    ? "border-sky-400/40 bg-sky-500/20 text-sky-100"
+                    : "border-white/12 bg-white/[0.03] text-slate-300"
+                }`}
+              >
+                Sort Stretch
+              </button>
+              <button
+                onClick={() => setVolatilitySortKey("volatility")}
+                className={`rounded-md border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                  volatilitySortKey === "volatility"
+                    ? "border-sky-400/40 bg-sky-500/20 text-sky-100"
+                    : "border-white/12 bg-white/[0.03] text-slate-300"
+                }`}
+              >
+                Sort Volatility
+              </button>
+              <button
+                onClick={() => setVolatilitySortKey("bounce")}
+                className={`rounded-md border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                  volatilitySortKey === "bounce"
+                    ? "border-sky-400/40 bg-sky-500/20 text-sky-100"
+                    : "border-white/12 bg-white/[0.03] text-slate-300"
+                }`}
+              >
+                Sort Bounce
+              </button>
+            </div>
+
+            <div className="rb-table-wrap mt-4 overflow-x-auto">
+              <table className="min-w-[1320px] w-full">
+                <thead>
+                  <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.14em] text-slate-400">
+                    <th className="px-3 py-2">Symbol</th>
+                    <th className="px-3 py-2 text-right">Score</th>
+                    <th className="px-3 py-2">Label</th>
+                    <th className="px-3 py-2 text-right">Stretch</th>
+                    <th className="px-3 py-2 text-right">Vol Spike</th>
+                    <th className="px-3 py-2 text-right">Bounce</th>
+                    <th className="px-3 py-2 text-right">Confidence</th>
+                    <th className="px-3 py-2 text-right">Open</th>
+                    <th className="px-3 py-2 text-right">Insufficient</th>
+                    <th className="px-3 py-2">Reason</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/6">
+                  {sortedVolatilityRadarRows.map((control) => (
+                    <tr key={`radar-${control.symbol}`} className="text-slate-200">
+                      <td className="px-3 py-2 text-sm font-semibold">
+                        <Link
+                          href={`/token/${encodeURIComponent(control.symbol)}`}
+                          className="transition hover:text-sky-300"
+                        >
+                          {control.symbol}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {control.volatilityOpportunityScore === null
+                          ? "N/A"
+                          : control.volatilityOpportunityScore.toFixed(1)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span
+                          className="inline-flex min-w-[96px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                          style={radarLabelStyle(control.volatilityOpportunityLabel)}
+                        >
+                          {control.volatilityOpportunityLabel ?? "N/A"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {control.volatilityOpportunityStretchScore === null
+                          ? "N/A"
+                          : control.volatilityOpportunityStretchScore.toFixed(1)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {control.volatilityOpportunityVolatilitySpikeScore === null
+                          ? "N/A"
+                          : control.volatilityOpportunityVolatilitySpikeScore.toFixed(1)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {control.volatilityOpportunityBounceContextScore === null
+                          ? "N/A"
+                          : control.volatilityOpportunityBounceContextScore.toFixed(1)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {control.volatilityOpportunityConfidenceLabel}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {control.hasOpenPosition ? "Yes" : "No"}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {control.volatilityOpportunityInsufficientData ? "Yes" : "No"}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-slate-300">
+                        {control.volatilityOpportunityInsufficientData
+                          ? (control.volatilityOpportunityInsufficientReasonMessage ?? "Insufficient data")
+                          : control.volatilityOpportunityReason}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </section>
 
           <section className="space-y-6">
-            <div className="rounded-md border border-white/8 bg-[linear-gradient(160deg,rgba(9,14,24,0.94),rgba(4,8,14,0.96))] p-5 sm:p-6">
+            <div className="rb-section p-5 sm:p-6">
               <div className="flex flex-col gap-5">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
@@ -1860,7 +2975,7 @@ export default function RevbotDashboard() {
 
                 <MiniChart points={visiblePoints} min={chartMin} max={chartMax} />
 
-                <div className="overflow-x-auto rounded-lg border border-white/8 bg-black/20">
+                <div className="overflow-x-auto rb-table-wrap">
                   <table className="min-w-full table-fixed border-collapse">
                     <thead>
                       <tr className="border-b border-white/8 bg-white/[0.05] text-left">
@@ -1944,7 +3059,7 @@ export default function RevbotDashboard() {
                     </div>
                   </div>
 
-                  <div className="mt-5 overflow-x-auto rounded-lg border border-white/8 bg-black/20">
+                  <div className="rb-table-wrap mt-5 overflow-x-auto">
                     <table className="min-w-full table-fixed border-collapse">
                       <thead>
                         <tr className="border-b border-white/8 bg-white/[0.05] text-left">
@@ -2007,7 +3122,7 @@ export default function RevbotDashboard() {
             </div>
           </section>
 
-          <section className="rounded-md border border-white/8 bg-[linear-gradient(160deg,rgba(9,14,24,0.94),rgba(4,8,14,0.96))] p-5 sm:p-6">
+          <section className="rb-section p-5 sm:p-6">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-500">
@@ -2043,7 +3158,7 @@ export default function RevbotDashboard() {
               </div>
             </div>
 
-            <div className="mt-6 overflow-x-auto rounded-lg border border-white/8 bg-black/20">
+            <div className="mt-6 overflow-x-auto rb-table-wrap">
               <table className="min-w-full table-fixed border-collapse">
                 <thead>
                   <tr className="border-b border-white/8 bg-white/[0.05] text-left">
@@ -2261,8 +3376,12 @@ export default function RevbotDashboard() {
               ) : null}
             </div>
           </section>
+            </div>
+          </details>
         </div>
       </div>
     </main>
   );
 }
+
+

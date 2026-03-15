@@ -29,6 +29,21 @@ type TokenDetailPayload = {
     staleReviewThresholdUnrealizedPnlPct: number | null;
     volatilityOpportunityScorePct: number | null;
     volatilityOpportunityLabel: string;
+    volatilityOpportunity: {
+      score: number | null;
+      label: string | null;
+      reason: string;
+      confidenceLabel: string;
+      stretchScore: number | null;
+      volatilitySpikeScore: number | null;
+      bounceContextScore: number | null;
+      liquidityQualityScore: number | null;
+      observedHistorySpanMinutes: number;
+      observedPointCount: number;
+      insufficientData: boolean;
+      insufficientReasonCode: string | null;
+      insufficientReasonMessage: string | null;
+    };
     regime: string | null;
     strategyScorePct: number | null;
     volatilityPct: number | null;
@@ -36,6 +51,28 @@ type TokenDetailPayload = {
     buyExecutableReason: string | null;
     capitalEfficiencyScore: number | null;
     capitalWasteRank: number | null;
+    rotationMonitor: {
+      shortTermScore: number | null;
+      mediumTermScore: number | null;
+      rotationDelta: number | null;
+      status: string;
+      shortTerm: {
+        winRatePct: number | null;
+        avgRealizedPnlUsd: number | null;
+        avgHoldHours: number | null;
+        avgRecoveryHours: number | null;
+        staleReviewFrequencyPct: number | null;
+        avgMaxDrawdownPct: number | null;
+      };
+      mediumTerm: {
+        winRatePct: number | null;
+        avgRealizedPnlUsd: number | null;
+        avgHoldHours: number | null;
+        avgRecoveryHours: number | null;
+        staleReviewFrequencyPct: number | null;
+        avgMaxDrawdownPct: number | null;
+      };
+    };
   };
   history: {
     buyCount: number;
@@ -64,6 +101,10 @@ type TokenDetailPayload = {
       dominant_bias: "LOW_REVISIT_MORE_LIKELY" | "HIGH_REVISIT_MORE_LIKELY" | "BALANCED";
       strongest_overall_low_zone: { center: number; min: number; max: number } | null;
       strongest_overall_high_zone: { center: number; min: number; max: number } | null;
+      analysis_anchor_at?: string | null;
+      latest_snapshot_at?: string | null;
+      latest_snapshot_age_minutes?: number | null;
+      history_point_count?: number;
       data_quality_note: string;
     };
     timeframes: Record<string, {
@@ -106,6 +147,10 @@ type TokenDetailPayload = {
       low_revisit_likelihood_pct: number;
       high_revisit_likelihood_pct: number;
       insufficient_data: boolean;
+      insufficient_reason_code: string | null;
+      insufficient_reason_message: string | null;
+      observed_history_span_minutes: number;
+      observed_candle_count: number;
     }>;
   };
 };
@@ -154,6 +199,13 @@ function formatAgeHours(value: number | null) {
   return `${value.toFixed(1)}h`;
 }
 
+function formatUnits(value: number | null) {
+  if (value === null || !Number.isFinite(value)) {
+    return "N/A";
+  }
+  return value.toFixed(6);
+}
+
 function toneByValue(value: number) {
   if (value > 0) {
     return "text-emerald-300";
@@ -168,6 +220,86 @@ function advisoryChipClass(enabled: boolean) {
   return enabled
     ? "border-amber-300/40 bg-amber-500/20 text-amber-100"
     : "border-emerald-300/30 bg-emerald-500/15 text-emerald-100";
+}
+
+function rotationStatusClass(status: string) {
+  if (status === "Rising") {
+    return "border-emerald-400/35 bg-emerald-500/18 text-emerald-100";
+  }
+  if (status === "Strong") {
+    return "border-sky-400/35 bg-sky-500/18 text-sky-100";
+  }
+  if (status === "Weakening") {
+    return "border-amber-400/35 bg-amber-500/18 text-amber-100";
+  }
+  if (status === "Cold") {
+    return "border-rose-400/35 bg-rose-500/18 text-rose-100";
+  }
+  if (status === "Capital Trap Risk") {
+    return "border-red-500/45 bg-red-600/20 text-red-100";
+  }
+  return "border-white/12 bg-white/[0.04] text-slate-200";
+}
+
+function opportunityLabelClass(label: string | null) {
+  if (label === "HIGH") {
+    return "border-emerald-400/35 bg-emerald-500/18 text-emerald-100";
+  }
+  if (label === "MEDIUM") {
+    return "border-sky-400/35 bg-sky-500/18 text-sky-100";
+  }
+  if (label === "LOW") {
+    return "border-amber-400/35 bg-amber-500/18 text-amber-100";
+  }
+  return "border-white/12 bg-white/[0.04] text-slate-200";
+}
+
+function opportunityLabelText(label: string | null) {
+  if (label === "HIGH") {
+    return "High Opportunity";
+  }
+  if (label === "MEDIUM") {
+    return "Moderate Opportunity";
+  }
+  if (label === "LOW") {
+    return "Low Opportunity";
+  }
+  return "N/A";
+}
+
+function confidenceLabelText(label: string | null) {
+  if (label === "HIGH") {
+    return "High Confidence";
+  }
+  if (label === "MEDIUM") {
+    return "Medium Confidence";
+  }
+  if (label === "LOW") {
+    return "Low Confidence";
+  }
+  return "N/A";
+}
+
+function friendlyInsufficientReason(code: string | null, message: string | null) {
+  if (message) {
+    return message;
+  }
+  if (code === "insufficient_point_count") {
+    return "Not enough recent data points.";
+  }
+  if (code === "insufficient_history_span") {
+    return "History window is too short.";
+  }
+  if (code === "stale_snapshot_history") {
+    return "Recent snapshot history is stale.";
+  }
+  if (code === "insufficient_window_coverage") {
+    return "Not enough recent data coverage.";
+  }
+  if (code === "invalid_price_window") {
+    return "Recent price window is invalid.";
+  }
+  return "Not enough recent data.";
 }
 
 function formatZoneRange(zone: { min: number; max: number; center: number } | null) {
@@ -196,7 +328,7 @@ function PriceSparkline({
 }) {
   if (points.length < 2) {
     return (
-      <div className="rounded-md border border-white/8 bg-black/20 px-4 py-6 text-center text-sm text-slate-400">
+      <div className="rb-content-card px-4 py-6 text-center text-sm text-slate-400">
         Not enough snapshot points for chart.
       </div>
     );
@@ -213,7 +345,7 @@ function PriceSparkline({
   });
 
   return (
-    <div className="rounded-md border border-white/8 bg-black/20 p-3">
+    <div className="rb-content-card p-3">
       <svg viewBox="0 0 100 100" className="h-36 w-full">
         <polyline
           fill="none"
@@ -285,9 +417,9 @@ export default function TokenDetailPage() {
 
   if (loading && !data) {
     return (
-      <main className="min-h-screen bg-[#04070f] px-4 py-6 text-slate-200 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-[1280px]">
-          <div className="h-40 animate-pulse rounded-md border border-white/10 bg-white/[0.04]" />
+      <main className="rb-page min-h-screen px-4 py-8 text-slate-200 sm:px-6 lg:px-8">
+        <div className="rb-shell mx-auto max-w-[1280px]">
+          <div className="rb-content-card h-40 animate-pulse" />
         </div>
       </main>
     );
@@ -295,11 +427,11 @@ export default function TokenDetailPage() {
 
   if (error || !data) {
     return (
-      <main className="min-h-screen bg-[#04070f] px-4 py-6 text-slate-200 sm:px-6 lg:px-8">
-        <div className="mx-auto max-w-[1280px] space-y-4">
+      <main className="rb-page min-h-screen px-4 py-8 text-slate-200 sm:px-6 lg:px-8">
+        <div className="rb-shell mx-auto max-w-[1280px] space-y-4">
           <Link
             href="/"
-            className="inline-flex rounded-md border border-white/12 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-200"
+            className="rb-chip rb-chip--neutral inline-flex"
           >
             Back to dashboard
           </Link>
@@ -313,17 +445,32 @@ export default function TokenDetailPage() {
 
   const summary = data.summary;
   const advisory = data.advisory;
+  const rotation = advisory.rotationMonitor;
   const history = data.history;
   const wave = data.waveZoneAnalyzer;
+  const volatilityOpportunity = advisory.volatilityOpportunity;
   const timeframeOrder = ["1h", "4h", "8h", "16h", "24h", "3d", "7d"];
+  const inPosition = summary.hasOpenPosition && summary.openUnits > 0;
+  const allWaveInsufficient = timeframeOrder.every((timeframeKey) => {
+    const row = wave.timeframes[timeframeKey];
+    return !row || row.insufficient_data;
+  });
+  const rotationConfidence =
+    rotation.shortTermScore !== null && rotation.mediumTermScore !== null
+      ? "Medium Confidence"
+      : "Low Confidence";
+  const sortedRecentTrades = [...history.recentTrades].sort(
+    (left, right) => right.time - left.time,
+  );
+  const currentDrawdownPct = summary.unrealizedPnlPct < 0 ? summary.unrealizedPnlPct : 0;
 
   return (
-    <main className="min-h-screen bg-[#04070f] px-4 py-6 text-slate-200 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-[1280px] space-y-6">
+    <main className="rb-page min-h-screen px-4 py-8 text-slate-200 sm:px-6 lg:px-8">
+      <div className="rb-shell mx-auto max-w-[1280px] space-y-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Link
             href="/"
-            className="inline-flex rounded-md border border-white/12 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-200"
+            className="rb-chip rb-chip--neutral inline-flex"
           >
             Back to dashboard
           </Link>
@@ -332,311 +479,331 @@ export default function TokenDetailPage() {
           </p>
         </div>
 
-        <section className="rounded-md border border-white/8 bg-[linear-gradient(160deg,rgba(9,14,24,0.94),rgba(4,8,14,0.96))] p-5 sm:p-6">
+        <section className="rb-section p-5 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Token Detail</p>
-              <h1 className="mt-2 text-4xl font-semibold text-white sm:text-5xl">
+              <p className="rb-kicker">Token / Symbol</p>
+              <h1 className="rb-title mt-2 text-4xl sm:text-5xl">
                 {data.symbol}
               </h1>
-              <p className="mt-2 text-sm text-slate-400">
-                Advisory/operator view only. No automatic trading actions.
+              <p className="rb-helper mt-2 text-sm">
+                Current token state at a glance. Advisory insights are read-only.
               </p>
             </div>
-            <div className="rounded-md border border-white/10 bg-white/[0.03] px-4 py-3 text-right">
-              <p className="text-xs uppercase tracking-[0.12em] text-slate-500">Current Price</p>
-              <p className="mt-1 text-xl font-semibold text-sky-200">
-                {formatPrice(summary.currentPrice)}
-              </p>
+            <div className="flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-[0.12em]">
+              <span className={`rounded-md border px-3 py-1.5 ${advisoryChipClass(advisory.staleLosingReview)}`}>
+                Needs Review {advisory.staleLosingReview ? "Flagged" : "Clear"}
+              </span>
+              <span className={`rounded-md border px-3 py-1.5 ${opportunityLabelClass(volatilityOpportunity.label)}`}>
+                Bounce Setup {opportunityLabelText(volatilityOpportunity.label)}
+              </span>
+              <span className={`rounded-md border px-3 py-1.5 ${rotationStatusClass(rotation.status)}`}>
+                Symbol Suitability {rotation.status}
+              </span>
             </div>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-md border border-white/8 bg-black/20 p-3">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Open Size</p>
-              <p className="mt-1 text-lg font-semibold text-white">{summary.openUnits.toFixed(6)}</p>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+            <div className="rb-content-card p-3">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Current Price</p>
+              <p className="mt-1 text-base font-semibold text-sky-200">{formatPrice(summary.currentPrice)}</p>
             </div>
-            <div className="rounded-md border border-white/8 bg-black/20 p-3">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Market Value</p>
-              <p className="mt-1 text-lg font-semibold text-white">{formatCurrency(summary.marketValue)}</p>
+            <div className="rb-content-card p-3">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Position Value</p>
+              <p className="mt-1 text-base font-semibold text-white">{formatCurrency(summary.marketValue)}</p>
             </div>
-            <div className="rounded-md border border-white/8 bg-black/20 p-3">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Unrealized PnL</p>
-              <p className={`mt-1 text-lg font-semibold ${toneByValue(summary.unrealizedPnlUsd)}`}>
+            <div className="rb-content-card p-3">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Open P/L</p>
+              <p className={`mt-1 text-base font-semibold ${toneByValue(summary.unrealizedPnlUsd)}`}>
                 {formatCurrency(summary.unrealizedPnlUsd)}
               </p>
-              <p className={`text-xs ${toneByValue(summary.unrealizedPnlPct)}`}>
+            </div>
+            <div className="rb-content-card p-3">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">P/L %</p>
+              <p className={`mt-1 text-base font-semibold ${toneByValue(summary.unrealizedPnlPct)}`}>
                 {formatPercent(summary.unrealizedPnlPct)}
               </p>
             </div>
-            <div className="rounded-md border border-white/8 bg-black/20 p-3">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Position Age</p>
-              <p className="mt-1 text-lg font-semibold text-white">{formatAgeHours(summary.positionAgeHours)}</p>
+            <div className="rb-content-card p-3">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Age</p>
+              <p className="mt-1 text-base font-semibold text-white">{formatAgeHours(summary.positionAgeHours)}</p>
             </div>
-            <div className="rounded-md border border-white/8 bg-black/20 p-3">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Max Drawdown Since Entry</p>
-              <p className={`mt-1 text-lg font-semibold ${toneByValue(summary.maxDrawdownSinceEntryPct)}`}>
-                {formatPercent(summary.maxDrawdownSinceEntryPct)}
+            <div className="rb-content-card p-3">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Needs Review</p>
+              <p className={`mt-1 text-sm font-semibold ${advisory.staleLosingReview ? "text-amber-100" : "text-emerald-100"}`}>
+                {advisory.staleLosingReview ? "Flagged" : "Clear"}
               </p>
             </div>
-            <div className="rounded-md border border-white/8 bg-black/20 p-3">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Regime</p>
-              <p className="mt-1 text-lg font-semibold text-white">{advisory.regime ?? "N/A"}</p>
+            <div className="rb-content-card p-3">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Bounce Setup</p>
+              <p className="mt-1 text-sm font-semibold text-sky-100">{opportunityLabelText(volatilityOpportunity.label)}</p>
             </div>
-            <div className="rounded-md border border-white/8 bg-black/20 p-3">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Opportunity</p>
-              <p className="mt-1 text-lg font-semibold text-emerald-200">
-                {formatPercent(advisory.volatilityOpportunityScorePct)}
-              </p>
-              <p className="text-xs text-slate-400">{advisory.volatilityOpportunityLabel}</p>
-            </div>
-            <div className="rounded-md border border-white/8 bg-black/20 p-3">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Capital Efficiency</p>
-              <p className="mt-1 text-lg font-semibold text-white">
-                {advisory.capitalEfficiencyScore === null
+            <div className="rb-content-card p-3">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Trend Shift</p>
+              <p className={`mt-1 text-base font-semibold ${toneByValue(rotation.rotationDelta ?? 0)}`}>
+                {rotation.rotationDelta === null
                   ? "N/A"
-                  : `${advisory.capitalEfficiencyScore.toFixed(1)} / 100`}
-              </p>
-              <p className="text-xs text-slate-400">
-                Rank {advisory.capitalWasteRank ?? "N/A"}
+                  : `${rotation.rotationDelta > 0 ? "+" : ""}${rotation.rotationDelta.toFixed(1)}`}
               </p>
             </div>
           </div>
 
-          <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-semibold uppercase tracking-[0.12em]">
-            <span className={`rounded-md border px-3 py-1.5 ${advisoryChipClass(advisory.staleLosingReview)}`}>
-              {advisory.staleLosingReview ? "Stale losing review: flagged" : "Stale losing review: clear"}
-            </span>
-            <span className="rounded-md border border-sky-400/25 bg-sky-500/12 px-3 py-1.5 text-sky-100">
-              Score {advisory.strategyScorePct === null ? "N/A" : `${advisory.strategyScorePct.toFixed(1)}%`}
-            </span>
-            <span className="rounded-md border border-white/12 bg-white/[0.04] px-3 py-1.5 text-slate-300">
-              Volatility {advisory.volatilityPct === null ? "N/A" : `${advisory.volatilityPct.toFixed(3)}%`}
-            </span>
-            <span className="rounded-md border border-white/12 bg-white/[0.04] px-3 py-1.5 text-slate-300">
-              Executable {advisory.buyExecutable === null ? "N/A" : advisory.buyExecutable ? "Ready" : "Blocked"}
-            </span>
+          {!inPosition ? (
+            <p className="mt-4 rounded-md border border-sky-400/25 bg-sky-500/12 px-3 py-2 text-sm text-sky-100">
+              No active open position for this token right now. Advisory cards still show current setup quality.
+            </p>
+          ) : null}
+        </section>
+
+        <section className="rb-section p-5 sm:p-6">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Current Position Snapshot
+            </p>
+            <h2 className="mt-1 text-2xl font-semibold text-white">Position and Risk Path</h2>
+          </div>
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <article className="rb-content-card p-4">
+              <p className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">Position</p>
+              <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <div className="rb-summary-card p-3">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Entry Price</p>
+                  <p className="mt-1 font-semibold text-white">{formatPrice(summary.entryPrice)}</p>
+                </div>
+                <div className="rb-summary-card p-3">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Current Price</p>
+                  <p className="mt-1 font-semibold text-sky-200">{formatPrice(summary.currentPrice)}</p>
+                </div>
+                <div className="rb-summary-card p-3">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Size</p>
+                  <p className="mt-1 font-semibold text-white">{formatUnits(summary.openUnits)}</p>
+                </div>
+                <div className="rb-summary-card p-3">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Market Value</p>
+                  <p className="mt-1 font-semibold text-white">{formatCurrency(summary.marketValue)}</p>
+                </div>
+                <div className="rb-summary-card p-3">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Open P/L</p>
+                  <p className={`mt-1 font-semibold ${toneByValue(summary.unrealizedPnlUsd)}`}>
+                    {formatCurrency(summary.unrealizedPnlUsd)}
+                  </p>
+                </div>
+                <div className="rb-summary-card p-3">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">P/L %</p>
+                  <p className={`mt-1 font-semibold ${toneByValue(summary.unrealizedPnlPct)}`}>
+                    {formatPercent(summary.unrealizedPnlPct)}
+                  </p>
+                </div>
+              </div>
+              <p className="mt-3 text-xs text-slate-400">Age: {formatAgeHours(summary.positionAgeHours)}</p>
+            </article>
+
+            <article className="rb-content-card p-4">
+              <p className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">Risk Path</p>
+              <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <div className="rb-summary-card p-3">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Worst Dip</p>
+                  <p className={`mt-1 font-semibold ${toneByValue(summary.maxDrawdownSinceEntryPct)}`}>
+                    {formatPercent(summary.maxDrawdownSinceEntryPct)}
+                  </p>
+                </div>
+                <div className="rb-summary-card p-3">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Current Drawdown</p>
+                  <p className={`mt-1 font-semibold ${toneByValue(currentDrawdownPct)}`}>
+                    {formatPercent(currentDrawdownPct)}
+                  </p>
+                </div>
+                <div className="rb-summary-card p-3">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Needs Review</p>
+                  <p className={`mt-1 font-semibold ${advisory.staleLosingReview ? "text-amber-100" : "text-emerald-100"}`}>
+                    {advisory.staleLosingReview ? "Flagged" : "Clear"}
+                  </p>
+                </div>
+                <div className="rb-summary-card p-3">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Review Rule</p>
+                  <p className="mt-1 font-semibold text-slate-200">
+                    Age {formatAgeHours(advisory.staleReviewThresholdAgeHours)} and P/L {formatPercent(advisory.staleReviewThresholdUnrealizedPnlPct)}
+                  </p>
+                </div>
+                <div className="rb-summary-card p-3">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Recovery (Short)</p>
+                  <p className="mt-1 font-semibold text-slate-200">
+                    {rotation.shortTerm.avgRecoveryHours === null ? "N/A" : `${rotation.shortTerm.avgRecoveryHours.toFixed(1)}h`}
+                  </p>
+                </div>
+                <div className="rb-summary-card p-3">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Recovery (Medium)</p>
+                  <p className="mt-1 font-semibold text-slate-200">
+                    {rotation.mediumTerm.avgRecoveryHours === null ? "N/A" : `${rotation.mediumTerm.avgRecoveryHours.toFixed(1)}h`}
+                  </p>
+                </div>
+              </div>
+              <p className="mt-3 text-xs text-slate-400">
+                Max drawdown context: {summary.maxDrawdownSinceEntryPrice === null ? "N/A" : formatPrice(summary.maxDrawdownSinceEntryPrice)}
+                {" at "}
+                {summary.maxDrawdownSinceEntryAt === null
+                  ? "N/A"
+                  : new Date(summary.maxDrawdownSinceEntryAt * 1000).toLocaleString()}
+              </p>
+            </article>
           </div>
         </section>
 
-        <section className="rounded-md border border-white/8 bg-[linear-gradient(160deg,rgba(9,14,24,0.94),rgba(4,8,14,0.96))] p-5 sm:p-6">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+        <section className="rb-section p-5 sm:p-6">
+          <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                Wave Zone Analyzer
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Advisory Intelligence
               </p>
-              <p className="mt-2 text-sm text-slate-400">
-                Advisory probabilities and observed zones from recent snapshot history. This does not change execution behavior.
-              </p>
+              <h2 className="mt-1 text-2xl font-semibold text-white">Advisory Overview</h2>
             </div>
-            <div className={`rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] ${biasBadgeStyle(wave.summary.dominant_bias)}`}>
-              {wave.summary.dominant_bias === "LOW_REVISIT_MORE_LIKELY"
-                ? "LOW MAGNET"
-                : wave.summary.dominant_bias === "HIGH_REVISIT_MORE_LIKELY"
-                  ? "HIGH MAGNET"
-                  : "BALANCED"}
-            </div>
+            <span className="rounded-md border border-white/12 bg-white/[0.04] px-3 py-1 text-xs uppercase tracking-[0.12em] text-slate-400">
+              Advisory only
+            </span>
           </div>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="rounded-md border border-white/8 bg-black/20 p-3">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Current Price</p>
-              <p className="mt-1 text-lg font-semibold text-sky-200">{formatPrice(wave.current_price)}</p>
-            </div>
-            <div className="rounded-md border border-white/8 bg-black/20 p-3">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Weighted Low Revisit</p>
-              <p className="mt-1 text-lg font-semibold text-emerald-200">
-                {formatPercent(wave.summary.weighted_low_revisit_likelihood_pct)}
-              </p>
-            </div>
-            <div className="rounded-md border border-white/8 bg-black/20 p-3">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Weighted High Revisit</p>
-              <p className="mt-1 text-lg font-semibold text-rose-200">
-                {formatPercent(wave.summary.weighted_high_revisit_likelihood_pct)}
-              </p>
-            </div>
-            <div className="rounded-md border border-white/8 bg-black/20 p-3">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Dominant Bias</p>
-              <p className="mt-1 text-sm font-semibold text-white">{wave.summary.dominant_bias}</p>
-            </div>
-            <div className="rounded-md border border-white/8 bg-black/20 p-3 sm:col-span-2">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Strongest Overall Low Zone</p>
-              <p className="mt-1 text-sm font-semibold text-emerald-200">
-                {formatZoneRange(wave.summary.strongest_overall_low_zone)}
-              </p>
-            </div>
-            <div className="rounded-md border border-white/8 bg-black/20 p-3 sm:col-span-2">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Strongest Overall High Zone</p>
-              <p className="mt-1 text-sm font-semibold text-rose-200">
-                {formatZoneRange(wave.summary.strongest_overall_high_zone)}
-              </p>
-            </div>
-          </div>
-
-          <p className="mt-4 text-xs text-slate-400">
-            {wave.summary.data_quality_note}
-          </p>
-
-          <div className="mt-4 overflow-x-auto rounded-md border border-white/8 bg-black/20">
-            <table className="min-w-[1200px] w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/8 text-left text-[11px] uppercase tracking-[0.14em] text-slate-400">
-                  <th className="px-3 py-2">Window</th>
-                  <th className="px-3 py-2">Strongest Low Zone</th>
-                  <th className="px-3 py-2 text-right">Low Touches</th>
-                  <th className="px-3 py-2 text-right">Low Age</th>
-                  <th className="px-3 py-2 text-right">Low Score</th>
-                  <th className="px-3 py-2 text-right">Low Revisit</th>
-                  <th className="px-3 py-2">Strongest High Zone</th>
-                  <th className="px-3 py-2 text-right">High Touches</th>
-                  <th className="px-3 py-2 text-right">High Age</th>
-                  <th className="px-3 py-2 text-right">High Score</th>
-                  <th className="px-3 py-2 text-right">High Revisit</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/6">
-                {timeframeOrder.map((timeframeKey) => {
-                  const row = wave.timeframes[timeframeKey];
-                  if (!row) {
-                    return (
-                      <tr key={timeframeKey} className="text-slate-300">
-                        <td className="px-3 py-2 font-semibold uppercase">{timeframeKey}</td>
-                        <td className="px-3 py-2 text-slate-400" colSpan={10}>Insufficient data</td>
-                      </tr>
-                    );
-                  }
-
-                  if (row.insufficient_data) {
-                    return (
-                      <tr key={timeframeKey} className="text-slate-300">
-                        <td className="px-3 py-2 font-semibold uppercase">{timeframeKey}</td>
-                        <td className="px-3 py-2 text-slate-400" colSpan={10}>Insufficient data</td>
-                      </tr>
-                    );
-                  }
-
-                  return (
-                    <tr key={timeframeKey} className="text-slate-200">
-                      <td className="px-3 py-2 font-semibold uppercase">{timeframeKey}</td>
-                      <td className="px-3 py-2 text-xs text-emerald-200">
-                        <div>{formatZoneRange(row.strongest_low_zone)}</div>
-                        {row.most_touched_low_zone
-                          && row.strongest_low_zone
-                          && row.most_touched_low_zone.center !== row.strongest_low_zone.center ? (
-                            <div className="mt-0.5 text-[10px] text-slate-400">
-                              Most touched: {formatZoneRange(row.most_touched_low_zone)}
-                            </div>
-                          ) : null}
-                      </td>
-                      <td className="px-3 py-2 text-right">{row.strongest_low_zone?.touch_count ?? "N/A"}</td>
-                      <td className="px-3 py-2 text-right">
-                        {formatAgeHours(row.strongest_low_zone?.last_touch_age_hours ?? null)}
-                      </td>
-                      <td className="px-3 py-2 text-right">{row.strongest_low_zone?.score.toFixed(1) ?? "N/A"}</td>
-                      <td className="px-3 py-2 text-right text-emerald-200">
-                        {formatPercent(row.low_revisit_likelihood_pct)}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-rose-200">
-                        <div>{formatZoneRange(row.strongest_high_zone)}</div>
-                        {row.most_touched_high_zone
-                          && row.strongest_high_zone
-                          && row.most_touched_high_zone.center !== row.strongest_high_zone.center ? (
-                            <div className="mt-0.5 text-[10px] text-slate-400">
-                              Most touched: {formatZoneRange(row.most_touched_high_zone)}
-                            </div>
-                          ) : null}
-                      </td>
-                      <td className="px-3 py-2 text-right">{row.strongest_high_zone?.touch_count ?? "N/A"}</td>
-                      <td className="px-3 py-2 text-right">
-                        {formatAgeHours(row.strongest_high_zone?.last_touch_age_hours ?? null)}
-                      </td>
-                      <td className="px-3 py-2 text-right">{row.strongest_high_zone?.score.toFixed(1) ?? "N/A"}</td>
-                      <td className="px-3 py-2 text-right text-rose-200">
-                        {formatPercent(row.high_revisit_likelihood_pct)}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section className="grid gap-6 lg:grid-cols-2">
-          <div className="rounded-md border border-white/8 bg-[linear-gradient(160deg,rgba(9,14,24,0.94),rgba(4,8,14,0.96))] p-5 sm:p-6">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Price Snapshot Trail
-            </p>
-            <div className="mt-4">
-              <PriceSparkline points={data.chart.pricePoints} />
-            </div>
-          </div>
-
-          <div className="rounded-md border border-white/8 bg-[linear-gradient(160deg,rgba(9,14,24,0.94),rgba(4,8,14,0.96))] p-5 sm:p-6">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Token Trade Summary
-            </p>
-            <div className="mt-4 grid grid-cols-3 gap-3">
-              <div className="rounded-md border border-emerald-500/25 bg-emerald-500/12 p-3 text-center">
-                <p className="text-[11px] uppercase tracking-[0.12em] text-emerald-100">Buys</p>
-                <p className="mt-1 text-lg font-semibold text-white">{history.buyCount}</p>
-              </div>
-              <div className="rounded-md border border-rose-500/25 bg-rose-500/12 p-3 text-center">
-                <p className="text-[11px] uppercase tracking-[0.12em] text-rose-100">Sells</p>
-                <p className="mt-1 text-lg font-semibold text-white">{history.sellCount}</p>
-              </div>
-              <div className="rounded-md border border-sky-500/25 bg-sky-500/12 p-3 text-center">
-                <p className="text-[11px] uppercase tracking-[0.12em] text-sky-100">Realized</p>
-                <p className={`mt-1 text-lg font-semibold ${toneByValue(history.realizedPnlUsd)}`}>
-                  {formatCurrency(history.realizedPnlUsd)}
+          <div className="mt-4 grid gap-4 lg:grid-cols-3">
+            <article className="rb-content-card p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
+                  Volatility Opportunity
                 </p>
+                <span className={`rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${opportunityLabelClass(volatilityOpportunity.label)}`}>
+                  {opportunityLabelText(volatilityOpportunity.label)}
+                </span>
               </div>
-            </div>
+              <p className="mt-3 text-2xl font-semibold text-emerald-200">{formatPercent(volatilityOpportunity.score)}</p>
+              <p className="mt-1 text-xs text-sky-200">{confidenceLabelText(volatilityOpportunity.confidenceLabel)}</p>
+              <p className="mt-3 text-sm text-slate-300">{volatilityOpportunity.reason}</p>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
+                <div className="rb-summary-card px-2 py-1.5 text-center">
+                  Stretch {formatPercent(volatilityOpportunity.stretchScore)}
+                </div>
+                <div className="rb-summary-card px-2 py-1.5 text-center">
+                  Vol {formatPercent(volatilityOpportunity.volatilitySpikeScore)}
+                </div>
+                <div className="rb-summary-card px-2 py-1.5 text-center">
+                  Bounce {formatPercent(volatilityOpportunity.bounceContextScore)}
+                </div>
+              </div>
+              {volatilityOpportunity.insufficientData ? (
+                <p className="mt-3 text-xs text-amber-200">
+                  Insufficient data: {friendlyInsufficientReason(volatilityOpportunity.insufficientReasonCode, volatilityOpportunity.insufficientReasonMessage)}
+                </p>
+              ) : null}
+            </article>
+
+            <article className="rb-content-card p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
+                  Wave Zone Analyzer
+                </p>
+                <span className={`rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${biasBadgeStyle(wave.summary.dominant_bias)}`}>
+                  {wave.summary.dominant_bias === "LOW_REVISIT_MORE_LIKELY"
+                    ? "LOW MAGNET"
+                    : wave.summary.dominant_bias === "HIGH_REVISIT_MORE_LIKELY"
+                      ? "HIGH MAGNET"
+                      : "BALANCED"}
+                </span>
+              </div>
+              <p className="mt-3 text-[13px] text-slate-300">
+                Strongest Low Zone: <span className="font-semibold text-emerald-200">{formatZoneRange(wave.summary.strongest_overall_low_zone)}</span>
+              </p>
+              <p className="mt-1 text-[13px] text-slate-300">
+                Strongest High Zone: <span className="font-semibold text-rose-200">{formatZoneRange(wave.summary.strongest_overall_high_zone)}</span>
+              </p>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+                <div className="rb-summary-card px-2 py-1.5">
+                  Low Revisit {formatPercent(wave.summary.weighted_low_revisit_likelihood_pct)}
+                </div>
+                <div className="rb-summary-card px-2 py-1.5">
+                  High Revisit {formatPercent(wave.summary.weighted_high_revisit_likelihood_pct)}
+                </div>
+              </div>
+              {allWaveInsufficient ? (
+                <p className="mt-3 text-xs text-amber-200">Insufficient data for all wave windows.</p>
+              ) : null}
+            </article>
+
+            <article className="rb-content-card p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
+                  Rolling Symbol Rotation Monitor
+                </p>
+                <span className={`rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${rotationStatusClass(rotation.status)}`}>
+                  {rotation.status}
+                </span>
+              </div>
+              <div className="mt-3 grid gap-2 text-[12px] text-slate-300">
+                <p>
+                  Short-Term Score: <span className="font-semibold text-emerald-200">{rotation.shortTermScore === null ? "N/A" : rotation.shortTermScore.toFixed(1)}</span>
+                </p>
+                <p>
+                  Medium-Term Score: <span className="font-semibold text-sky-200">{rotation.mediumTermScore === null ? "N/A" : rotation.mediumTermScore.toFixed(1)}</span>
+                </p>
+                <p>
+                  Trend Shift: <span className={`font-semibold ${toneByValue(rotation.rotationDelta ?? 0)}`}>{rotation.rotationDelta === null ? "N/A" : `${rotation.rotationDelta > 0 ? "+" : ""}${rotation.rotationDelta.toFixed(1)}`}</span>
+                </p>
+                <p className="text-xs text-slate-400">{rotationConfidence}</p>
+              </div>
+            </article>
           </div>
         </section>
 
-        <section className="rounded-md border border-white/8 bg-[linear-gradient(160deg,rgba(9,14,24,0.94),rgba(4,8,14,0.96))] p-5 sm:p-6">
+        <section className="rb-section p-5 sm:p-6">
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Recent Token Trades
+            Recent Token Trade History
           </p>
-          <div className="mt-4 overflow-x-auto rounded-md border border-white/8 bg-black/20">
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-md border border-emerald-500/25 bg-emerald-500/12 p-3 text-center">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-emerald-100">Buys</p>
+              <p className="mt-1 text-lg font-semibold text-white">{history.buyCount}</p>
+            </div>
+            <div className="rounded-md border border-rose-500/25 bg-rose-500/12 p-3 text-center">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-rose-100">Sells</p>
+              <p className="mt-1 text-lg font-semibold text-white">{history.sellCount}</p>
+            </div>
+            <div className="rounded-md border border-sky-500/25 bg-sky-500/12 p-3 text-center">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-sky-100">Realized P/L</p>
+              <p className={`mt-1 text-lg font-semibold ${toneByValue(history.realizedPnlUsd)}`}>{formatCurrency(history.realizedPnlUsd)}</p>
+            </div>
+          </div>
+          <div className="mt-4 rb-table-wrap overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="border-b border-white/8 text-left text-[11px] uppercase tracking-[0.14em] text-slate-400">
                   <th className="px-3 py-2">Time</th>
-                  <th className="px-3 py-2">Side</th>
+                  <th className="px-3 py-2">Action</th>
                   <th className="px-3 py-2 text-right">Price</th>
                   <th className="px-3 py-2 text-right">Size</th>
-                  <th className="px-3 py-2 text-right">PnL</th>
+                  <th className="px-3 py-2 text-right">P/L</th>
                   <th className="px-3 py-2">Reason</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/6">
-                {history.recentTrades.length === 0 ? (
+                {sortedRecentTrades.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-3 py-4 text-center text-slate-400">
                       No recorded trades for this symbol.
                     </td>
                   </tr>
                 ) : (
-                  history.recentTrades.map((trade, index) => (
+                  sortedRecentTrades.map((trade, index) => (
                     <tr key={`${trade.time}-${trade.side}-${index}`} className="text-slate-200">
                       <td className="px-3 py-2 text-xs text-slate-400">
                         {trade.time > 0 ? new Date(trade.time * 1000).toLocaleString() : "N/A"}
                       </td>
                       <td className="px-3 py-2">
-                        <span
-                          className={`inline-flex rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
-                            trade.side === "BUY"
-                              ? "border-emerald-400/35 bg-emerald-500/15 text-emerald-100"
-                              : "border-rose-400/35 bg-rose-500/15 text-rose-100"
-                          }`}
-                        >
+                        <span className={`inline-flex rounded-md border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                          trade.side === "BUY"
+                            ? "border-emerald-400/35 bg-emerald-500/15 text-emerald-100"
+                            : "border-rose-400/35 bg-rose-500/15 text-rose-100"
+                        }`}>
                           {trade.side}
                         </span>
                       </td>
                       <td className="px-3 py-2 text-right">{formatPrice(trade.price)}</td>
-                      <td className="px-3 py-2 text-right">{trade.size.toFixed(6)}</td>
+                      <td className="px-3 py-2 text-right">{formatUnits(trade.size)}</td>
                       <td className={`px-3 py-2 text-right ${toneByValue(trade.pnl ?? 0)}`}>
                         {trade.pnl === null ? "N/A" : formatCurrency(trade.pnl)}
                       </td>
@@ -648,7 +815,108 @@ export default function TokenDetailPage() {
             </table>
           </div>
         </section>
+        <section className="rb-section p-5 sm:p-6">
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+            Detailed Analytics / Expanded Details
+          </p>
+          <p className="mt-1 text-sm text-slate-400">
+            Lower-priority analyzer breakdowns and diagnostics.
+          </p>
+          <div className="mt-4 grid gap-6 lg:grid-cols-2">
+            <div className="rb-content-card p-4">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Price Snapshot Trail</p>
+              <div className="mt-3">
+                <PriceSparkline points={data.chart.pricePoints} />
+              </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Last price timestamp: {summary.currentPriceAt ? new Date(summary.currentPriceAt).toLocaleString() : "N/A"}
+              </p>
+            </div>
+            <div className="rb-content-card p-4 text-[12px] text-slate-300">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Execution Diagnostics</p>
+              <p className="mt-2">Regime: {advisory.regime ?? "N/A"}</p>
+              <p>Strategy Score: {formatPercent(advisory.strategyScorePct)}</p>
+              <p>Volatility: {advisory.volatilityPct === null ? "N/A" : `${advisory.volatilityPct.toFixed(3)}%`}</p>
+              <p>Buy Executable: {advisory.buyExecutable === null ? "N/A" : advisory.buyExecutable ? "Ready" : "Blocked"}</p>
+              <p>Executable Reason: {advisory.buyExecutableReason ?? "N/A"}</p>
+              <p>Capital Efficiency: {advisory.capitalEfficiencyScore === null ? "N/A" : `${advisory.capitalEfficiencyScore.toFixed(1)} / 100`}</p>
+              <p>Capital Waste Rank: {advisory.capitalWasteRank ?? "N/A"}</p>
+            </div>
+          </div>
+          <details className="mt-4 rb-content-card p-3">
+            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">
+              Wave Zone Analyzer Breakdown
+            </summary>
+            <p className="mt-3 text-xs text-slate-400">{wave.summary.data_quality_note}</p>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Anchor: {wave.summary.analysis_anchor_at ? new Date(wave.summary.analysis_anchor_at).toLocaleString() : "N/A"}
+              {" | "}Latest snapshot age: {wave.summary.latest_snapshot_age_minutes === null || wave.summary.latest_snapshot_age_minutes === undefined ? "N/A" : `${wave.summary.latest_snapshot_age_minutes.toFixed(1)}m`}
+              {" | "}Points: {wave.summary.history_point_count ?? 0}
+            </p>
+            <div className="mt-3 rb-table-wrap overflow-x-auto">
+              <table className="min-w-[1200px] w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/8 text-left text-[11px] uppercase tracking-[0.14em] text-slate-400">
+                    <th className="px-3 py-2">Window</th>
+                    <th className="px-3 py-2">Strongest Low Zone</th>
+                    <th className="px-3 py-2 text-right">Low Touches</th>
+                    <th className="px-3 py-2 text-right">Low Age</th>
+                    <th className="px-3 py-2 text-right">Low Score</th>
+                    <th className="px-3 py-2 text-right">Low Revisit</th>
+                    <th className="px-3 py-2">Strongest High Zone</th>
+                    <th className="px-3 py-2 text-right">High Touches</th>
+                    <th className="px-3 py-2 text-right">High Age</th>
+                    <th className="px-3 py-2 text-right">High Score</th>
+                    <th className="px-3 py-2 text-right">High Revisit</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/6">
+                  {timeframeOrder.map((timeframeKey) => {
+                    const row = wave.timeframes[timeframeKey];
+                    if (!row) {
+                      return (
+                        <tr key={timeframeKey} className="text-slate-300">
+                          <td className="px-3 py-2 font-semibold uppercase">{timeframeKey}</td>
+                          <td className="px-3 py-2 text-slate-400" colSpan={10}>Insufficient data payload</td>
+                        </tr>
+                      );
+                    }
+                    if (row.insufficient_data) {
+                      return (
+                        <tr key={timeframeKey} className="text-slate-300">
+                          <td className="px-3 py-2 font-semibold uppercase">{timeframeKey}</td>
+                          <td className="px-3 py-2 text-slate-400" colSpan={10}>
+                            <div className="text-xs">{friendlyInsufficientReason(row.insufficient_reason_code, row.insufficient_reason_message)}</div>
+                            <div className="mt-1 text-[10px] uppercase tracking-[0.1em] text-slate-500">
+                              Code: {row.insufficient_reason_code ?? "unknown"} | Span: {row.observed_history_span_minutes.toFixed(1)}m | Candles: {row.observed_candle_count}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return (
+                      <tr key={timeframeKey} className="text-slate-200">
+                        <td className="px-3 py-2 font-semibold uppercase">{timeframeKey}</td>
+                        <td className="px-3 py-2 text-xs text-emerald-200">{formatZoneRange(row.strongest_low_zone)}</td>
+                        <td className="px-3 py-2 text-right">{row.strongest_low_zone?.touch_count ?? "N/A"}</td>
+                        <td className="px-3 py-2 text-right">{formatAgeHours(row.strongest_low_zone?.last_touch_age_hours ?? null)}</td>
+                        <td className="px-3 py-2 text-right">{row.strongest_low_zone?.score.toFixed(1) ?? "N/A"}</td>
+                        <td className="px-3 py-2 text-right text-emerald-200">{formatPercent(row.low_revisit_likelihood_pct)}</td>
+                        <td className="px-3 py-2 text-xs text-rose-200">{formatZoneRange(row.strongest_high_zone)}</td>
+                        <td className="px-3 py-2 text-right">{row.strongest_high_zone?.touch_count ?? "N/A"}</td>
+                        <td className="px-3 py-2 text-right">{formatAgeHours(row.strongest_high_zone?.last_touch_age_hours ?? null)}</td>
+                        <td className="px-3 py-2 text-right">{row.strongest_high_zone?.score.toFixed(1) ?? "N/A"}</td>
+                        <td className="px-3 py-2 text-right text-rose-200">{formatPercent(row.high_revisit_likelihood_pct)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </section>
       </div>
     </main>
   );
 }
+

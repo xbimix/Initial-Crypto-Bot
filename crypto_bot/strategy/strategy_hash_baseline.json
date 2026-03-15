@@ -1,8 +1,14 @@
 ﻿{
-    "generated_at_utc":  "2026-03-14T01:39:57.3825536Z",
+    "generated_at_utc":  "2026-03-15T05:48:54.3225638Z",
+    "hash_scope":  "behavior_sensitive",
+    "repo_root":  "D:\\Python-Codes\\RevBot",
     "files":  {
-                  "strategy_engine.py":  "5831159062B5586144860E7426D05543C904934FD1D7DF91D656E5719A4D3AC5",
-                  "regime.py":  "546DC789C80A898A042245F8BD9B54894508EA82F55041D3CD647F47D6452CD4",
-                  "scoring.py":  "EDF97342F7193086F1970D8842DE71376AF094EAEA7B3E8486265DFF5BE45D44"
+                  "crypto_bot/strategy/strategy_engine.py":  "5831159062B5586144860E7426D05543C904934FD1D7DF91D656E5719A4D3AC5",
+                  "crypto_bot/strategy/regime.py":  "546DC789C80A898A042245F8BD9B54894508EA82F55041D3CD647F47D6452CD4",
+                  "crypto_bot/strategy/scoring.py":  "EDF97342F7193086F1970D8842DE71376AF094EAEA7B3E8486265DFF5BE45D44",
+                  "crypto_bot/trading/executor.py":  "1273BBFC5E4E5936130BC84E9FD4FE92FAC8289E191A2D6B0AAD4038674CAD8A",
+                  "crypto_bot/risk/risk_manager.py":  "1EABF51EE89B44D36DB25B11BA03847ECCE8131E998DE25870AF10F151128EA6",
+                  "crypto_bot/main.py":  "B24F637FFC73A800CE5E8B3E8FE3C98E7700025AD3D98026B5789CBCC63D56F3",
+                  "crypto_bot/paper/paper_broker.py":  "5A844288138D56987C7DB733DA1B0586C862CC95D2A45622007F3DD18D02F805"
               }
 }

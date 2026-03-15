@@ -113,11 +113,12 @@
   },
   "emergency_stop": false,
   "symbol_strategies": {
-    "GST-USD": "volatility_scalper"
+    "GST-USD": "mean_reversion",
+    "XCN-USD": "volatility_scalper"
   },
   "volatility_scalper": {
     "symbols": [
-      "GST-USD"
+      "XCN-USD"
     ]
   },
   "config_version": 1

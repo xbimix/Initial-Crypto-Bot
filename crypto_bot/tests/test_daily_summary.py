@@ -102,6 +102,13 @@ def test_daily_summary_build_and_write(tmp_path, monkeypatch):
 
     report = daily_summary.build_daily_summary("2024-03-11")
 
+    assert "generated_at" in report
+    assert report["generated_at"] == report["generated_at_utc"]
+    assert report["coverage"]["window_type"] == "daily"
+    assert report["coverage"]["day_utc"] == "2024-03-11"
+    assert report["coverage"]["window_days"] == 1
+    assert report["freshness"]["indicator"] in {"fresh", "stale"}
+    assert isinstance(report["freshness"]["is_fresh"], bool)
     assert report["summary"]["total_buys"] == 1
     assert report["summary"]["total_sells"] == 1
     assert report["summary"]["realized_pnl_usd"] == 5.0
@@ -121,6 +128,21 @@ def test_daily_summary_build_and_write(tmp_path, monkeypatch):
     assert report["advisory"]["stale_losing_review"]["threshold_unrealized_pnl_pct"] == -8.0
     assert report["advisory"]["stale_losing_review"]["flagged_count"] == 1
     assert report["advisory"]["stale_losing_review"]["flagged_symbols"] == ["ADA-USD"]
+    assert "rolling_symbol_rotation" in report["advisory"]
+    rotation = report["advisory"]["rolling_symbol_rotation"]
+    assert rotation["short_window"]["days"] == 7
+    assert rotation["medium_window"]["max_closed_trades"] == 30
+    assert isinstance(rotation["symbols"], list)
+    assert "Rising" in rotation["status_counts"]
+    assert "top_volatility_opportunity_symbols" in report["summary"]
+    assert "highest_opportunity_score" in report["summary"]
+    assert "symbols_flagged_high_opportunity_count" in report["summary"]
+    assert report["summary"]["symbols_flagged_high_opportunity_count"] == 0
+    assert report["summary"]["highest_opportunity_score"] is None
+    assert "volatility_opportunity_radar" in report["advisory"]
+    radar = report["advisory"]["volatility_opportunity_radar"]
+    assert isinstance(radar["symbols"], list)
+    assert radar["high_opportunity_symbol_count"] == 0
     assert report["trade_reasons"]["entry_reasons"]["entry_signal"] == 1
     assert report["trade_reasons"]["exit_reasons"]["exit_signal"] == 1
     assert report["trade_reasons"]["blocked_reasons"]["spread_too_wide"] == 1

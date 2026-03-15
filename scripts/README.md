@@ -50,24 +50,29 @@ To restore a specific backup:
 .\scripts\restore_state.ps1 -BackupName 20260313-055226
 ```
 
-## 3) Generate strategy hash baseline
+## 3) Generate behavior-sensitive hash baseline
 
 ```powershell
 .\scripts\generate_strategy_baseline.ps1
 ```
 
-Writes `crypto_bot/strategy/strategy_hash_baseline.json`.
+Writes `crypto_bot/strategy/strategy_hash_baseline.json` with behavior-sensitive module hashes.
 
-## 4) Check for strategy drift
+## 4) Check for behavior-sensitive drift
 
 ```powershell
 .\scripts\check_strategy_hashes.ps1
 ```
 
-Fails if any of these files changed:
-- `strategy_engine.py`
-- `regime.py`
-- `scoring.py`
+Fails if any baseline-tracked behavior-sensitive file changed.
+Default baseline scope includes:
+- `crypto_bot/strategy/strategy_engine.py`
+- `crypto_bot/strategy/regime.py`
+- `crypto_bot/strategy/scoring.py`
+- `crypto_bot/trading/executor.py`
+- `crypto_bot/risk/risk_manager.py`
+- `crypto_bot/main.py`
+- `crypto_bot/paper/paper_broker.py` (unless excluded during baseline generation)
 
 Behavior lock and baseline policy docs:
 
@@ -120,6 +125,7 @@ Runs:
 - strategy hash check
 - Python compile check
 - `pytest` test suite
+- web advisory tests (`npm run test:wave-zones`)
 - `web-ui` build
 
 ## Config validation mode
@@ -182,6 +188,12 @@ Cleanup pytest/runtime temp artifacts:
 Detailed operational guide:
 
 `.\scripts\RUNBOOK_LOCAL.md`
+
+Pre-UI redesign references:
+
+- `.\scripts\UI_PAYLOAD_CONTRACTS.md`
+- `.\scripts\UI_VOCABULARY_MAP.md`
+- `.\scripts\UI_SECTION_PRIORITY.md`
 
 ## 9) Profile measured bottlenecks
 

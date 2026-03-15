@@ -30,6 +30,7 @@ Behavior-sensitive modules (directly affect trading outcomes):
 ## Required Gates Before Merge
 
 - `scripts/check_strategy_hashes.ps1`
+  - Hash baseline includes `strategy_engine.py`, `regime.py`, `scoring.py`, `executor.py`, `risk_manager.py`, `main.py`, and `paper_broker.py` by default.
 - `scripts/run_strategy_replay.ps1`
 - `python -m pytest crypto_bot/tests/test_strategy_regression.py -q`
 - `python -m pytest crypto_bot/tests/test_strategy_replay_fixture.py -q`

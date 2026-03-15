@@ -120,6 +120,52 @@ def _build_anomaly_notes(rows: list[dict[str, Any]]) -> list[str]:
     return notes
 
 
+def _aggregate_volatility_opportunity(
+    rows: list[dict[str, Any]],
+) -> tuple[dict[str, int], dict[str, float]]:
+    high_counts: dict[str, int] = {}
+    score_totals: dict[str, float] = {}
+    score_counts: dict[str, int] = {}
+
+    for row in rows:
+        advisory = row.get("advisory", {})
+        if not isinstance(advisory, dict):
+            continue
+        radar = advisory.get("volatility_opportunity_radar", {})
+        if not isinstance(radar, dict):
+            continue
+        symbol_rows = radar.get("symbols", [])
+        if not isinstance(symbol_rows, list):
+            continue
+
+        for item in symbol_rows:
+            if not isinstance(item, dict):
+                continue
+            symbol = str(item.get("symbol") or "").upper()
+            if not symbol:
+                continue
+            if bool(item.get("insufficient_data")):
+                continue
+            label = str(item.get("label") or "").upper()
+            score = item.get("score")
+            score_value = _to_float(score, fallback=float("nan"))
+            if label == "HIGH":
+                high_counts[symbol] = high_counts.get(symbol, 0) + 1
+            if score is not None and score_value == score_value:
+                score_totals[symbol] = score_totals.get(symbol, 0.0) + score_value
+                score_counts[symbol] = score_counts.get(symbol, 0) + 1
+
+    high_counts_sorted = dict(sorted(high_counts.items(), key=lambda item: (-item[1], item[0])))
+    avg_scores: dict[str, float] = {}
+    for symbol, total in score_totals.items():
+        count = score_counts.get(symbol, 0)
+        if count <= 0:
+            continue
+        avg_scores[symbol] = round(total / count, 3)
+    avg_scores_sorted = dict(sorted(avg_scores.items(), key=lambda item: (-item[1], item[0])))
+    return high_counts_sorted, avg_scores_sorted
+
+
 def build_weekly_summary(
     end_day_iso: str | None = None,
     *,
@@ -127,7 +173,22 @@ def build_weekly_summary(
 ) -> dict[str, Any]:
     if not end_day_iso:
         end_day_iso = datetime.now(timezone.utc).date().isoformat()
+    generated_at = datetime.now(timezone.utc)
     window = _day_window(end_day_iso, day_count)
+    start_day_date = _parse_day(window.start_day_utc)
+    end_day_date = _parse_day(window.end_day_utc)
+    coverage_start_dt = datetime(
+        start_day_date.year,
+        start_day_date.month,
+        start_day_date.day,
+        tzinfo=timezone.utc,
+    )
+    coverage_end_dt = datetime(
+        end_day_date.year,
+        end_day_date.month,
+        end_day_date.day,
+        tzinfo=timezone.utc,
+    ) + timedelta(days=1)
 
     rows: list[dict[str, Any]] = []
     missing_days: list[str] = []
@@ -177,6 +238,31 @@ def build_weekly_summary(
         if rows and isinstance(rows[-1].get("summary"), dict)
         else ""
     )
+    latest_rotation_rising_count = (
+        _to_int(rows[-1].get("summary", {}).get("rotation_rising_count"), 0)
+        if rows and isinstance(rows[-1].get("summary"), dict)
+        else 0
+    )
+    latest_rotation_strong_count = (
+        _to_int(rows[-1].get("summary", {}).get("rotation_strong_count"), 0)
+        if rows and isinstance(rows[-1].get("summary"), dict)
+        else 0
+    )
+    latest_rotation_weakening_count = (
+        _to_int(rows[-1].get("summary", {}).get("rotation_weakening_count"), 0)
+        if rows and isinstance(rows[-1].get("summary"), dict)
+        else 0
+    )
+    latest_rotation_cold_count = (
+        _to_int(rows[-1].get("summary", {}).get("rotation_cold_count"), 0)
+        if rows and isinstance(rows[-1].get("summary"), dict)
+        else 0
+    )
+    latest_rotation_capital_trap_risk_count = (
+        _to_int(rows[-1].get("summary", {}).get("rotation_capital_trap_risk_count"), 0)
+        if rows and isinstance(rows[-1].get("summary"), dict)
+        else 0
+    )
     drawdown_worst = min(
         (
             _to_float(row.get("summary", {}).get("max_open_drawdown_pct"), 0.0)
@@ -224,11 +310,38 @@ def build_weekly_summary(
         for row in rows
         if isinstance(row.get("summary"), dict)
     )
+    latest_high_opportunity_symbol_count = (
+        _to_int(rows[-1].get("summary", {}).get("symbols_flagged_high_opportunity_count"), 0)
+        if rows and isinstance(rows[-1].get("summary"), dict)
+        else 0
+    )
+    high_signal_frequency_by_symbol, avg_opportunity_score_by_symbol = _aggregate_volatility_opportunity(rows)
+    top_high_opportunity_symbols = list(high_signal_frequency_by_symbol.keys())[:5]
     blocked_reasons = _aggregate_reason_counts(rows, "blocked_reasons")
     anomalies = _build_anomaly_notes(rows)
+    coverage_end_age_hours = max(
+        (generated_at - coverage_end_dt).total_seconds() / 3600.0,
+        0.0,
+    )
+    is_fresh = coverage_end_age_hours <= 36.0
 
     return {
-        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
+        "generated_at": generated_at.isoformat(),
+        "generated_at_utc": generated_at.isoformat(),
+        "coverage": {
+            "window_type": "weekly",
+            "start_day_utc": window.start_day_utc,
+            "end_day_utc": window.end_day_utc,
+            "start_utc": coverage_start_dt.isoformat(),
+            "end_utc": coverage_end_dt.isoformat(),
+            "requested_day_count": window.day_count,
+            "available_day_count": len(rows),
+        },
+        "freshness": {
+            "indicator": "fresh" if is_fresh else "stale",
+            "is_fresh": is_fresh,
+            "coverage_end_age_hours": round(coverage_end_age_hours, 3),
+        },
         "window": {
             "start_day_utc": window.start_day_utc,
             "end_day_utc": window.end_day_utc,
@@ -246,14 +359,29 @@ def build_weekly_summary(
             "latest_max_drawdown_during_trade_symbol": (
                 latest_max_drawdown_during_trade_symbol or None
             ),
+            "latest_rotation_rising_count": latest_rotation_rising_count,
+            "latest_rotation_strong_count": latest_rotation_strong_count,
+            "latest_rotation_weakening_count": latest_rotation_weakening_count,
+            "latest_rotation_cold_count": latest_rotation_cold_count,
+            "latest_rotation_capital_trap_risk_count": latest_rotation_capital_trap_risk_count,
             "worst_max_drawdown_during_trade_pct": round(drawdown_during_trade_worst, 3),
             "worst_open_drawdown_pct": round(drawdown_worst, 3),
             "crash_count_total": crash_total,
             "restart_count_total": restart_total,
             "data_gap_incidents_total": data_gap_total,
             "stale_data_blocks_total": stale_block_total,
+            "latest_high_opportunity_symbol_count": latest_high_opportunity_symbol_count,
+            "top_high_opportunity_symbols": top_high_opportunity_symbols,
         },
         "blocked_reasons_top": blocked_reasons,
+        "volatility_opportunity": {
+            "high_signal_frequency_by_symbol": high_signal_frequency_by_symbol,
+            "average_opportunity_score_by_symbol": avg_opportunity_score_by_symbol,
+            "top_high_opportunity_symbols": top_high_opportunity_symbols,
+            "note": (
+                "Advisory-only aggregation from daily volatility opportunity radar; no execution behavior changes."
+            ),
+        },
         "anomaly_notes": anomalies,
         "daily_rows": rows,
     }

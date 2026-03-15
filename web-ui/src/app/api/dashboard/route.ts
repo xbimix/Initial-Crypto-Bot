@@ -1,6 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { NextResponse } from "next/server";
+import { analyzeVolatilityOpportunity } from "../../lib/volatilityOpportunityRadar.mjs";
 
 type ConfigState = {
   enabled?: boolean;
@@ -146,6 +147,35 @@ type SymbolControl = {
   capitalWasteAllocationPct: number | null;
   capitalWasteUnrealizedPct: number | null;
   capitalWasteAgeHours: number | null;
+  rotationShortTermScore: number | null;
+  rotationMediumTermScore: number | null;
+  rotationDelta: number | null;
+  rotationStatus: string;
+  rotationShortTermWinRatePct: number | null;
+  rotationShortTermAvgRealizedPnlUsd: number | null;
+  rotationShortTermAvgHoldHours: number | null;
+  rotationShortTermAvgRecoveryHours: number | null;
+  rotationShortTermStaleReviewFrequencyPct: number | null;
+  rotationShortTermAvgMaxDrawdownPct: number | null;
+  rotationMediumTermWinRatePct: number | null;
+  rotationMediumTermAvgRealizedPnlUsd: number | null;
+  rotationMediumTermAvgHoldHours: number | null;
+  rotationMediumTermAvgRecoveryHours: number | null;
+  rotationMediumTermStaleReviewFrequencyPct: number | null;
+  rotationMediumTermAvgMaxDrawdownPct: number | null;
+  volatilityOpportunityScore: number | null;
+  volatilityOpportunityLabel: string | null;
+  volatilityOpportunityReason: string;
+  volatilityOpportunityConfidenceLabel: string;
+  volatilityOpportunityStretchScore: number | null;
+  volatilityOpportunityVolatilitySpikeScore: number | null;
+  volatilityOpportunityBounceContextScore: number | null;
+  volatilityOpportunityLiquidityQualityScore: number | null;
+  volatilityOpportunityObservedHistorySpanMinutes: number;
+  volatilityOpportunityObservedPointCount: number;
+  volatilityOpportunityInsufficientData: boolean;
+  volatilityOpportunityInsufficientReasonCode: string | null;
+  volatilityOpportunityInsufficientReasonMessage: string | null;
 };
 
 type SnapshotMetrics = {
@@ -174,6 +204,38 @@ type CapitalEfficiencyRow = {
   score: number;
   wasteScore: number;
   rank: number;
+};
+
+type ClosedTradeRow = {
+  tradeId: string;
+  symbol: string;
+  entryTime: number | null;
+  exitTime: number;
+  holdHours: number | null;
+  pnlUsd: number;
+  pnlPct: number | null;
+  staleReviewHit: boolean;
+  maxDrawdownPct: number;
+};
+
+type RotationWindowMetrics = {
+  tradeCount: number;
+  winRatePct: number | null;
+  avgRealizedPnlUsd: number | null;
+  avgRealizedPnlPct: number | null;
+  avgHoldHours: number | null;
+  avgRecoveryHours: number | null;
+  staleReviewFrequencyPct: number | null;
+  avgMaxDrawdownPct: number | null;
+};
+
+type SymbolRotationAdvisory = {
+  shortTermScore: number | null;
+  mediumTermScore: number | null;
+  rotationDelta: number | null;
+  status: string;
+  shortTermMetrics: RotationWindowMetrics;
+  mediumTermMetrics: RotationWindowMetrics;
 };
 
 const STATE_DIR = path.resolve(process.cwd(), "..", "crypto_bot", "state");
@@ -439,6 +501,262 @@ function computeBuyOpportunityPct(
 
   const score = clamp(zoneScore + stretchScore + momentumScore - penalty, 0, 100);
   return score;
+}
+
+function buildClosedTradesBySymbol(
+  trades: TradeEntry[],
+  staleReviewAgeHours: number,
+  staleReviewUnrealizedPnlPct: number,
+) {
+  const sortedTrades = [...trades].sort(
+    (left, right) => Number(left.time ?? 0) - Number(right.time ?? 0),
+  );
+  const buyQueueBySymbol: Record<string, TradeEntry[]> = {};
+  const closedBySymbol: Record<string, ClosedTradeRow[]> = {};
+
+  for (let index = 0; index < sortedTrades.length; index += 1) {
+    const trade = sortedTrades[index];
+    const symbol = normalizeSymbol(trade.symbol);
+    const side = String(trade.side ?? "").toUpperCase();
+    const tradeTime = asFiniteNumber(trade.time);
+    if (!symbol || tradeTime === null || tradeTime <= 0) {
+      continue;
+    }
+
+    if (side === "BUY") {
+      if (!(symbol in buyQueueBySymbol)) {
+        buyQueueBySymbol[symbol] = [];
+      }
+      buyQueueBySymbol[symbol].push(trade);
+      continue;
+    }
+
+    if (side !== "SELL") {
+      continue;
+    }
+
+    const buyQueue = buyQueueBySymbol[symbol] ?? [];
+    const matchedBuy = buyQueue.length > 0 ? buyQueue.shift() ?? null : null;
+    buyQueueBySymbol[symbol] = buyQueue;
+
+    const entryPrice = matchedBuy === null ? null : asFiniteNumber(matchedBuy.price);
+    const exitPrice = asFiniteNumber(trade.price);
+    const entryTime = matchedBuy === null ? null : asFiniteNumber(matchedBuy.time);
+    const pnlUsd = asFiniteNumber(trade.pnl) ?? 0;
+    const holdHours = (
+      entryTime === null || entryTime <= 0
+    )
+      ? null
+      : Math.max((tradeTime - entryTime) / 3600, 0);
+    const pnlPct = (
+      entryPrice !== null
+      && entryPrice > 0
+      && exitPrice !== null
+      && exitPrice > 0
+    )
+      ? ((exitPrice - entryPrice) / entryPrice) * 100
+      : null;
+    const staleReviewHit = (
+      holdHours !== null
+      && pnlPct !== null
+      && holdHours >= staleReviewAgeHours
+      && pnlPct <= staleReviewUnrealizedPnlPct
+    );
+    const maxDrawdownPct = pnlPct === null ? 0 : Math.min(pnlPct, 0);
+
+    if (!(symbol in closedBySymbol)) {
+      closedBySymbol[symbol] = [];
+    }
+    closedBySymbol[symbol].push({
+      tradeId: `${symbol}:${tradeTime}:${index}`,
+      symbol,
+      entryTime,
+      exitTime: tradeTime,
+      holdHours,
+      pnlUsd,
+      pnlPct,
+      staleReviewHit,
+      maxDrawdownPct,
+    });
+  }
+
+  for (const rows of Object.values(closedBySymbol)) {
+    rows.sort((left, right) => right.exitTime - left.exitTime);
+  }
+  return closedBySymbol;
+}
+
+function selectRollingWindowRows(
+  rows: ClosedTradeRow[],
+  nowEpochSeconds: number,
+  dayWindow: number,
+  tradeWindow: number,
+) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return [];
+  }
+  const cutoffEpoch = nowEpochSeconds - (dayWindow * 86400);
+  const byDays = rows.filter((row) => row.exitTime >= cutoffEpoch);
+  const byTrades = rows.slice(0, Math.max(1, Math.trunc(tradeWindow)));
+  const deduped = new Map<string, ClosedTradeRow>();
+  for (const row of byDays) {
+    deduped.set(row.tradeId, row);
+  }
+  for (const row of byTrades) {
+    deduped.set(row.tradeId, row);
+  }
+  return Array.from(deduped.values()).sort((left, right) => right.exitTime - left.exitTime);
+}
+
+function average(values: number[]) {
+  if (values.length === 0) {
+    return null;
+  }
+  return sum(values) / values.length;
+}
+
+function computeRotationWindowMetrics(rows: ClosedTradeRow[]): RotationWindowMetrics {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return {
+      tradeCount: 0,
+      winRatePct: null,
+      avgRealizedPnlUsd: null,
+      avgRealizedPnlPct: null,
+      avgHoldHours: null,
+      avgRecoveryHours: null,
+      staleReviewFrequencyPct: null,
+      avgMaxDrawdownPct: null,
+    };
+  }
+
+  const wins = rows.filter((row) => row.pnlUsd > 0);
+  const pnlUsdValues = rows.map((row) => row.pnlUsd);
+  const pnlPctValues = rows
+    .map((row) => row.pnlPct)
+    .filter((value): value is number => value !== null);
+  const holdValues = rows
+    .map((row) => row.holdHours)
+    .filter((value): value is number => value !== null);
+  const recoveryValues = rows
+    .filter((row) => row.pnlUsd > 0)
+    .map((row) => row.holdHours)
+    .filter((value): value is number => value !== null);
+  const staleHits = rows.filter((row) => row.staleReviewHit).length;
+  const maxDrawdownValues = rows.map((row) => row.maxDrawdownPct);
+
+  return {
+    tradeCount: rows.length,
+    winRatePct: (wins.length / rows.length) * 100,
+    avgRealizedPnlUsd: average(pnlUsdValues),
+    avgRealizedPnlPct: average(pnlPctValues),
+    avgHoldHours: average(holdValues),
+    avgRecoveryHours: average(recoveryValues),
+    staleReviewFrequencyPct: (staleHits / rows.length) * 100,
+    avgMaxDrawdownPct: average(maxDrawdownValues),
+  };
+}
+
+function computeRotationScore(metrics: RotationWindowMetrics) {
+  if (metrics.tradeCount <= 0 || metrics.winRatePct === null) {
+    return null;
+  }
+
+  const winNorm = clamp(metrics.winRatePct / 100, 0, 1);
+  const pnlNorm = clamp(((metrics.avgRealizedPnlPct ?? 0) + 6) / 12, 0, 1);
+  const holdNorm = metrics.avgHoldHours === null
+    ? 0.5
+    : clamp(1 - (metrics.avgHoldHours / 72), 0, 1);
+  const recoveryNorm = metrics.avgRecoveryHours === null
+    ? holdNorm
+    : clamp(1 - (metrics.avgRecoveryHours / 96), 0, 1);
+  const stalePenalty = clamp((metrics.staleReviewFrequencyPct ?? 0) / 100, 0, 1);
+  const drawdownPenalty = clamp(
+    Math.abs(Math.min(metrics.avgMaxDrawdownPct ?? 0, 0)) / 15,
+    0,
+    1,
+  );
+
+  const base = (
+    (0.35 * winNorm)
+    + (0.30 * pnlNorm)
+    + (0.15 * holdNorm)
+    + (0.10 * recoveryNorm)
+    + (0.10 * (1 - stalePenalty))
+  );
+  return clamp((base - (0.15 * drawdownPenalty)) * 100, 0, 100);
+}
+
+function classifyRotationStatus(
+  shortScore: number | null,
+  mediumScore: number | null,
+  delta: number | null,
+  shortMetrics: RotationWindowMetrics,
+  mediumMetrics: RotationWindowMetrics,
+) {
+  const short = shortScore ?? mediumScore ?? 50;
+  const medium = mediumScore ?? shortScore ?? 50;
+  const rotationDelta = delta ?? 0;
+  const staleFrequency = shortMetrics.staleReviewFrequencyPct
+    ?? mediumMetrics.staleReviewFrequencyPct
+    ?? 0;
+  const drawdown = shortMetrics.avgMaxDrawdownPct
+    ?? mediumMetrics.avgMaxDrawdownPct
+    ?? 0;
+
+  if (
+    short < 35
+    && medium < 40
+    && staleFrequency >= 30
+    && drawdown <= -8
+  ) {
+    return "Capital Trap Risk";
+  }
+  if (short >= 68 && medium >= 60 && rotationDelta >= 6) {
+    return "Rising";
+  }
+  if (short >= 65 && medium >= 65 && Math.abs(rotationDelta) <= 6) {
+    return "Strong";
+  }
+  if (short <= 32 && medium <= 40 && rotationDelta <= -6) {
+    return "Cold";
+  }
+  if (rotationDelta <= -8 || (short < medium && short < 52)) {
+    return "Weakening";
+  }
+  return "Neutral";
+}
+
+function buildSymbolRotationAdvisory(
+  rows: ClosedTradeRow[],
+  nowEpochSeconds: number,
+): SymbolRotationAdvisory {
+  const shortRows = selectRollingWindowRows(rows, nowEpochSeconds, 7, 10);
+  const mediumRows = selectRollingWindowRows(rows, nowEpochSeconds, 30, 30);
+  const shortMetrics = computeRotationWindowMetrics(shortRows);
+  const mediumMetrics = computeRotationWindowMetrics(mediumRows);
+  const shortTermScore = computeRotationScore(shortMetrics);
+  const mediumTermScore = computeRotationScore(mediumMetrics);
+  const rotationDelta = (
+    shortTermScore === null || mediumTermScore === null
+  )
+    ? null
+    : shortTermScore - mediumTermScore;
+  const status = classifyRotationStatus(
+    shortTermScore,
+    mediumTermScore,
+    rotationDelta,
+    shortMetrics,
+    mediumMetrics,
+  );
+
+  return {
+    shortTermScore,
+    mediumTermScore,
+    rotationDelta,
+    status,
+    shortTermMetrics: shortMetrics,
+    mediumTermMetrics: mediumMetrics,
+  };
 }
 
 function isWithinTradeWindowUtc(config: ConfigState, nowUtc = new Date()) {
@@ -1165,6 +1483,32 @@ export async function GET() {
     0,
   );
   const nowEpochSeconds = Date.now() / 1000;
+  const closedTradesBySymbol = buildClosedTradesBySymbol(
+    trades,
+    staleLosingReviewAgeHours,
+    staleLosingReviewUnrealizedPnlPct,
+  );
+  const rotationBySymbol: Record<string, SymbolRotationAdvisory> = {};
+  for (const symbol of allSymbols) {
+    rotationBySymbol[symbol] = buildSymbolRotationAdvisory(
+      closedTradesBySymbol[symbol] ?? [],
+      nowEpochSeconds,
+    );
+  }
+  const volatilityOpportunityBySymbol: Record<string, ReturnType<typeof analyzeVolatilityOpportunity>> = {};
+  for (const symbol of allSymbols) {
+    const history = snapshotHistory[symbol] ?? [];
+    const anchorNow = history.length > 0
+      ? history[history.length - 1].tsEpoch
+      : nowEpochSeconds;
+    volatilityOpportunityBySymbol[symbol] = analyzeVolatilityOpportunity({
+      symbol,
+      pricePoints: history,
+      latestSnapshot: snapshots[symbol] ?? null,
+      nowEpoch: anchorNow,
+      wallClockEpoch: nowEpochSeconds,
+    });
+  }
   const capitalEfficiencyBySymbol: Record<string, CapitalEfficiencyRow> = {};
 
   {
@@ -1245,6 +1589,8 @@ export async function GET() {
     const buyEnabled = buyMap[symbol] ?? legacyMap[symbol] ?? true;
     const hasOpenPosition = symbol in positions;
     const capitalEfficiency = capitalEfficiencyBySymbol[symbol];
+    const rotation = rotationBySymbol[symbol];
+    const volatilityOpportunity = volatilityOpportunityBySymbol[symbol];
     const symbolAllocatedUsd = symbolCostBasisUsd[symbol] ?? 0;
     const executableStatus = computeBuyExecutableStatus({
       buyEnabled,
@@ -1286,6 +1632,49 @@ export async function GET() {
       capitalWasteAllocationPct: capitalEfficiency?.allocationPct ?? null,
       capitalWasteUnrealizedPct: capitalEfficiency?.unrealizedPct ?? null,
       capitalWasteAgeHours: capitalEfficiency?.ageHours ?? null,
+      rotationShortTermScore: rotation?.shortTermScore ?? null,
+      rotationMediumTermScore: rotation?.mediumTermScore ?? null,
+      rotationDelta: rotation?.rotationDelta ?? null,
+      rotationStatus: rotation?.status ?? "Neutral",
+      rotationShortTermWinRatePct: rotation?.shortTermMetrics.winRatePct ?? null,
+      rotationShortTermAvgRealizedPnlUsd: rotation?.shortTermMetrics.avgRealizedPnlUsd ?? null,
+      rotationShortTermAvgHoldHours: rotation?.shortTermMetrics.avgHoldHours ?? null,
+      rotationShortTermAvgRecoveryHours: rotation?.shortTermMetrics.avgRecoveryHours ?? null,
+      rotationShortTermStaleReviewFrequencyPct:
+        rotation?.shortTermMetrics.staleReviewFrequencyPct ?? null,
+      rotationShortTermAvgMaxDrawdownPct:
+        rotation?.shortTermMetrics.avgMaxDrawdownPct ?? null,
+      rotationMediumTermWinRatePct: rotation?.mediumTermMetrics.winRatePct ?? null,
+      rotationMediumTermAvgRealizedPnlUsd:
+        rotation?.mediumTermMetrics.avgRealizedPnlUsd ?? null,
+      rotationMediumTermAvgHoldHours: rotation?.mediumTermMetrics.avgHoldHours ?? null,
+      rotationMediumTermAvgRecoveryHours:
+        rotation?.mediumTermMetrics.avgRecoveryHours ?? null,
+      rotationMediumTermStaleReviewFrequencyPct:
+        rotation?.mediumTermMetrics.staleReviewFrequencyPct ?? null,
+      rotationMediumTermAvgMaxDrawdownPct:
+        rotation?.mediumTermMetrics.avgMaxDrawdownPct ?? null,
+      volatilityOpportunityScore: volatilityOpportunity?.score ?? null,
+      volatilityOpportunityLabel: volatilityOpportunity?.label ?? null,
+      volatilityOpportunityReason: volatilityOpportunity?.reason ?? "Insufficient data",
+      volatilityOpportunityConfidenceLabel: volatilityOpportunity?.confidence_label ?? "LOW",
+      volatilityOpportunityStretchScore: volatilityOpportunity?.stretch_score ?? null,
+      volatilityOpportunityVolatilitySpikeScore:
+        volatilityOpportunity?.volatility_spike_score ?? null,
+      volatilityOpportunityBounceContextScore:
+        volatilityOpportunity?.bounce_context_score ?? null,
+      volatilityOpportunityLiquidityQualityScore:
+        volatilityOpportunity?.liquidity_quality_score ?? null,
+      volatilityOpportunityObservedHistorySpanMinutes:
+        volatilityOpportunity?.observed_history_span_minutes ?? 0,
+      volatilityOpportunityObservedPointCount:
+        volatilityOpportunity?.observed_point_count ?? 0,
+      volatilityOpportunityInsufficientData:
+        volatilityOpportunity?.insufficient_data ?? true,
+      volatilityOpportunityInsufficientReasonCode:
+        volatilityOpportunity?.insufficient_reason_code ?? null,
+      volatilityOpportunityInsufficientReasonMessage:
+        volatilityOpportunity?.insufficient_reason_message ?? null,
     };
   });
   const buyEnabledSymbolsCount = symbolControls.filter(
@@ -1447,6 +1836,66 @@ export async function GET() {
     },
     null,
   );
+  const rotationStatusCounts = {
+    Rising: 0,
+    Strong: 0,
+    Neutral: 0,
+    Weakening: 0,
+    Cold: 0,
+    "Capital Trap Risk": 0,
+  };
+  for (const control of symbolControls) {
+    const status = control.rotationStatus in rotationStatusCounts
+      ? control.rotationStatus as keyof typeof rotationStatusCounts
+      : "Neutral";
+    rotationStatusCounts[status] += 1;
+  }
+  const rotationTopRisingSymbols = [...symbolControls]
+    .filter((control) => (
+      control.rotationStatus === "Rising"
+      || control.rotationStatus === "Strong"
+    ))
+    .sort((left, right) => (
+      Number(right.rotationDelta ?? 0) - Number(left.rotationDelta ?? 0)
+    ) || (
+      Number(right.rotationShortTermScore ?? 0) - Number(left.rotationShortTermScore ?? 0)
+    ))
+    .slice(0, 5)
+    .map((control) => control.symbol);
+  const rotationTopColdSymbols = [...symbolControls]
+    .filter((control) => (
+      control.rotationStatus === "Cold"
+      || control.rotationStatus === "Capital Trap Risk"
+      || control.rotationStatus === "Weakening"
+    ))
+    .sort((left, right) => (
+      Number(left.rotationShortTermScore ?? 100) - Number(right.rotationShortTermScore ?? 100)
+    ) || (
+      Number(left.rotationDelta ?? 0) - Number(right.rotationDelta ?? 0)
+    ))
+    .slice(0, 5)
+    .map((control) => control.symbol);
+  const rankedVolatilityOpportunity = [...symbolControls]
+    .filter(
+      (control) => (
+        control.volatilityOpportunityScore !== null
+        && !control.volatilityOpportunityInsufficientData
+      ),
+    )
+    .sort((left, right) => (
+      Number(right.volatilityOpportunityScore ?? -1)
+      - Number(left.volatilityOpportunityScore ?? -1)
+    ) || left.symbol.localeCompare(right.symbol));
+  const topVolatilityOpportunitySymbols = rankedVolatilityOpportunity
+    .slice(0, 5)
+    .map((control) => control.symbol);
+  const highestVolatilityOpportunityScore = rankedVolatilityOpportunity.length > 0
+    ? Number(rankedVolatilityOpportunity[0].volatilityOpportunityScore ?? 0)
+    : null;
+  const highOpportunitySymbolCount = symbolControls.filter((control) => (
+    !control.volatilityOpportunityInsufficientData
+    && Number(control.volatilityOpportunityScore ?? -1) >= 70
+  )).length;
 
   return NextResponse.json({
     generatedAt: new Date().toISOString(),
@@ -1533,6 +1982,20 @@ export async function GET() {
         bestBuyCandidate?.buyOpportunityPct === null
           ? null
           : round(Number(bestBuyCandidate?.buyOpportunityPct ?? 0), 1),
+      rotationRisingCount: rotationStatusCounts.Rising,
+      rotationStrongCount: rotationStatusCounts.Strong,
+      rotationNeutralCount: rotationStatusCounts.Neutral,
+      rotationWeakeningCount: rotationStatusCounts.Weakening,
+      rotationColdCount: rotationStatusCounts.Cold,
+      rotationCapitalTrapRiskCount: rotationStatusCounts["Capital Trap Risk"],
+      rotationTopRisingSymbols,
+      rotationTopColdSymbols,
+      topVolatilityOpportunitySymbols,
+      highestVolatilityOpportunityScore:
+        highestVolatilityOpportunityScore === null
+          ? null
+          : round(highestVolatilityOpportunityScore, 1),
+      highOpportunitySymbolCount,
       symbolCooldownOverrides: cooldownOverrideMap,
     },
     symbolControls: symbolControls.map((control) => ({
@@ -1570,6 +2033,103 @@ export async function GET() {
         control.capitalWasteAgeHours === null
           ? null
           : round(control.capitalWasteAgeHours, 2),
+      rotationShortTermScore:
+        control.rotationShortTermScore === null
+          ? null
+          : round(control.rotationShortTermScore, 1),
+      rotationMediumTermScore:
+        control.rotationMediumTermScore === null
+          ? null
+          : round(control.rotationMediumTermScore, 1),
+      rotationDelta:
+        control.rotationDelta === null
+          ? null
+          : round(control.rotationDelta, 1),
+      rotationStatus: control.rotationStatus,
+      rotationShortTermWinRatePct:
+        control.rotationShortTermWinRatePct === null
+          ? null
+          : round(control.rotationShortTermWinRatePct, 2),
+      rotationShortTermAvgRealizedPnlUsd:
+        control.rotationShortTermAvgRealizedPnlUsd === null
+          ? null
+          : round(control.rotationShortTermAvgRealizedPnlUsd, 2),
+      rotationShortTermAvgHoldHours:
+        control.rotationShortTermAvgHoldHours === null
+          ? null
+          : round(control.rotationShortTermAvgHoldHours, 2),
+      rotationShortTermAvgRecoveryHours:
+        control.rotationShortTermAvgRecoveryHours === null
+          ? null
+          : round(control.rotationShortTermAvgRecoveryHours, 2),
+      rotationShortTermStaleReviewFrequencyPct:
+        control.rotationShortTermStaleReviewFrequencyPct === null
+          ? null
+          : round(control.rotationShortTermStaleReviewFrequencyPct, 2),
+      rotationShortTermAvgMaxDrawdownPct:
+        control.rotationShortTermAvgMaxDrawdownPct === null
+          ? null
+          : round(control.rotationShortTermAvgMaxDrawdownPct, 2),
+      rotationMediumTermWinRatePct:
+        control.rotationMediumTermWinRatePct === null
+          ? null
+          : round(control.rotationMediumTermWinRatePct, 2),
+      rotationMediumTermAvgRealizedPnlUsd:
+        control.rotationMediumTermAvgRealizedPnlUsd === null
+          ? null
+          : round(control.rotationMediumTermAvgRealizedPnlUsd, 2),
+      rotationMediumTermAvgHoldHours:
+        control.rotationMediumTermAvgHoldHours === null
+          ? null
+          : round(control.rotationMediumTermAvgHoldHours, 2),
+      rotationMediumTermAvgRecoveryHours:
+        control.rotationMediumTermAvgRecoveryHours === null
+          ? null
+          : round(control.rotationMediumTermAvgRecoveryHours, 2),
+      rotationMediumTermStaleReviewFrequencyPct:
+        control.rotationMediumTermStaleReviewFrequencyPct === null
+          ? null
+          : round(control.rotationMediumTermStaleReviewFrequencyPct, 2),
+      rotationMediumTermAvgMaxDrawdownPct:
+        control.rotationMediumTermAvgMaxDrawdownPct === null
+          ? null
+          : round(control.rotationMediumTermAvgMaxDrawdownPct, 2),
+      volatilityOpportunityScore:
+        control.volatilityOpportunityScore === null
+          ? null
+          : round(control.volatilityOpportunityScore, 1),
+      volatilityOpportunityLabel: control.volatilityOpportunityLabel,
+      volatilityOpportunityReason: control.volatilityOpportunityReason,
+      volatilityOpportunityConfidenceLabel:
+        control.volatilityOpportunityConfidenceLabel,
+      volatilityOpportunityStretchScore:
+        control.volatilityOpportunityStretchScore === null
+          ? null
+          : round(control.volatilityOpportunityStretchScore, 1),
+      volatilityOpportunityVolatilitySpikeScore:
+        control.volatilityOpportunityVolatilitySpikeScore === null
+          ? null
+          : round(control.volatilityOpportunityVolatilitySpikeScore, 1),
+      volatilityOpportunityBounceContextScore:
+        control.volatilityOpportunityBounceContextScore === null
+          ? null
+          : round(control.volatilityOpportunityBounceContextScore, 1),
+      volatilityOpportunityLiquidityQualityScore:
+        control.volatilityOpportunityLiquidityQualityScore === null
+          ? null
+          : round(control.volatilityOpportunityLiquidityQualityScore, 1),
+      volatilityOpportunityObservedHistorySpanMinutes: round(
+        control.volatilityOpportunityObservedHistorySpanMinutes,
+        1,
+      ),
+      volatilityOpportunityObservedPointCount:
+        control.volatilityOpportunityObservedPointCount,
+      volatilityOpportunityInsufficientData:
+        control.volatilityOpportunityInsufficientData,
+      volatilityOpportunityInsufficientReasonCode:
+        control.volatilityOpportunityInsufficientReasonCode,
+      volatilityOpportunityInsufficientReasonMessage:
+        control.volatilityOpportunityInsufficientReasonMessage,
     })),
     chart: {
       points: chartPoints,

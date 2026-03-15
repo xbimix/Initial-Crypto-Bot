@@ -1,35 +1,42 @@
 param(
     [string]$StrategyDir = "",
-    [string]$OutputPath = ""
+    [string]$OutputPath = "",
+    [switch]$ExcludePaperBroker
 )
 
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-if (-not $StrategyDir) {
-    $StrategyDir = Join-Path $repoRoot "crypto_bot\strategy"
-}
+$strategyRoot = if ($StrategyDir) { (Resolve-Path $StrategyDir).Path } else { Join-Path $repoRoot "crypto_bot\strategy" }
 if (-not $OutputPath) {
-    $OutputPath = Join-Path $StrategyDir "strategy_hash_baseline.json"
+    $OutputPath = Join-Path $strategyRoot "strategy_hash_baseline.json"
 }
 
 $files = @(
-    "strategy_engine.py",
-    "regime.py",
-    "scoring.py"
+    "crypto_bot/strategy/strategy_engine.py",
+    "crypto_bot/strategy/regime.py",
+    "crypto_bot/strategy/scoring.py",
+    "crypto_bot/trading/executor.py",
+    "crypto_bot/risk/risk_manager.py",
+    "crypto_bot/main.py"
 )
+if (-not $ExcludePaperBroker) {
+    $files += "crypto_bot/paper/paper_broker.py"
+}
 
 $hashes = [ordered]@{}
 foreach ($name in $files) {
-    $path = Join-Path $StrategyDir $name
+    $path = Join-Path $repoRoot $name
     if (-not (Test-Path $path)) {
-        throw "Missing strategy file: $path"
+        throw "Missing behavior-sensitive file: $path"
     }
     $hashes[$name] = (Get-FileHash -Path $path -Algorithm SHA256).Hash
 }
 
 $payload = [ordered]@{
     generated_at_utc = [DateTime]::UtcNow.ToString("o")
+    hash_scope = "behavior_sensitive"
+    repo_root = [string]$repoRoot
     files = $hashes
 }
 
