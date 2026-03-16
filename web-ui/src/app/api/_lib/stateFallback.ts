@@ -37,6 +37,11 @@ type ScalperBody = {
   enabled?: unknown;
 };
 
+type TokenRegimeBody = {
+  symbol?: unknown;
+  regime?: unknown;
+};
+
 type CooldownBody = {
   symbol?: unknown;
   cooldownSeconds?: unknown;
@@ -62,6 +67,13 @@ const LOCK_TIMEOUT_MS = 8000;
 const LOCK_STALE_MS = 120_000;
 const LOCK_POLL_MS = 50;
 const MANUAL_ACTION_CACHE_LIMIT = 500;
+const TOKEN_REGIME_VALUES = [
+  "AUTO",
+  "MEAN_REVERSION",
+  "TREND_PULLBACK",
+  "BREAKOUT_MOMENTUM",
+  "OBSERVE_ONLY",
+] as const;
 
 const SNAPSHOT_PATTERN =
   /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+\s+\|\s+INFO\s+\|\s+SNAPSHOT\s+([A-Z0-9-]+)\s+\|\s+price=([0-9.]+)/;
@@ -152,6 +164,33 @@ function normalizeStrategyName(value: unknown): "mean_reversion" | "volatility_s
     return "volatility_scalper";
   }
   return "mean_reversion";
+}
+
+function normalizeTokenRegime(value: unknown): (typeof TOKEN_REGIME_VALUES)[number] | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const raw = value.trim().toUpperCase();
+  return TOKEN_REGIME_VALUES.includes(raw as (typeof TOKEN_REGIME_VALUES)[number])
+    ? raw as (typeof TOKEN_REGIME_VALUES)[number]
+    : null;
+}
+
+function parseTokenRegimeMap(value: unknown): Record<string, (typeof TOKEN_REGIME_VALUES)[number]> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const output: Record<string, (typeof TOKEN_REGIME_VALUES)[number]> = {};
+  for (const [rawSymbol, rawRegime] of Object.entries(value as JsonMap)) {
+    const symbol = normalizeSymbol(rawSymbol);
+    const regime = normalizeTokenRegime(rawRegime);
+    if (!symbol || regime === null) {
+      continue;
+    }
+    output[symbol] = regime;
+  }
+  return output;
 }
 
 function sleep(ms: number) {
@@ -525,6 +564,48 @@ export async function updateScalperLocal(body: ScalperBody) {
   });
 }
 
+export async function updateTokenRegimeLocal(body: TokenRegimeBody) {
+  const symbol = normalizeSymbol(body.symbol);
+  if (!symbol) {
+    throw new RouteError(400, "Missing symbol");
+  }
+
+  const regime = normalizeTokenRegime(body.regime);
+  if (regime === null) {
+    throw new RouteError(
+      400,
+      `regime must be one of: ${TOKEN_REGIME_VALUES.join(", ")}`,
+    );
+  }
+
+  return withFileLock(CONFIG_PATH, async () => {
+    const cfg = toObject(await readJson<ConfigState>(CONFIG_PATH, {}));
+    const symbols = normalizeSymbols(cfg.symbols);
+    if (!symbols.includes(symbol)) {
+      symbols.push(symbol);
+    }
+
+    const tokenRegimes = parseTokenRegimeMap(cfg.token_regimes);
+    tokenRegimes[symbol] = regime;
+
+    cfg.symbols = symbols;
+    cfg.token_regimes = tokenRegimes;
+    await writeJsonAtomic(CONFIG_PATH, cfg);
+
+    const payload = {
+      symbol,
+      configured_regime: regime,
+      token_regimes: tokenRegimes,
+      fallback: true,
+    };
+    await appendAuditEvent("token_regime_update_fallback", {
+      new: { symbol, configured_regime: regime },
+      result: payload,
+    });
+    return payload;
+  });
+}
+
 export async function updateRiskLocal(body: RiskBody) {
   if (
     body.maxConcurrentTrades === undefined &&
@@ -868,6 +949,12 @@ export async function closeAllLocal(body: CloseAllBody) {
         "last_regime",
         "last_score",
         "last_volatility",
+        "last_configured_regime",
+        "last_detected_regime",
+        "last_detected_regime_confidence",
+        "last_detected_regime_confidence_label",
+        "last_effective_strategy",
+        "last_auto_fallback_reason",
       ]) {
         const section = toObject(strategyState[key]);
         delete section[symbol];
@@ -979,6 +1066,12 @@ export async function manualSellLocal(body: ManualSellBody) {
       "last_regime",
       "last_score",
       "last_volatility",
+      "last_configured_regime",
+      "last_detected_regime",
+      "last_detected_regime_confidence",
+      "last_detected_regime_confidence_label",
+      "last_effective_strategy",
+      "last_auto_fallback_reason",
     ]) {
       const section = toObject(strategyState[key]);
       delete section[symbol];

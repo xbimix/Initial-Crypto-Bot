@@ -1,0 +1,59 @@
+{
+  "balance": 8583.299740736169,
+  "positions": {
+    "DOT-USD": {
+      "price": 1.54135,
+      "size": 117.289525,
+      "entry_time": 1772429021.8468947,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "CRV-USD": {
+      "price": 0.25637,
+      "size": 763.467196,
+      "entry_time": 1772664289.4589665,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "ADA-USD": {
+      "price": 0.27124,
+      "size": 707.179927,
+      "entry_time": 1772699830.0046887,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "SOL-USD": {
+      "price": 90.337,
+      "size": 2.080866,
+      "entry_time": 1772700490.3338902,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "XRP-USD": {
+      "price": 1.4250500000000001,
+      "size": 126.686922,
+      "entry_time": 1772720276.2524233,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "PERP-USD": {
+      "price": 0.052000000000000005,
+      "size": 3023.852329,
+      "entry_time": 1772953757.0136933,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "SUI-USD": {
+      "price": 0.99725,
+      "size": 200.551517,
+      "entry_time": 1773437945.7460153,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "BTC-USD": {
+      "price": 70796.695,
+      "size": 0.002825,
+      "entry_time": 1773440427.5037003,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "POLS-USD": {
+      "price": 0.063,
+      "size": 3174.603175,
+      "entry_time": 1773506205.845191,
+      "reason": "bear_market_mean_reversion_buy"
+    }
+  }
+}

@@ -56,6 +56,36 @@ def test_normalize_config_strict_mode_raises_on_warnings():
         normalize_config({}, strict=True)
 
 
+def test_normalize_config_token_regimes_accepts_valid_values():
+    raw = {
+        "enabled": True,
+        "symbols": ["btc-usd"],
+        "token_regimes": {
+            "btc-usd": "mean_reversion",
+            "eth-usd": "TREND_PULLBACK",
+        },
+    }
+
+    normalized, warnings, changed = normalize_config(raw, strict=False)
+    assert changed is True
+    assert normalized["token_regimes"]["BTC-USD"] == "MEAN_REVERSION"
+    assert normalized["token_regimes"]["ETH-USD"] == "TREND_PULLBACK"
+    assert warnings
+
+
+def test_normalize_config_token_regimes_rejects_invalid_in_strict_mode():
+    raw = {
+        "enabled": True,
+        "symbols": ["btc-usd"],
+        "token_regimes": {
+            "btc-usd": "UNKNOWN_MODE",
+        },
+    }
+    with pytest.raises(ValueError) as exc:
+        normalize_config(raw, strict=True)
+    assert "token_regimes.BTC-USD invalid" in str(exc.value)
+
+
 def test_load_config_warn_mode_does_not_autosave_by_default(tmp_path: Path, monkeypatch):
     cfg_path = tmp_path / "config.json"
     write_json_file(cfg_path, {"enabled": True, "symbols": ["btc-usd"]})

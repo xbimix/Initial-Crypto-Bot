@@ -61,6 +61,13 @@ def reset_strategy_globals(monkeypatch, tmp_path: Path):
         "_last_regime",
         "_last_score",
         "_last_volatility",
+        "_last_configured_regime",
+        "_last_detected_regime",
+        "_last_detected_regime_confidence",
+        "_last_detected_regime_confidence_label",
+        "_last_effective_strategy",
+        "_last_auto_fallback_reason",
+        "_shadow_regime_state",
     ):
         getattr(se, mapping_name).clear()
 
@@ -133,6 +140,7 @@ def test_volatility_scalper_buy_regression():
     cfg = _base_cfg()
     cfg["symbol_strategies"] = {"GST-USD": "volatility_scalper"}
     cfg["volatility_scalper"] = {"symbols": ["GST-USD"]}
+    cfg["token_regimes"] = {"GST-USD": "AUTO"}
 
     decision = se.generate_decision(
         _snapshot(
@@ -152,3 +160,34 @@ def test_volatility_scalper_buy_regression():
 
     assert decision["action"] == "BUY"
     assert decision["reason"] == "volatility_scalper_entry"
+
+
+def test_shadow_regime_telemetry_is_additive_only():
+    decision = se.generate_decision(_snapshot(), _base_cfg())
+
+    assert decision["action"] == "BUY"
+    assert decision["reason"] == "bear_market_mean_reversion_buy"
+
+    shadow = se._shadow_regime_state.get("TEST-USD")
+    assert shadow is not None
+    assert shadow["candidate_regime"] in {
+        "accumulation",
+        "range",
+        "chop",
+        "trend_up",
+        "trend_down",
+        "dump",
+        "spike",
+        "unknown",
+    }
+    assert shadow["stable_regime"] in {
+        "accumulation",
+        "range",
+        "chop",
+        "trend_up",
+        "trend_down",
+        "dump",
+        "spike",
+        "unknown",
+    }
+    assert 0.0 <= float(shadow["confidence"]) <= 0.99

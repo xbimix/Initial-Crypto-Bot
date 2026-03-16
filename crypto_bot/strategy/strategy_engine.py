@@ -1,8 +1,12 @@
 import time
 from pathlib import Path
 
+from strategy.breakout_momentum import evaluate_breakout_momentum_entry
+from strategy.regime_engine import normalize_shadow_state, update_regime_shadow_state
+from strategy.regime_router import resolve_entry_route
 from strategy.regime import detect_regime
 from strategy.scoring import score_indicators
+from strategy.trend_pullback import evaluate_trend_pullback_entry
 from utils.logger import setup_logger
 from utils.state_io import read_json_file, write_json_file
 
@@ -26,6 +30,13 @@ _last_momentum = {}
 _last_regime = {}
 _last_score = {}
 _last_volatility = {}
+_last_configured_regime = {}
+_last_detected_regime = {}
+_last_detected_regime_confidence = {}
+_last_detected_regime_confidence_label = {}
+_last_effective_strategy = {}
+_last_auto_fallback_reason = {}
+_shadow_regime_state = {}
 _synced = False
 _last_paper_state_mtime = None
 _metrics_dirty = False
@@ -95,6 +106,23 @@ def _sync_with_broker_state():
         for symbol in list(_last_signal.keys()):
             if symbol not in broker_symbols:
                 _last_signal.pop(symbol, None)
+                state_changed = True
+
+        for mapping in (
+            _last_regime,
+            _last_score,
+            _last_volatility,
+            _last_configured_regime,
+            _last_detected_regime,
+            _last_detected_regime_confidence,
+            _last_detected_regime_confidence_label,
+            _last_effective_strategy,
+            _last_auto_fallback_reason,
+        ):
+            for symbol in list(mapping.keys()):
+                if symbol in broker_symbols:
+                    continue
+                mapping.pop(symbol, None)
                 state_changed = True
 
         for symbol, pos in positions.items():
@@ -196,6 +224,15 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     profit_cfg = cfg.get("profit_locks", {})
     scalper_cfg = _resolve_scalper_config(cfg)
     strategy_mode = _strategy_for_symbol(cfg, symbol, scalper_cfg=scalper_cfg)
+    entry_route = resolve_entry_route(
+        cfg=cfg,
+        symbol=symbol,
+        snapshot=snapshot,
+        default_strategy=strategy_mode,
+        shadow_state=_shadow_regime_state,
+    )
+    effective_strategy = entry_route.get("effective_strategy", strategy_mode)
+    _record_route_metadata(symbol, entry_route)
     min_atr = volatility_cfg.get(
         "min_atr",
         regime_cfg.get("min_atr", cfg.get("min_atr", 0.003)),
@@ -218,7 +255,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         )
     )
 
-    if strategy_mode == "volatility_scalper":
+    if effective_strategy == "volatility_scalper":
         regime, score, range_pos, volatility = _compute_scalper_diagnostics(
             snapshot=snapshot,
             price=price,
@@ -242,9 +279,15 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             regime_cfg=regime_cfg,
         )
     _record_symbol_metrics(symbol, regime, score, volatility)
+    _record_shadow_regime_metrics(
+        symbol=symbol,
+        snapshot=snapshot,
+        candidate_regime=regime,
+        cfg=cfg,
+    )
     _flush_metrics_state_if_due()
 
-    if strategy_mode == "volatility_scalper":
+    if effective_strategy == "volatility_scalper":
         sell_signal = _evaluate_scalper_sell(
             symbol=symbol,
             price=price,
@@ -283,7 +326,10 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     if sell_signal is not None:
         return sell_signal
 
-    if strategy_mode == "volatility_scalper":
+    if effective_strategy == "observe_only":
+        return _decision(symbol, "HOLD", price, momentum, "observe_only_mode")
+
+    if effective_strategy == "volatility_scalper":
         return _evaluate_scalper_buy(
             snapshot=snapshot,
             symbol=symbol,
@@ -299,6 +345,52 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             blocked_regimes=blocked_regimes,
             min_trades=min_trades,
             scalper_cfg=scalper_cfg,
+        )
+
+    if effective_strategy == "trend_pullback":
+        return _evaluate_trend_pullback_buy(
+            snapshot=snapshot,
+            symbol=symbol,
+            price=price,
+            momentum=momentum,
+            trades=trades,
+            high_24h=high_24h,
+            low_24h=low_24h,
+            atr=atr,
+            vwap=vwap,
+            z_score=z_score,
+            prev_mom=prev_mom,
+            min_trades=min_trades,
+            min_atr=effective_min_atr,
+            min_score_to_buy=min_score_to_buy,
+            blocked_regimes=blocked_regimes,
+            regime=regime,
+            score=score,
+            range_pos=range_pos,
+            cfg=cfg,
+        )
+
+    if effective_strategy == "breakout_momentum":
+        return _evaluate_breakout_momentum_buy(
+            snapshot=snapshot,
+            symbol=symbol,
+            price=price,
+            momentum=momentum,
+            trades=trades,
+            high_24h=high_24h,
+            low_24h=low_24h,
+            atr=atr,
+            vwap=vwap,
+            z_score=z_score,
+            prev_mom=prev_mom,
+            min_trades=min_trades,
+            min_atr=effective_min_atr,
+            min_score_to_buy=min_score_to_buy,
+            blocked_regimes=blocked_regimes,
+            regime=regime,
+            score=score,
+            range_pos=range_pos,
+            cfg=cfg,
         )
 
     return _evaluate_buy(
@@ -324,6 +416,165 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         score=score,
         range_pos=range_pos,
     )
+
+
+def _record_route_metadata(symbol: str, route: dict):
+    global _metrics_dirty
+
+    configured = route.get("configured_regime")
+    detected = route.get("detected_regime")
+    detected_confidence = _parse_numeric(
+        route.get("detected_regime_confidence"),
+        fallback=None,
+    )
+    detected_confidence_label = route.get("detected_regime_confidence_label")
+    effective = route.get("effective_strategy")
+    fallback_reason = route.get("auto_fallback_reason")
+    changed = False
+
+    if isinstance(configured, str) and configured:
+        if _last_configured_regime.get(symbol) != configured:
+            _last_configured_regime[symbol] = configured
+            changed = True
+    if isinstance(detected, str) and detected:
+        if _last_detected_regime.get(symbol) != detected:
+            _last_detected_regime[symbol] = detected
+            changed = True
+    else:
+        if symbol in _last_detected_regime:
+            _last_detected_regime.pop(symbol, None)
+            changed = True
+
+    if detected_confidence is None:
+        if symbol in _last_detected_regime_confidence:
+            _last_detected_regime_confidence.pop(symbol, None)
+            changed = True
+    else:
+        if _last_detected_regime_confidence.get(symbol) != detected_confidence:
+            _last_detected_regime_confidence[symbol] = detected_confidence
+            changed = True
+
+    if isinstance(detected_confidence_label, str) and detected_confidence_label:
+        if _last_detected_regime_confidence_label.get(symbol) != detected_confidence_label:
+            _last_detected_regime_confidence_label[symbol] = detected_confidence_label
+            changed = True
+    else:
+        if symbol in _last_detected_regime_confidence_label:
+            _last_detected_regime_confidence_label.pop(symbol, None)
+            changed = True
+
+    if isinstance(effective, str) and effective:
+        if _last_effective_strategy.get(symbol) != effective:
+            _last_effective_strategy[symbol] = effective
+            changed = True
+    else:
+        if symbol in _last_effective_strategy:
+            _last_effective_strategy.pop(symbol, None)
+            changed = True
+
+    if isinstance(fallback_reason, str) and fallback_reason:
+        if _last_auto_fallback_reason.get(symbol) != fallback_reason:
+            _last_auto_fallback_reason[symbol] = fallback_reason
+            changed = True
+    else:
+        if symbol in _last_auto_fallback_reason:
+            _last_auto_fallback_reason.pop(symbol, None)
+            changed = True
+
+    if changed:
+        _metrics_dirty = True
+
+
+def _evaluate_trend_pullback_buy(
+    snapshot,
+    symbol,
+    price,
+    momentum,
+    trades,
+    high_24h,
+    low_24h,
+    atr,
+    vwap,
+    z_score,
+    prev_mom,
+    min_trades,
+    min_atr,
+    min_score_to_buy,
+    blocked_regimes,
+    regime,
+    score,
+    range_pos,
+    cfg,
+):
+    action, reason = evaluate_trend_pullback_entry(
+        snapshot=snapshot,
+        price=price,
+        momentum=momentum,
+        trades=trades,
+        high_24h=high_24h,
+        low_24h=low_24h,
+        atr=atr,
+        vwap=vwap,
+        z_score=z_score,
+        prev_momentum=prev_mom,
+        min_trades=min_trades,
+        min_atr=min_atr,
+        min_score_to_buy=min_score_to_buy,
+        blocked_regimes=blocked_regimes,
+        regime=regime,
+        score=score,
+        range_pos=range_pos,
+        cfg=cfg,
+    )
+    if action == "BUY" or reason == "trend_pullback_momentum_weakening":
+        _last_momentum[symbol] = momentum
+    return _decision(symbol, action, price, momentum, reason)
+
+
+def _evaluate_breakout_momentum_buy(
+    snapshot,
+    symbol,
+    price,
+    momentum,
+    trades,
+    high_24h,
+    low_24h,
+    atr,
+    vwap,
+    z_score,
+    prev_mom,
+    min_trades,
+    min_atr,
+    min_score_to_buy,
+    blocked_regimes,
+    regime,
+    score,
+    range_pos,
+    cfg,
+):
+    action, reason = evaluate_breakout_momentum_entry(
+        snapshot=snapshot,
+        price=price,
+        momentum=momentum,
+        trades=trades,
+        high_24h=high_24h,
+        low_24h=low_24h,
+        atr=atr,
+        vwap=vwap,
+        z_score=z_score,
+        prev_momentum=prev_mom,
+        min_trades=min_trades,
+        min_atr=min_atr,
+        min_score_to_buy=min_score_to_buy,
+        blocked_regimes=blocked_regimes,
+        regime=regime,
+        score=score,
+        range_pos=range_pos,
+        cfg=cfg,
+    )
+    if action == "BUY" or reason == "breakout_momentum_weakening":
+        _last_momentum[symbol] = momentum
+    return _decision(symbol, action, price, momentum, reason)
 
 
 def _evaluate_sell(
@@ -641,6 +892,13 @@ def _save_strategy_state():
         "last_regime": _last_regime,
         "last_score": _last_score,
         "last_volatility": _last_volatility,
+        "last_configured_regime": _last_configured_regime,
+        "last_detected_regime": _last_detected_regime,
+        "last_detected_regime_confidence": _last_detected_regime_confidence,
+        "last_detected_regime_confidence_label": _last_detected_regime_confidence_label,
+        "last_effective_strategy": _last_effective_strategy,
+        "last_auto_fallback_reason": _last_auto_fallback_reason,
+        "shadow_regime_state": _shadow_regime_state,
     }
 
     write_json_file(STRATEGY_STATE_FILE, state)
@@ -666,6 +924,15 @@ def _load_strategy_state():
         _last_regime.update(state.get("last_regime", {}))
         _last_score.update(state.get("last_score", {}))
         _last_volatility.update(state.get("last_volatility", {}))
+        _last_configured_regime.update(state.get("last_configured_regime", {}))
+        _last_detected_regime.update(state.get("last_detected_regime", {}))
+        _last_detected_regime_confidence.update(state.get("last_detected_regime_confidence", {}))
+        _last_detected_regime_confidence_label.update(state.get("last_detected_regime_confidence_label", {}))
+        _last_effective_strategy.update(state.get("last_effective_strategy", {}))
+        _last_auto_fallback_reason.update(state.get("last_auto_fallback_reason", {}))
+        _shadow_regime_state.update(
+            normalize_shadow_state(state.get("shadow_regime_state", {}))
+        )
 
         logger.info("Strategy state restored")
 
@@ -701,6 +968,12 @@ def _cleanup(symbol, price):
     _last_regime.pop(symbol, None)
     _last_score.pop(symbol, None)
     _last_volatility.pop(symbol, None)
+    _last_configured_regime.pop(symbol, None)
+    _last_detected_regime.pop(symbol, None)
+    _last_detected_regime_confidence.pop(symbol, None)
+    _last_detected_regime_confidence_label.pop(symbol, None)
+    _last_effective_strategy.pop(symbol, None)
+    _last_auto_fallback_reason.pop(symbol, None)
 
 
 def _decision(symbol, action, price, momentum, reason):
@@ -718,6 +991,18 @@ def _decision(symbol, action, price, momentum, reason):
         payload["score"] = _last_score[symbol]
     if symbol in _last_volatility:
         payload["volatility"] = _last_volatility[symbol]
+    if symbol in _last_configured_regime:
+        payload["configured_regime"] = _last_configured_regime[symbol]
+    if symbol in _last_detected_regime:
+        payload["detected_regime"] = _last_detected_regime[symbol]
+    if symbol in _last_detected_regime_confidence:
+        payload["detected_regime_confidence"] = _last_detected_regime_confidence[symbol]
+    if symbol in _last_detected_regime_confidence_label:
+        payload["detected_regime_confidence_label"] = _last_detected_regime_confidence_label[symbol]
+    if symbol in _last_effective_strategy:
+        payload["effective_strategy"] = _last_effective_strategy[symbol]
+    if symbol in _last_auto_fallback_reason:
+        payload["auto_fallback_reason"] = _last_auto_fallback_reason[symbol]
     return payload
 
 
@@ -984,6 +1269,40 @@ def _record_symbol_metrics(symbol, regime, score, volatility):
 
     if changed:
         _metrics_dirty = True
+
+
+def _record_shadow_regime_metrics(*, symbol, snapshot, candidate_regime, cfg):
+    global _metrics_dirty
+
+    shadow_row, changed = update_regime_shadow_state(
+        symbol=symbol,
+        snapshot=snapshot,
+        candidate_regime=candidate_regime,
+        shadow_state=_shadow_regime_state,
+        cfg=cfg,
+    )
+    if not changed:
+        return
+
+    _metrics_dirty = True
+    if shadow_row.get("switched"):
+        logger.info(
+            f"REGIME_SHADOW {symbol} | "
+            f"candidate={shadow_row['candidate_regime']} "
+            f"stable={shadow_row['stable_regime']} "
+            f"conf={shadow_row['confidence']:.3f} "
+            f"confirmations={shadow_row['confirmations']} "
+            f"switched=1"
+        )
+    else:
+        logger.debug(
+            f"REGIME_SHADOW {symbol} | "
+            f"candidate={shadow_row['candidate_regime']} "
+            f"stable={shadow_row['stable_regime']} "
+            f"conf={shadow_row['confidence']:.3f} "
+            f"confirmations={shadow_row['confirmations']} "
+            f"switched=0"
+        )
 
 
 def _flush_metrics_state_if_due(force=False):

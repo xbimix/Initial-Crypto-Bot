@@ -1,9 +1,12 @@
 ﻿{
-    "generated_at_utc":  "2026-03-15T05:48:54.3225638Z",
+    "generated_at_utc":  "2026-03-16T06:30:38.0732415Z",
     "hash_scope":  "behavior_sensitive",
     "repo_root":  "D:\\Python-Codes\\RevBot",
     "files":  {
-                  "crypto_bot/strategy/strategy_engine.py":  "5831159062B5586144860E7426D05543C904934FD1D7DF91D656E5719A4D3AC5",
+                  "crypto_bot/strategy/strategy_engine.py":  "5CC41DBFE05C5057B5DBBDF2403ADE273EACA03A7C109B99F927B15244AC2B85",
+                  "crypto_bot/strategy/regime_router.py":  "B6C50F4C99675A164DDCF73B2043334F3B9F7E7C90A59CD5925247F42A1FF52C",
+                  "crypto_bot/strategy/trend_pullback.py":  "85CAF32FC8D1E6C8D0C562A07AB853AEA706B1479968A081D38EDC4AEDDF5127",
+                  "crypto_bot/strategy/breakout_momentum.py":  "30535CB9BF70D40BF11C880BB5B2FEBCCADF5CA73813D777EA33743C75B6BCCA",
                   "crypto_bot/strategy/regime.py":  "546DC789C80A898A042245F8BD9B54894508EA82F55041D3CD647F47D6452CD4",
                   "crypto_bot/strategy/scoring.py":  "EDF97342F7193086F1970D8842DE71376AF094EAEA7B3E8486265DFF5BE45D44",
                   "crypto_bot/trading/executor.py":  "1273BBFC5E4E5936130BC84E9FD4FE92FAC8289E191A2D6B0AAD4038674CAD8A",

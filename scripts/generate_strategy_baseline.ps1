@@ -14,6 +14,9 @@ if (-not $OutputPath) {
 
 $files = @(
     "crypto_bot/strategy/strategy_engine.py",
+    "crypto_bot/strategy/regime_router.py",
+    "crypto_bot/strategy/trend_pullback.py",
+    "crypto_bot/strategy/breakout_momentum.py",
     "crypto_bot/strategy/regime.py",
     "crypto_bot/strategy/scoring.py",
     "crypto_bot/trading/executor.py",

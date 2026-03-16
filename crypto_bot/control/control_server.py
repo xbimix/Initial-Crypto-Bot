@@ -22,6 +22,13 @@ from utils.runtime_guard import (
 from utils.state_snapshot import create_state_snapshot, ensure_daily_snapshot
 from utils.state_storage import get_state_storage
 from utils.state_validator import validate_state_files
+from utils.token_regimes import (
+    TOKEN_REGIME_MEAN_REVERSION,
+    TOKEN_REGIME_VALUES,
+    normalize_symbol as normalize_token_symbol,
+    normalize_token_regime,
+    is_valid_token_regime,
+)
 
 logger = setup_logger("control")
 app = Flask(__name__)
@@ -59,6 +66,7 @@ MUTATING_ENDPOINTS = {
     "/kill",
     "/symbols",
     "/scalper",
+    "/token-regime",
     "/risk",
     "/cooldown",
     "/close-all",
@@ -442,9 +450,7 @@ _startup_status = _refresh_startup_status()
 
 
 def _normalize_symbol(value):
-    if not isinstance(value, str):
-        return ""
-    return value.strip().upper()
+    return normalize_token_symbol(value)
 
 
 def _normalize_symbols(raw_symbols):
@@ -473,6 +479,19 @@ def _parse_enabled_map(value):
             continue
         enabled_map[symbol] = raw_enabled is not False
     return enabled_map
+
+
+def _parse_token_regime_map(value):
+    if not isinstance(value, dict):
+        return {}
+
+    output = {}
+    for raw_symbol, raw_regime in value.items():
+        symbol = _normalize_symbol(raw_symbol)
+        if not symbol:
+            continue
+        output[symbol] = normalize_token_regime(raw_regime, default=TOKEN_REGIME_MEAN_REVERSION)
+    return output
 
 
 def _is_enabled(enabled_map, symbol):
@@ -555,6 +574,12 @@ def _remove_strategy_symbol(state, symbol):
         "last_regime",
         "last_score",
         "last_volatility",
+        "last_configured_regime",
+        "last_detected_regime",
+        "last_detected_regime_confidence",
+        "last_detected_regime_confidence_label",
+        "last_effective_strategy",
+        "last_auto_fallback_reason",
     ):
         section = state.get(key)
         if isinstance(section, dict):
@@ -640,6 +665,7 @@ def status():
     symbol_enabled = _parse_enabled_map(cfg.get("symbol_enabled", {}))
     symbol_buy_enabled = _parse_enabled_map(cfg.get("symbol_buy_enabled", {}))
     symbol_sell_enabled = _parse_enabled_map(cfg.get("symbol_sell_enabled", {}))
+    token_regimes = _parse_token_regime_map(cfg.get("token_regimes", {}))
 
     buy_enabled_symbols = [
         symbol
@@ -668,6 +694,7 @@ def status():
             "emergency_stop": bool(cfg.get("emergency_stop", False)),
             "execution_mode": cfg.get("execution_mode"),
             "symbols": symbols,
+            "token_regimes": token_regimes,
             "buy_enabled_symbols": buy_enabled_symbols,
             "sell_enabled_symbols": sell_enabled_symbols,
             "loop_sleep": cfg.get("loop_sleep"),
@@ -943,6 +970,63 @@ def update_scalper():
         "scalper_update",
         old=old_payload,
         new={"symbol": symbol, "enabled": enabled},
+        result=result,
+    )
+    return jsonify(result)
+
+
+@app.route("/token-regime", methods=["POST"])
+def update_token_regime():
+    body = request.get_json(silent=True) or {}
+    symbol = _normalize_symbol(body.get("symbol"))
+    regime_raw = body.get("regime")
+
+    if not symbol:
+        return _json_error("Missing symbol")
+
+    if regime_raw is None or not isinstance(regime_raw, str):
+        return _json_error(
+            "regime must be one of: " + ", ".join(TOKEN_REGIME_VALUES)
+        )
+
+    if not is_valid_token_regime(regime_raw):
+        return _json_error(
+            "regime must be one of: " + ", ".join(TOKEN_REGIME_VALUES)
+        )
+
+    configured_regime = normalize_token_regime(regime_raw, default=TOKEN_REGIME_MEAN_REVERSION)
+    cfg_before = load_config()
+    old_payload = {}
+    if isinstance(cfg_before, dict):
+        old_payload = {
+            "token_regimes": cfg_before.get("token_regimes"),
+        }
+
+    result = {}
+
+    def _mutate(cfg):
+        nonlocal result
+        symbols = _normalize_symbols(cfg.get("symbols", []))
+        if symbol not in symbols:
+            symbols.append(symbol)
+
+        token_regimes = _parse_token_regime_map(cfg.get("token_regimes", {}))
+        token_regimes[symbol] = configured_regime
+
+        cfg["symbols"] = symbols
+        cfg["token_regimes"] = token_regimes
+        result = {
+            "symbol": symbol,
+            "configured_regime": configured_regime,
+            "token_regimes": token_regimes,
+        }
+        return cfg
+
+    update_config(_mutate)
+    _write_audit_event(
+        "token_regime_update",
+        old=old_payload,
+        new={"symbol": symbol, "configured_regime": configured_regime},
         result=result,
     )
     return jsonify(result)

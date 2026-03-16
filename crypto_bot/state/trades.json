@@ -763,5 +763,83 @@
     "pnl": 7.992695199999985,
     "balance": 8583.299740736169,
     "reason": "profit_lock_exit_4pct"
+  },
+  {
+    "time": 1773624742.406883,
+    "symbol": "BTC-USD",
+    "side": "SELL",
+    "price": 72545.275,
+    "size": 0.002825,
+    "pnl": 4.939738499999963,
+    "balance": 8788.240142611168,
+    "reason": "structural_break_exit"
+  },
+  {
+    "time": 1773624746.9617665,
+    "symbol": "SUI-USD",
+    "side": "SELL",
+    "price": 1.01825,
+    "size": 200.551517,
+    "pnl": 4.211581857000025,
+    "balance": 8992.451724796418,
+    "reason": "structural_break_exit"
+  },
+  {
+    "time": 1773649588.6617155,
+    "symbol": "DOT-USD",
+    "side": "SELL",
+    "price": 1.5976,
+    "size": 117.289525,
+    "pnl": 6.59753578124999,
+    "balance": 9179.833469936417,
+    "reason": "profit_lock_exit_4pct"
+  },
+  {
+    "time": 1773649623.6210303,
+    "symbol": "SUI-USD",
+    "side": "BUY",
+    "price": 1.06145,
+    "size": 188.421499,
+    "balance": 8979.833469822866,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1773649734.7001019,
+    "symbol": "ADA-USD",
+    "side": "SELL",
+    "price": 0.28751000000000004,
+    "size": 707.179927,
+    "pnl": 11.505817412290044,
+    "balance": 9183.154770634637,
+    "reason": "profit_lock_exit_6pct"
+  },
+  {
+    "time": 1773649735.4874732,
+    "symbol": "XLM-USD",
+    "side": "BUY",
+    "price": 0.1721335,
+    "size": 1161.888883,
+    "balance": 8983.154770592757,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1773650040.7592764,
+    "symbol": "SOL-USD",
+    "side": "SELL",
+    "price": 93.03999999999999,
+    "size": 2.080866,
+    "pnl": 5.624580797999976,
+    "balance": 9176.758543232756,
+    "reason": "profit_lock_exit_3pct"
+  },
+  {
+    "time": 1773650710.0659335,
+    "symbol": "XRP-USD",
+    "side": "SELL",
+    "price": 1.46665,
+    "size": 126.686922,
+    "pnl": 5.270175955199982,
+    "balance": 9362.563917384055,
+    "reason": "profit_lock_exit_3pct"
   }
 ]

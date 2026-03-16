@@ -2,6 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { NextResponse } from "next/server";
 import { analyzeVolatilityOpportunity } from "../../lib/volatilityOpportunityRadar.mjs";
+import { analyzeRegimeGovernor } from "../../lib/regimeGovernorAnalyzer.mjs";
 
 type ConfigState = {
   enabled?: boolean;
@@ -26,6 +27,7 @@ type ConfigState = {
   symbol_enabled?: Record<string, boolean>;
   symbol_buy_enabled?: Record<string, boolean>;
   symbol_sell_enabled?: Record<string, boolean>;
+  token_regimes?: Record<string, unknown>;
   volatility_filters?: {
     min_atr?: number;
     min_atr_pct?: number;
@@ -91,6 +93,12 @@ type StrategyState = {
   last_regime?: Record<string, string>;
   last_score?: Record<string, number>;
   last_volatility?: Record<string, number>;
+  last_configured_regime?: Record<string, string>;
+  last_detected_regime?: Record<string, string>;
+  last_detected_regime_confidence?: Record<string, number>;
+  last_detected_regime_confidence_label?: Record<string, string>;
+  last_effective_strategy?: Record<string, string>;
+  last_auto_fallback_reason?: Record<string, string>;
 };
 
 type TradeEntry = {
@@ -131,6 +139,16 @@ type PositionRow = {
 
 type SymbolControl = {
   symbol: string;
+  configuredRegime: string;
+  detectedRegime: string | null;
+  detectedRegimeConfidenceLabel: string;
+  detectedRegimeConfidenceScore: number | null;
+  detectedRegimeExplanation: string;
+  detectedRegimeStructureBias: string;
+  detectedRegimeVolatilityState: string;
+  detectedRegimeParticipationState: string;
+  effectiveStrategy: string;
+  autoFallbackReason: string | null;
   buyEnabled: boolean;
   sellEnabled: boolean;
   hasOpenPosition: boolean;
@@ -1233,8 +1251,78 @@ function parseStringMap(values: unknown) {
   return output;
 }
 
+function parseTextMap(values: unknown) {
+  if (!values || typeof values !== "object" || Array.isArray(values)) {
+    return {};
+  }
+
+  const output: Record<string, string> = {};
+  for (const [rawSymbol, rawValue] of Object.entries(
+    values as Record<string, unknown>,
+  )) {
+    const symbol = normalizeSymbol(rawSymbol);
+    if (!symbol || typeof rawValue !== "string") {
+      continue;
+    }
+    const normalized = rawValue.trim();
+    if (!normalized) {
+      continue;
+    }
+    output[symbol] = normalized;
+  }
+
+  return output;
+}
+
+const TOKEN_REGIME_VALUES = new Set([
+  "AUTO",
+  "MEAN_REVERSION",
+  "TREND_PULLBACK",
+  "BREAKOUT_MOMENTUM",
+  "OBSERVE_ONLY",
+]);
+
+function parseTokenRegimeMap(values: unknown) {
+  if (!values || typeof values !== "object" || Array.isArray(values)) {
+    return {};
+  }
+
+  const output: Record<string, string> = {};
+  for (const [rawSymbol, rawValue] of Object.entries(
+    values as Record<string, unknown>,
+  )) {
+    const symbol = normalizeSymbol(rawSymbol);
+    if (!symbol || typeof rawValue !== "string") {
+      continue;
+    }
+    const normalized = rawValue.trim().toUpperCase();
+    if (!TOKEN_REGIME_VALUES.has(normalized)) {
+      continue;
+    }
+    output[symbol] = normalized;
+  }
+  return output;
+}
+
 function normalizeStrategyName(value: unknown) {
   const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "volatility_scalper" || raw === "vol_scalper" || raw === "scalper") {
+    return "volatility_scalper";
+  }
+  return "mean_reversion";
+}
+
+function normalizeEffectiveStrategy(value: unknown) {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "trend_pullback") {
+    return "trend_pullback";
+  }
+  if (raw === "breakout_momentum") {
+    return "breakout_momentum";
+  }
+  if (raw === "observe_only") {
+    return "observe_only";
+  }
   if (raw === "volatility_scalper" || raw === "vol_scalper" || raw === "scalper") {
     return "volatility_scalper";
   }
@@ -1313,6 +1401,22 @@ function resolveStrategyMode(
     return "volatility_scalper";
   }
   return "mean_reversion";
+}
+
+function deriveConfiguredEffectiveStrategy(
+  configuredRegime: string,
+  strategyMode: string,
+) {
+  if (configuredRegime === "OBSERVE_ONLY") {
+    return "observe_only";
+  }
+  if (configuredRegime === "TREND_PULLBACK") {
+    return "trend_pullback";
+  }
+  if (configuredRegime === "BREAKOUT_MOMENTUM") {
+    return "breakout_momentum";
+  }
+  return normalizeEffectiveStrategy(strategyMode);
 }
 
 function deriveRegimeFromSnapshot(snapshot: SnapshotMetrics | null): string | null {
@@ -1421,10 +1525,17 @@ export async function GET() {
   const sellMap = parseEnabledMap(config.symbol_sell_enabled);
   const symbolStrategies = parseStrategyMap(config.symbol_strategies);
   const strategyOverrides = parseStrategyMap(config.strategy_overrides);
+  const tokenRegimes = parseTokenRegimeMap(config.token_regimes);
   const scalperSymbols = parseScalperSymbolSet(config);
   const regimeMap = parseStringMap(strategy.last_regime);
   const scoreMap = parseNumberMap(strategy.last_score);
   const volatilityMap = parseNumberMap(strategy.last_volatility);
+  const runtimeConfiguredRegimeMap = parseTokenRegimeMap(strategy.last_configured_regime);
+  const runtimeDetectedRegimeMap = parseTextMap(strategy.last_detected_regime);
+  const runtimeDetectedRegimeConfidenceMap = parseNumberMap(strategy.last_detected_regime_confidence);
+  const runtimeDetectedRegimeConfidenceLabelMap = parseTextMap(strategy.last_detected_regime_confidence_label);
+  const runtimeEffectiveStrategyMap = parseTextMap(strategy.last_effective_strategy);
+  const runtimeAutoFallbackReasonMap = parseTextMap(strategy.last_auto_fallback_reason);
   const allSymbols = uniqueSymbols(
     configuredSymbols,
     Object.keys(legacyMap),
@@ -1432,6 +1543,8 @@ export async function GET() {
     Object.keys(sellMap),
     Object.keys(symbolStrategies),
     Object.keys(strategyOverrides),
+    Object.keys(tokenRegimes),
+    Object.keys(runtimeConfiguredRegimeMap),
     Array.from(scalperSymbols),
     positionSymbols,
   );
@@ -1496,6 +1609,7 @@ export async function GET() {
     );
   }
   const volatilityOpportunityBySymbol: Record<string, ReturnType<typeof analyzeVolatilityOpportunity>> = {};
+  const regimeAdvisoryBySymbol: Record<string, ReturnType<typeof analyzeRegimeGovernor>> = {};
   for (const symbol of allSymbols) {
     const history = snapshotHistory[symbol] ?? [];
     const anchorNow = history.length > 0
@@ -1507,6 +1621,11 @@ export async function GET() {
       latestSnapshot: snapshots[symbol] ?? null,
       nowEpoch: anchorNow,
       wallClockEpoch: nowEpochSeconds,
+    });
+    regimeAdvisoryBySymbol[symbol] = analyzeRegimeGovernor({
+      symbol,
+      pricePoints: history,
+      nowEpoch: anchorNow,
     });
   }
   const capitalEfficiencyBySymbol: Record<string, CapitalEfficiencyRow> = {};
@@ -1591,6 +1710,25 @@ export async function GET() {
     const capitalEfficiency = capitalEfficiencyBySymbol[symbol];
     const rotation = rotationBySymbol[symbol];
     const volatilityOpportunity = volatilityOpportunityBySymbol[symbol];
+    const regimeAdvisory = regimeAdvisoryBySymbol[symbol];
+    const configuredRegime = tokenRegimes[symbol]
+      ?? runtimeConfiguredRegimeMap[symbol]
+      ?? "MEAN_REVERSION";
+    const runtimeDetectedRegime = runtimeDetectedRegimeMap[symbol] ?? null;
+    const runtimeDetectedRegimeConfidence = runtimeDetectedRegimeConfidenceMap[symbol] ?? null;
+    const runtimeDetectedRegimeConfidenceLabel = runtimeDetectedRegimeConfidenceLabelMap[symbol] ?? null;
+    const detectedRegime = runtimeDetectedRegime ?? regimeAdvisory?.suggestedRegime ?? null;
+    const detectedRegimeConfidenceScore = runtimeDetectedRegimeConfidence ?? regimeAdvisory?.confidenceScore ?? null;
+    const detectedRegimeConfidenceLabel = (
+      runtimeDetectedRegimeConfidenceLabel
+      ?? regimeAdvisory?.confidenceLabel
+      ?? "LOW"
+    ).toUpperCase();
+    const effectiveStrategy = normalizeEffectiveStrategy(
+      runtimeEffectiveStrategyMap[symbol]
+      ?? deriveConfiguredEffectiveStrategy(configuredRegime, strategyMode),
+    );
+    const autoFallbackReason = runtimeAutoFallbackReasonMap[symbol] ?? null;
     const symbolAllocatedUsd = symbolCostBasisUsd[symbol] ?? 0;
     const executableStatus = computeBuyExecutableStatus({
       buyEnabled,
@@ -1612,6 +1750,16 @@ export async function GET() {
 
     return {
       symbol,
+      configuredRegime,
+      detectedRegime,
+      detectedRegimeConfidenceLabel,
+      detectedRegimeConfidenceScore,
+      detectedRegimeExplanation: regimeAdvisory?.explanation ?? "Insufficient advisory context",
+      detectedRegimeStructureBias: regimeAdvisory?.components?.structureBias ?? "UNCLEAR",
+      detectedRegimeVolatilityState: regimeAdvisory?.components?.volatilityState ?? "NORMAL",
+      detectedRegimeParticipationState: regimeAdvisory?.components?.participationState ?? "NORMAL",
+      effectiveStrategy,
+      autoFallbackReason,
       buyEnabled,
       sellEnabled: sellMap[symbol] ?? legacyMap[symbol] ?? true,
       hasOpenPosition,
@@ -2012,6 +2160,18 @@ export async function GET() {
         control.strategyScorePct === null
           ? null
           : round(control.strategyScorePct, 1),
+      detectedRegime: control.detectedRegime,
+      detectedRegimeConfidenceLabel: control.detectedRegimeConfidenceLabel,
+      detectedRegimeConfidenceScore:
+        control.detectedRegimeConfidenceScore === null
+          ? null
+          : round(control.detectedRegimeConfidenceScore, 1),
+      detectedRegimeExplanation: control.detectedRegimeExplanation,
+      detectedRegimeStructureBias: control.detectedRegimeStructureBias,
+      detectedRegimeVolatilityState: control.detectedRegimeVolatilityState,
+      detectedRegimeParticipationState: control.detectedRegimeParticipationState,
+      effectiveStrategy: control.effectiveStrategy,
+      autoFallbackReason: control.autoFallbackReason,
       buyOpportunityPct:
         control.buyOpportunityPct === null
           ? null

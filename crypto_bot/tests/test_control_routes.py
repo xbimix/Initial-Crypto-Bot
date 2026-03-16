@@ -78,6 +78,42 @@ def test_symbols_route_updates_side_specific_map(monkeypatch):
     assert payload["symbol_buy_enabled"]["ADA-USD"] is False
 
 
+def test_token_regime_route_updates_single_symbol(monkeypatch):
+    state = {"symbols": ["BTC-USD"], "token_regimes": {"BTC-USD": "AUTO"}}
+
+    def fake_update_config(mutator):
+        nonlocal state
+        state = mutator(dict(state))
+        return state
+
+    monkeypatch.setattr(control_server, "update_config", fake_update_config)
+    client = control_server.app.test_client()
+
+    response = client.post(
+        "/token-regime",
+        json={"symbol": "eth-usd", "regime": "TREND_PULLBACK"},
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["symbol"] == "ETH-USD"
+    assert payload["configured_regime"] == "TREND_PULLBACK"
+    assert payload["token_regimes"]["ETH-USD"] == "TREND_PULLBACK"
+    assert payload["token_regimes"]["BTC-USD"] == "AUTO"
+
+
+def test_token_regime_route_rejects_invalid_value():
+    client = control_server.app.test_client()
+    response = client.post(
+        "/token-regime",
+        json={"symbol": "BTC-USD", "regime": "INVALID"},
+        headers=AUTH_HEADERS,
+    )
+    assert response.status_code == 400
+    payload = response.get_json()
+    assert "regime must be one of" in payload["error"]
+
+
 def test_health_route():
     client = control_server.app.test_client()
     response = client.get("/health")

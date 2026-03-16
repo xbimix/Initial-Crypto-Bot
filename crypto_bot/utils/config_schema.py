@@ -2,6 +2,13 @@ from __future__ import annotations
 
 import copy
 from typing import Any
+from utils.token_regimes import (
+    TOKEN_REGIME_MEAN_REVERSION,
+    TOKEN_REGIME_VALUES,
+    normalize_symbol as normalize_token_symbol,
+    normalize_token_regime,
+    is_valid_token_regime,
+)
 
 CONFIG_SCHEMA_VERSION = 1
 
@@ -244,6 +251,45 @@ def normalize_config(
             container[key] = cleaned
             changed = True
 
+    def normalize_token_regime_map():
+        nonlocal changed
+        if "token_regimes" not in cfg:
+            return
+
+        raw_map = cfg.get("token_regimes", {})
+        if not isinstance(raw_map, dict):
+            cfg["token_regimes"] = {}
+            changed = True
+            warn("token_regimes invalid; reset to empty object")
+            return
+
+        cleaned: dict[str, str] = {}
+        for raw_symbol, raw_regime in raw_map.items():
+            symbol = normalize_token_symbol(raw_symbol)
+            if not symbol:
+                changed = True
+                warn("token_regimes contains non-string/empty symbol; entry removed")
+                continue
+
+            if not is_valid_token_regime(raw_regime):
+                normalized = normalize_token_regime(raw_regime, default=TOKEN_REGIME_MEAN_REVERSION)
+                changed = True
+                warn(
+                    f"token_regimes.{symbol} invalid; normalized to {normalized}. "
+                    f"Allowed: {', '.join(TOKEN_REGIME_VALUES)}"
+                )
+                cleaned[symbol] = normalized
+                continue
+
+            normalized = normalize_token_regime(raw_regime, default=TOKEN_REGIME_MEAN_REVERSION)
+            cleaned[symbol] = normalized
+            if raw_symbol != symbol or raw_regime != normalized:
+                changed = True
+
+        if raw_map != cleaned:
+            cfg["token_regimes"] = cleaned
+            changed = True
+
     # Schema version marker.
     current_version = _to_int(cfg.get("config_version"))
     if current_version is None or current_version < CONFIG_SCHEMA_VERSION:
@@ -265,6 +311,7 @@ def normalize_config(
     normalize_bool_map("symbol_enabled")
     normalize_bool_map("symbol_buy_enabled")
     normalize_bool_map("symbol_sell_enabled")
+    normalize_token_regime_map()
 
     # Risk section.
     risk = ensure_dict(cfg, "risk", "risk")

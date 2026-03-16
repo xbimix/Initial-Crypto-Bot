@@ -44,6 +44,16 @@ type TokenDetailPayload = {
       insufficientReasonCode: string | null;
       insufficientReasonMessage: string | null;
     };
+    configuredRegime: string;
+    detectedRegime: string;
+    detectedRegimeConfidenceLabel: string;
+    detectedRegimeConfidenceScore: number | null;
+    detectedRegimeExplanation: string;
+    detectedRegimeStructureBias: string;
+    detectedRegimeVolatilityState: string;
+    detectedRegimeParticipationState: string;
+    effectiveStrategy?: string | null;
+    autoFallbackReason?: string | null;
     regime: string | null;
     strategyScorePct: number | null;
     volatilityPct: number | null;
@@ -152,6 +162,27 @@ type TokenDetailPayload = {
       observed_history_span_minutes: number;
       observed_candle_count: number;
     }>;
+  };
+  regimeAdvisory?: {
+    suggestedRegime: string;
+    confidenceScore: number;
+    confidenceLabel: string;
+    explanation: string;
+    components: {
+      structureBias: string;
+      volatilityState: string;
+      participationState: string;
+    };
+    timeframeSummary?: Record<string, {
+      insufficientData?: boolean;
+      confidenceScore?: number;
+      confidenceLabel?: string;
+      suggestedRegime?: string;
+      structureClass?: string;
+      volatilityState?: string;
+      participationState?: string;
+    }>;
+    dataQualityNote?: string;
   };
 };
 
@@ -278,6 +309,16 @@ function confidenceLabelText(label: string | null) {
     return "Low Confidence";
   }
   return "N/A";
+}
+
+function friendlyRegime(value: string | null | undefined) {
+  if (!value) {
+    return "N/A";
+  }
+  return value
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function friendlyInsufficientReason(code: string | null, message: string | null) {
@@ -448,6 +489,7 @@ export default function TokenDetailPage() {
   const rotation = advisory.rotationMonitor;
   const history = data.history;
   const wave = data.waveZoneAnalyzer;
+  const regimeAdvisory = data.regimeAdvisory ?? null;
   const volatilityOpportunity = advisory.volatilityOpportunity;
   const timeframeOrder = ["1h", "4h", "8h", "16h", "24h", "3d", "7d"];
   const inPosition = summary.hasOpenPosition && summary.openUnits > 0;
@@ -455,6 +497,9 @@ export default function TokenDetailPage() {
     const row = wave.timeframes[timeframeKey];
     return !row || row.insufficient_data;
   });
+  const allRegimeWindowsInsufficient = regimeAdvisory?.timeframeSummary
+    ? Object.values(regimeAdvisory.timeframeSummary).every((row) => row?.insufficientData)
+    : true;
   const rotationConfidence =
     rotation.shortTermScore !== null && rotation.mediumTermScore !== null
       ? "Medium Confidence"
@@ -503,7 +548,7 @@ export default function TokenDetailPage() {
             </div>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-9">
             <div className="rb-content-card p-3">
               <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Current Price</p>
               <p className="mt-1 text-base font-semibold text-sky-200">{formatPrice(summary.currentPrice)}</p>
@@ -537,6 +582,10 @@ export default function TokenDetailPage() {
             <div className="rb-content-card p-3">
               <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Bounce Setup</p>
               <p className="mt-1 text-sm font-semibold text-sky-100">{opportunityLabelText(volatilityOpportunity.label)}</p>
+            </div>
+            <div className="rb-content-card p-3">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Configured Regime</p>
+              <p className="mt-1 text-sm font-semibold text-slate-100">{advisory.configuredRegime}</p>
             </div>
             <div className="rb-content-card p-3">
               <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Trend Shift</p>
@@ -662,7 +711,7 @@ export default function TokenDetailPage() {
             </span>
           </div>
 
-          <div className="mt-4 grid gap-4 lg:grid-cols-3">
+          <div className="mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
             <article className="rb-content-card p-4">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
@@ -746,6 +795,40 @@ export default function TokenDetailPage() {
                 </p>
                 <p className="text-xs text-slate-400">{rotationConfidence}</p>
               </div>
+            </article>
+
+            <article className="rb-content-card p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
+                  Regime Analysis
+                </p>
+                <span className="rounded-md border border-sky-400/35 bg-sky-500/18 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-100">
+                  {confidenceLabelText(advisory.detectedRegimeConfidenceLabel)}
+                </span>
+              </div>
+              <p className="mt-3 text-sm text-slate-300">
+                Suggested: <span className="font-semibold text-sky-100">{friendlyRegime(advisory.detectedRegime)}</span>
+              </p>
+              <p className="mt-1 text-[12px] text-slate-400">
+                Confidence Score: {advisory.detectedRegimeConfidenceScore === null ? "N/A" : advisory.detectedRegimeConfidenceScore.toFixed(1)}
+              </p>
+              <p className="mt-3 text-sm text-slate-300">{advisory.detectedRegimeExplanation}</p>
+              <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
+                <div className="rb-summary-card px-2 py-1.5 text-center">
+                  Structure {friendlyRegime(advisory.detectedRegimeStructureBias)}
+                </div>
+                <div className="rb-summary-card px-2 py-1.5 text-center">
+                  Volatility {friendlyRegime(advisory.detectedRegimeVolatilityState)}
+                </div>
+                <div className="rb-summary-card px-2 py-1.5 text-center">
+                  Participation {friendlyRegime(advisory.detectedRegimeParticipationState)}
+                </div>
+              </div>
+              {allRegimeWindowsInsufficient ? (
+                <p className="mt-3 text-xs text-amber-200">
+                  Not enough recent data for robust regime window coverage.
+                </p>
+              ) : null}
             </article>
           </div>
         </section>
@@ -835,6 +918,10 @@ export default function TokenDetailPage() {
             <div className="rb-content-card p-4 text-[12px] text-slate-300">
               <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Execution Diagnostics</p>
               <p className="mt-2">Regime: {advisory.regime ?? "N/A"}</p>
+              <p>Configured Regime: {advisory.configuredRegime}</p>
+              <p>Detected Regime: {friendlyRegime(advisory.detectedRegime)}</p>
+              <p>Effective Strategy: {friendlyRegime(advisory.effectiveStrategy)}</p>
+              <p>Auto Fallback Reason: {advisory.autoFallbackReason ?? "N/A"}</p>
               <p>Strategy Score: {formatPercent(advisory.strategyScorePct)}</p>
               <p>Volatility: {advisory.volatilityPct === null ? "N/A" : `${advisory.volatilityPct.toFixed(3)}%`}</p>
               <p>Buy Executable: {advisory.buyExecutable === null ? "N/A" : advisory.buyExecutable ? "Ready" : "Blocked"}</p>

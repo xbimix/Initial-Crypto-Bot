@@ -77,6 +77,16 @@ type DashboardPayload = {
   };
   symbolControls: Array<{
     symbol: string;
+    configuredRegime: string;
+    detectedRegime: string | null;
+    detectedRegimeConfidenceLabel: string;
+    detectedRegimeConfidenceScore: number | null;
+    detectedRegimeExplanation: string;
+    detectedRegimeStructureBias: string;
+    detectedRegimeVolatilityState: string;
+    detectedRegimeParticipationState: string;
+    effectiveStrategy: string;
+    autoFallbackReason: string | null;
     buyEnabled: boolean;
     sellEnabled: boolean;
     hasOpenPosition: boolean;
@@ -216,6 +226,14 @@ const RANGE_OPTIONS = [
   { id: "recent", label: "Live", points: 8 },
   { id: "session", label: "Session", points: 14 },
   { id: "all", label: "All", points: Number.POSITIVE_INFINITY },
+] as const;
+
+const TOKEN_REGIME_OPTIONS = [
+  "MEAN_REVERSION",
+  "AUTO",
+  "TREND_PULLBACK",
+  "BREAKOUT_MOMENTUM",
+  "OBSERVE_ONLY",
 ] as const;
 
 type RangeId = (typeof RANGE_OPTIONS)[number]["id"];
@@ -388,6 +406,16 @@ function formatOpportunity(value: number | null) {
   }
 
   return `${value.toFixed(1)}%`;
+}
+
+function formatDetectedRegime(value: string | null) {
+  if (!value) {
+    return "N/A";
+  }
+  return value
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function opportunityStyle(value: number | null) {
@@ -689,6 +717,7 @@ export default function RevbotDashboard() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [busySymbol, setBusySymbol] = useState<string | null>(null);
   const [busyScalper, setBusyScalper] = useState<string | null>(null);
+  const [busyRegime, setBusyRegime] = useState<string | null>(null);
   const [busyManualSell, setBusyManualSell] = useState<string | null>(null);
   const [busyCloseAll, setBusyCloseAll] = useState(false);
   const [busyCooldown, setBusyCooldown] = useState(false);
@@ -889,6 +918,32 @@ export default function RevbotDashboard() {
       setError(message);
     } finally {
       setBusyScalper(null);
+    }
+  }
+
+  async function setTokenRegime(symbol: string, regime: string) {
+    setBusyRegime(symbol);
+
+    try {
+      const response = await fetch("/api/token-regime", {
+        method: "POST",
+        headers: buildMutatingAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ symbol, regime }),
+      });
+
+      if (!response.ok) {
+        throw new Error(await parseApiErrorMessage(response, "Regime update failed"));
+      }
+
+      await loadDashboard();
+    } catch (requestError) {
+      const message =
+        requestError instanceof Error
+          ? requestError.message
+          : "Regime update failed";
+      setError(message);
+    } finally {
+      setBusyRegime(null);
     }
   }
 
@@ -1664,12 +1719,13 @@ export default function RevbotDashboard() {
             </div>
 
             <div className="rb-table-wrap mt-4 overflow-x-auto">
-              <table className="min-w-[1180px] w-full">
+              <table className="min-w-[1320px] w-full">
                 <thead>
                   <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.12em] text-slate-400">
                     <th className="px-3 py-2">Token</th>
                     <th className="px-3 py-2">Mode</th>
                     <th className="px-3 py-2">Regime</th>
+                    <th className="px-3 py-2">Detected</th>
                     <th className="px-3 py-2 text-center">Buy Opportunity</th>
                     <th className="px-3 py-2 text-center">Buy Executable</th>
                     <th className="px-3 py-2 text-center">Scalper</th>
@@ -1685,7 +1741,7 @@ export default function RevbotDashboard() {
                     const buyOn = control.buyEnabled;
                     const sellOn = control.sellEnabled;
                     const scalperOn = control.scalperEnabled;
-                    const regimeChipStyle = regimeStyle(control.regime);
+                    const detectedRegimeChipStyle = regimeStyle(control.detectedRegime);
                     const buyOpportunityChipStyle = opportunityStyle(control.buyOpportunityPct);
                     const executableChipStyle = executableStyle(control.buyExecutable);
                     const modeLabel = control.buyEnabled && control.sellEnabled
@@ -1715,12 +1771,53 @@ export default function RevbotDashboard() {
                         </td>
                         <td className="px-3 py-2.5 text-slate-300">{modeLabel}</td>
                         <td className="px-3 py-2.5">
-                          <span
-                            className="inline-flex min-w-[120px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
-                            style={regimeChipStyle}
+                          <select
+                            value={control.configuredRegime}
+                            onChange={(event) =>
+                              setTokenRegime(control.symbol, event.target.value)
+                            }
+                            disabled={
+                              busyAction !== null
+                              || busyRegime === control.symbol
+                              || busyScalper !== null
+                              || busySymbol !== null
+                              || savingRisk
+                            }
+                            className="w-[176px] rounded-md border border-white/12 bg-white/[0.04] px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            title="Manual strategy mode per token"
                           >
-                            {control.regime ?? "Unknown"}
-                          </span>
+                            {TOKEN_REGIME_OPTIONS.map((option) => (
+                              <option key={`${control.symbol}-${option}`} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex flex-col items-start gap-1">
+                            <span
+                              className="inline-flex min-w-[120px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                              style={detectedRegimeChipStyle}
+                              title={control.detectedRegimeExplanation}
+                            >
+                              {formatDetectedRegime(control.detectedRegime)}
+                            </span>
+                            <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">
+                              {control.detectedRegimeConfidenceLabel}
+                              {control.detectedRegimeConfidenceScore === null
+                                ? ""
+                                : ` ${control.detectedRegimeConfidenceScore.toFixed(1)}`}
+                            </span>
+                            <span className="text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                              Live {control.regime ?? "unknown"}
+                            </span>
+                            <span
+                              className="text-[10px] uppercase tracking-[0.12em] text-slate-500"
+                              title={control.autoFallbackReason ?? undefined}
+                            >
+                              Route {control.effectiveStrategy.replace(/_/g, " ")}
+                            </span>
+                          </div>
                         </td>
                         <td className="px-3 py-2.5 text-center">
                           <span
@@ -1746,6 +1843,7 @@ export default function RevbotDashboard() {
                               busyAction !== null
                               || busyScalperRow
                               || busySymbol !== null
+                              || busyRegime !== null
                               || savingRisk
                             }
                             className="min-w-[70px] rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:cursor-not-allowed disabled:opacity-60"
@@ -1771,6 +1869,7 @@ export default function RevbotDashboard() {
                               || busyBuy
                               || savingRisk
                               || busyScalper !== null
+                              || busyRegime !== null
                             }
                             className="min-w-[70px] rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:cursor-not-allowed disabled:opacity-60"
                             style={{
@@ -1795,6 +1894,7 @@ export default function RevbotDashboard() {
                               || busySell
                               || savingRisk
                               || busyScalper !== null
+                              || busyRegime !== null
                             }
                             className="min-w-[70px] rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:cursor-not-allowed disabled:opacity-60"
                             style={{

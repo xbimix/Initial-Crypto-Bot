@@ -2,6 +2,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { NextResponse } from "next/server";
 import { analyzeWaveZones } from "../../../lib/waveZoneAnalyzer.mjs";
+import { analyzeRegimeGovernor } from "../../../lib/regimeGovernorAnalyzer.mjs";
 
 type DashboardSummary = {
   staleLosingReviewThresholdAgeHours?: number;
@@ -26,6 +27,16 @@ type DashboardPosition = {
 
 type DashboardSymbolControl = {
   symbol: string;
+  configuredRegime?: string | null;
+  detectedRegime?: string | null;
+  detectedRegimeConfidenceLabel?: string | null;
+  detectedRegimeConfidenceScore?: number | null;
+  detectedRegimeExplanation?: string | null;
+  detectedRegimeStructureBias?: string | null;
+  detectedRegimeVolatilityState?: string | null;
+  detectedRegimeParticipationState?: string | null;
+  effectiveStrategy?: string | null;
+  autoFallbackReason?: string | null;
   regime: string | null;
   volatilityPct: number | null;
   strategyScorePct: number | null;
@@ -317,6 +328,12 @@ export async function GET(
     wallClockEpoch,
     staleHistoryThresholdSeconds: STALE_SNAPSHOT_THRESHOLD_SECONDS,
   });
+  const regimeAdvisory = analyzeRegimeGovernor({
+    symbol,
+    pricePoints: snapshotHistory,
+    latestSnapshot: null,
+    nowEpoch: analysisAnchorEpoch,
+  });
 
   return NextResponse.json({
     generatedAt: new Date().toISOString(),
@@ -368,6 +385,22 @@ export async function GET(
         insufficientReasonMessage:
           control?.volatilityOpportunityInsufficientReasonMessage ?? null,
       },
+      configuredRegime: control?.configuredRegime ?? "MEAN_REVERSION",
+      detectedRegime: control?.detectedRegime ?? regimeAdvisory.suggestedRegime,
+      detectedRegimeConfidenceLabel:
+        control?.detectedRegimeConfidenceLabel ?? regimeAdvisory.confidenceLabel,
+      detectedRegimeConfidenceScore:
+        control?.detectedRegimeConfidenceScore ?? regimeAdvisory.confidenceScore,
+      detectedRegimeExplanation:
+        control?.detectedRegimeExplanation ?? regimeAdvisory.explanation,
+      detectedRegimeStructureBias:
+        control?.detectedRegimeStructureBias ?? regimeAdvisory.components.structureBias,
+      detectedRegimeVolatilityState:
+        control?.detectedRegimeVolatilityState ?? regimeAdvisory.components.volatilityState,
+      detectedRegimeParticipationState:
+        control?.detectedRegimeParticipationState ?? regimeAdvisory.components.participationState,
+      effectiveStrategy: control?.effectiveStrategy ?? "mean_reversion",
+      autoFallbackReason: control?.autoFallbackReason ?? null,
       regime: control?.regime ?? null,
       strategyScorePct: control?.strategyScorePct ?? null,
       volatilityPct: control?.volatilityPct ?? null,
@@ -400,6 +433,7 @@ export async function GET(
         },
       },
     },
+    regimeAdvisory,
     history: {
       buyCount,
       sellCount,
