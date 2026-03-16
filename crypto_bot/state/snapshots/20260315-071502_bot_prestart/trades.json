@@ -743,25 +743,5 @@
     "size": 3174.603175,
     "balance": 8169.610558011169,
     "reason": "bear_market_mean_reversion_buy"
-  },
-  {
-    "time": 1773605632.9400737,
-    "symbol": "IMX-USD",
-    "side": "SELL",
-    "price": 0.17149999999999999,
-    "size": 1199.4003,
-    "pnl": 5.697151424999972,
-    "balance": 8375.307709461169,
-    "reason": "profit_lock_exit_3pct"
-  },
-  {
-    "time": 1773617068.1053958,
-    "symbol": "ETH-USD",
-    "side": "SELL",
-    "price": 2177.585,
-    "size": 0.095515,
-    "pnl": 7.992695199999985,
-    "balance": 8583.299740736169,
-    "reason": "profit_lock_exit_4pct"
   }
 ]

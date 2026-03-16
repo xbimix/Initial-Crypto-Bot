@@ -1,5 +1,5 @@
 {
-  "balance": 8583.299740736169,
+  "balance": 8169.610558011169,
   "positions": {
     "DOT-USD": {
       "price": 1.54135,
@@ -35,6 +35,18 @@
       "price": 0.052000000000000005,
       "size": 3023.852329,
       "entry_time": 1772953757.0136933,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "IMX-USD": {
+      "price": 0.16675,
+      "size": 1199.4003,
+      "entry_time": 1773417961.5892508,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "ETH-USD": {
+      "price": 2093.905,
+      "size": 0.095515,
+      "entry_time": 1773424222.7544696,
       "reason": "bear_market_mean_reversion_buy"
     },
     "SUI-USD": {
