@@ -581,6 +581,8 @@ def _remove_strategy_symbol(state, symbol):
         "last_detected_regime",
         "last_detected_regime_confidence",
         "last_detected_regime_confidence_label",
+        "last_detection_source",
+        "last_detection_timestamp_epoch",
         "last_effective_strategy",
         "last_auto_fallback_reason",
     ):

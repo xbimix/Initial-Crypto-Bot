@@ -51,7 +51,26 @@ def test_weekly_summary_build_and_write(tmp_path: Path, monkeypatch):
                             "insufficient_data": False,
                         },
                     ]
-                }
+                },
+                "regime_route_effectiveness": {
+                    "total_closed_trades": 3,
+                    "best_route_by_avg_pnl": "mean_reversion",
+                    "best_route_avg_pnl_usd": 4.2,
+                    "routes": {
+                        "mean_reversion": {
+                            "closed_trades": 2,
+                            "win_rate_pct": 50.0,
+                            "avg_realized_pnl_usd": 4.2,
+                            "avg_max_drawdown_pct": -1.2,
+                        },
+                        "trend_pullback": {
+                            "closed_trades": 1,
+                            "win_rate_pct": 100.0,
+                            "avg_realized_pnl_usd": 6.0,
+                            "avg_max_drawdown_pct": -0.5,
+                        },
+                    },
+                },
             },
             "trade_reasons": {
                 "blocked_reasons": {"spread_too_wide": 2},
@@ -94,7 +113,26 @@ def test_weekly_summary_build_and_write(tmp_path: Path, monkeypatch):
                             "insufficient_data": False,
                         },
                     ]
-                }
+                },
+                "regime_route_effectiveness": {
+                    "total_closed_trades": 2,
+                    "best_route_by_avg_pnl": "breakout_momentum",
+                    "best_route_avg_pnl_usd": 5.5,
+                    "routes": {
+                        "breakout_momentum": {
+                            "closed_trades": 1,
+                            "win_rate_pct": 100.0,
+                            "avg_realized_pnl_usd": 5.5,
+                            "avg_max_drawdown_pct": -0.3,
+                        },
+                        "mean_reversion": {
+                            "closed_trades": 1,
+                            "win_rate_pct": 0.0,
+                            "avg_realized_pnl_usd": -2.5,
+                            "avg_max_drawdown_pct": -1.8,
+                        },
+                    },
+                },
             },
             "trade_reasons": {
                 "blocked_reasons": {"spread_too_wide": 1, "warming_up_history": 3},
@@ -124,11 +162,17 @@ def test_weekly_summary_build_and_write(tmp_path: Path, monkeypatch):
     assert report["summary"]["crash_count_total"] == 1
     assert report["summary"]["latest_high_opportunity_symbol_count"] == 2
     assert report["summary"]["top_high_opportunity_symbols"] == ["ADA-USD", "BTC-USD"]
+    assert report["summary"]["latest_best_regime_route_by_avg_pnl"] == "breakout_momentum"
+    assert report["summary"]["weekly_best_regime_route_by_avg_pnl"] == "trend_pullback"
+    assert report["summary"]["weekly_best_regime_route_avg_pnl_usd"] == 6.0
     assert report["blocked_reasons_top"]["spread_too_wide"] == 3
     assert report["blocked_reasons_top"]["warming_up_history"] == 3
     assert report["volatility_opportunity"]["high_signal_frequency_by_symbol"]["ADA-USD"] == 2
     assert report["volatility_opportunity"]["high_signal_frequency_by_symbol"]["BTC-USD"] == 1
     assert report["volatility_opportunity"]["average_opportunity_score_by_symbol"]["BTC-USD"] == 67.25
+    assert report["regime_route_effectiveness"]["routes"]["mean_reversion"]["closed_trades"] == 3
+    assert report["regime_route_effectiveness"]["routes"]["trend_pullback"]["avg_realized_pnl_usd"] == 6.0
+    assert report["regime_route_effectiveness"]["routes"]["breakout_momentum"]["win_rate_pct"] == 100.0
     assert report["anomaly_notes"]
 
     output_path = weekly_summary.write_weekly_summary(report)

@@ -31,10 +31,18 @@ type DashboardSymbolControl = {
   detectedRegime?: string | null;
   detectedRegimeConfidenceLabel?: string | null;
   detectedRegimeConfidenceScore?: number | null;
+  detectionSource?: string | null;
+  detectionTimestampEpoch?: number | null;
+  detectionTimestampAt?: string | null;
   detectedRegimeExplanation?: string | null;
   detectedRegimeStructureBias?: string | null;
   detectedRegimeVolatilityState?: string | null;
   detectedRegimeParticipationState?: string | null;
+  detectedRegimeTrendScore?: number | null;
+  detectedRegimeRangeScore?: number | null;
+  detectedRegimeBreakoutScore?: number | null;
+  detectedRegimeMixedScore?: number | null;
+  detectedRegimeStabilityScore?: number | null;
   effectiveStrategy?: string | null;
   autoFallbackReason?: string | null;
   regime: string | null;
@@ -96,6 +104,8 @@ type TradeEntry = {
 type SnapshotPoint = {
   tsEpoch: number;
   price: number;
+  spreadBps?: number | null;
+  quality?: string | null;
 };
 
 const STATE_DIR = path.resolve(process.cwd(), "..", "crypto_bot", "state");
@@ -165,7 +175,7 @@ function parseSnapshotHistory(symbol: string, logTail: string): SnapshotPoint[] 
   const rows: SnapshotPoint[] = [];
   const pattern =
     /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+\s+\|\s+INFO\s+\|\s+SNAPSHOT\s+([A-Z0-9-]+)\s+\|\s+(.+)$/;
-  const pricePattern = /\bprice=([0-9.]+)/;
+  const fieldPattern = /([a-z0-9_]+)=([^\s]+)/gi;
 
   for (const line of logTail.split(/\r?\n/)) {
     const match = line.match(pattern);
@@ -175,13 +185,21 @@ function parseSnapshotHistory(symbol: string, logTail: string): SnapshotPoint[] 
     if (match[2] !== symbol) {
       continue;
     }
-    const priceMatch = match[3].match(pricePattern);
-    const price = asNumber(priceMatch?.[1]);
+    const fields: Record<string, string> = {};
+    for (const token of match[3].matchAll(fieldPattern)) {
+      fields[token[1]] = token[2];
+    }
+    const price = asNumber(fields.price);
     const tsEpoch = parseLogTimestampToEpoch(match[1]);
     if (price === null || price <= 0 || tsEpoch === null) {
       continue;
     }
-    rows.push({ tsEpoch, price });
+    rows.push({
+      tsEpoch,
+      price,
+      spreadBps: asNumber(fields.spread_bps),
+      quality: fields.quality ?? null,
+    });
   }
 
   return rows;
@@ -331,7 +349,7 @@ export async function GET(
   const regimeAdvisory = analyzeRegimeGovernor({
     symbol,
     pricePoints: snapshotHistory,
-    latestSnapshot: null,
+    latestSnapshot,
     nowEpoch: analysisAnchorEpoch,
   });
 
@@ -391,6 +409,12 @@ export async function GET(
         control?.detectedRegimeConfidenceLabel ?? regimeAdvisory.confidenceLabel,
       detectedRegimeConfidenceScore:
         control?.detectedRegimeConfidenceScore ?? regimeAdvisory.confidenceScore,
+      detectionSource:
+        control?.detectionSource ?? regimeAdvisory.detectionSource ?? "advisory_multitimeframe",
+      detectionTimestampEpoch:
+        control?.detectionTimestampEpoch ?? regimeAdvisory.analysisAnchorEpoch ?? null,
+      detectionTimestampAt:
+        control?.detectionTimestampAt ?? regimeAdvisory.analysisAnchorAt ?? null,
       detectedRegimeExplanation:
         control?.detectedRegimeExplanation ?? regimeAdvisory.explanation,
       detectedRegimeStructureBias:
@@ -399,6 +423,31 @@ export async function GET(
         control?.detectedRegimeVolatilityState ?? regimeAdvisory.components.volatilityState,
       detectedRegimeParticipationState:
         control?.detectedRegimeParticipationState ?? regimeAdvisory.components.participationState,
+      detectedRegimeTrendScore:
+        control?.detectedRegimeTrendScore
+        ?? regimeAdvisory.componentScores?.trend_score
+        ?? regimeAdvisory.componentScores?.trendScore
+        ?? null,
+      detectedRegimeRangeScore:
+        control?.detectedRegimeRangeScore
+        ?? regimeAdvisory.componentScores?.range_score
+        ?? regimeAdvisory.componentScores?.rangeScore
+        ?? null,
+      detectedRegimeBreakoutScore:
+        control?.detectedRegimeBreakoutScore
+        ?? regimeAdvisory.componentScores?.breakout_score
+        ?? regimeAdvisory.componentScores?.breakoutScore
+        ?? null,
+      detectedRegimeMixedScore:
+        control?.detectedRegimeMixedScore
+        ?? regimeAdvisory.componentScores?.mixed_score
+        ?? regimeAdvisory.componentScores?.mixedScore
+        ?? null,
+      detectedRegimeStabilityScore:
+        control?.detectedRegimeStabilityScore
+        ?? regimeAdvisory.stability_score
+        ?? regimeAdvisory.stabilityScore
+        ?? null,
       effectiveStrategy: control?.effectiveStrategy ?? "mean_reversion",
       autoFallbackReason: control?.autoFallbackReason ?? null,
       regime: control?.regime ?? null,

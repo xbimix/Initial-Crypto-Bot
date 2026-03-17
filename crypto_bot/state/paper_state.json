@@ -1,5 +1,5 @@
 {
-  "balance": 9005.867871246595,
+  "balance": 8605.867856102095,
   "positions": {
     "CRV-USD": {
       "price": 0.25637,
@@ -41,6 +41,18 @@
       "price": 1.6067,
       "size": 124.478745,
       "entry_time": 1773721292.6048973,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "ICP-USD": {
+      "price": 2.7116,
+      "size": 73.757191,
+      "entry_time": 1773724833.0193048,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "HYPE-USD": {
+      "price": 40.5403,
+      "size": 4.933363,
+      "entry_time": 1773725922.6924825,
       "reason": "bear_market_mean_reversion_buy"
     }
   }

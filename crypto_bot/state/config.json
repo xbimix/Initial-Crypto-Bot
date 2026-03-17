@@ -97,7 +97,8 @@
     "GODS-USD",
     "ACS-USD",
     "VTHO-USD",
-    "GHST-USD"
+    "GHST-USD",
+    "GST-USD"
   ],
   "lookback": 200,
   "min_trades": 3,
@@ -312,7 +313,7 @@
     "FLOW-USD": true,
     "PUNDIX-USD": true,
     "HONEY-USD": true,
-    "GST-USD": false,
+    "GST-USD": true,
     "GODS-USD": true,
     "GHST-USD": false,
     "ACS-USD": true

@@ -48,10 +48,18 @@ type TokenDetailPayload = {
     detectedRegime: string;
     detectedRegimeConfidenceLabel: string;
     detectedRegimeConfidenceScore: number | null;
+    detectionSource?: string | null;
+    detectionTimestampEpoch?: number | null;
+    detectionTimestampAt?: string | null;
     detectedRegimeExplanation: string;
     detectedRegimeStructureBias: string;
     detectedRegimeVolatilityState: string;
     detectedRegimeParticipationState: string;
+    detectedRegimeTrendScore?: number | null;
+    detectedRegimeRangeScore?: number | null;
+    detectedRegimeBreakoutScore?: number | null;
+    detectedRegimeMixedScore?: number | null;
+    detectedRegimeStabilityScore?: number | null;
     effectiveStrategy?: string | null;
     autoFallbackReason?: string | null;
     regime: string | null;
@@ -812,6 +820,9 @@ export default function TokenDetailPage() {
               <p className="mt-1 text-[12px] text-slate-400">
                 Confidence Score: {advisory.detectedRegimeConfidenceScore === null ? "N/A" : advisory.detectedRegimeConfidenceScore.toFixed(1)}
               </p>
+              <p className="mt-1 text-[11px] text-slate-500">
+                Source: {friendlyRegime(advisory.detectionSource ?? "advisory_multitimeframe")} | Time: {advisory.detectionTimestampAt ? new Date(advisory.detectionTimestampAt).toLocaleString() : "N/A"}
+              </p>
               <p className="mt-3 text-sm text-slate-300">{advisory.detectedRegimeExplanation}</p>
               <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
                 <div className="rb-summary-card px-2 py-1.5 text-center">
@@ -920,8 +931,18 @@ export default function TokenDetailPage() {
               <p className="mt-2">Regime: {advisory.regime ?? "N/A"}</p>
               <p>Configured Regime: {advisory.configuredRegime}</p>
               <p>Detected Regime: {friendlyRegime(advisory.detectedRegime)}</p>
+              <p>Detection Source: {friendlyRegime(advisory.detectionSource ?? "advisory_multitimeframe")}</p>
+              <p>Detection Time: {advisory.detectionTimestampAt ? new Date(advisory.detectionTimestampAt).toLocaleString() : "N/A"}</p>
               <p>Effective Strategy: {friendlyRegime(advisory.effectiveStrategy)}</p>
               <p>Auto Fallback Reason: {advisory.autoFallbackReason ?? "N/A"}</p>
+              <p>
+                Regime Component Scores:
+                {" "}trend {advisory.detectedRegimeTrendScore === null || advisory.detectedRegimeTrendScore === undefined ? "N/A" : advisory.detectedRegimeTrendScore.toFixed(1)}
+                {" "}range {advisory.detectedRegimeRangeScore === null || advisory.detectedRegimeRangeScore === undefined ? "N/A" : advisory.detectedRegimeRangeScore.toFixed(1)}
+                {" "}breakout {advisory.detectedRegimeBreakoutScore === null || advisory.detectedRegimeBreakoutScore === undefined ? "N/A" : advisory.detectedRegimeBreakoutScore.toFixed(1)}
+                {" "}mixed {advisory.detectedRegimeMixedScore === null || advisory.detectedRegimeMixedScore === undefined ? "N/A" : advisory.detectedRegimeMixedScore.toFixed(1)}
+              </p>
+              <p>Regime Stability: {advisory.detectedRegimeStabilityScore === null || advisory.detectedRegimeStabilityScore === undefined ? "N/A" : advisory.detectedRegimeStabilityScore.toFixed(1)}</p>
               <p>Strategy Score: {formatPercent(advisory.strategyScorePct)}</p>
               <p>Volatility: {advisory.volatilityPct === null ? "N/A" : `${advisory.volatilityPct.toFixed(3)}%`}</p>
               <p>Buy Executable: {advisory.buyExecutable === null ? "N/A" : advisory.buyExecutable ? "Ready" : "Blocked"}</p>

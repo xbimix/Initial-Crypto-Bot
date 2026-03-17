@@ -82,10 +82,18 @@ type DashboardPayload = {
     detectedRegime: string | null;
     detectedRegimeConfidenceLabel: string;
     detectedRegimeConfidenceScore: number | null;
+    detectionSource: string;
+    detectionTimestampEpoch: number | null;
+    detectionTimestampAt: string | null;
     detectedRegimeExplanation: string;
     detectedRegimeStructureBias: string;
     detectedRegimeVolatilityState: string;
     detectedRegimeParticipationState: string;
+    detectedRegimeTrendScore: number | null;
+    detectedRegimeRangeScore: number | null;
+    detectedRegimeBreakoutScore: number | null;
+    detectedRegimeMixedScore: number | null;
+    detectedRegimeStabilityScore: number | null;
     effectiveStrategy: string;
     autoFallbackReason: string | null;
     buyEnabled: boolean;
@@ -1823,6 +1831,12 @@ export default function RevbotDashboard() {
                               title={control.autoFallbackReason ?? undefined}
                             >
                               Route {control.effectiveStrategy.replace(/_/g, " ")}
+                            </span>
+                            <span
+                              className="text-[10px] uppercase tracking-[0.12em] text-slate-500"
+                              title={control.detectionTimestampAt ?? undefined}
+                            >
+                              Source {control.detectionSource.replace(/_/g, " ")}
                             </span>
                           </div>
                         </td>

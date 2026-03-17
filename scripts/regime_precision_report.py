@@ -48,9 +48,12 @@ def _read_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
 
 def _num(value: Any, default: float | None = None) -> float | None:
     try:
-        return float(value)
+        parsed = float(value)
     except (TypeError, ValueError):
         return default
+    if parsed != parsed:  # NaN guard
+        return default
+    return parsed
 
 
 def _normalize_symbol(value: Any) -> str:
@@ -253,6 +256,8 @@ def _build_report(state_dir: Path) -> dict[str, Any]:
 
     last_detected_regime = _safe_get_map(strategy, "last_detected_regime")
     last_detected_conf = _safe_get_map(strategy, "last_detected_regime_confidence")
+    last_detection_source = _safe_get_map(strategy, "last_detection_source")
+    last_detection_timestamp = _safe_get_map(strategy, "last_detection_timestamp_epoch")
     last_effective_strategy = _safe_get_map(strategy, "last_effective_strategy")
     last_auto_fallback = _safe_get_map(strategy, "last_auto_fallback_reason")
     shadow_state = _safe_get_map(strategy, "shadow_regime_state")
@@ -267,6 +272,7 @@ def _build_report(state_dir: Path) -> dict[str, Any]:
         "detected_regimes": Counter(),
         "candidate_regimes": Counter(),
         "stable_regimes": Counter(),
+        "detection_sources": Counter(),
     }
 
     rows: list[dict[str, Any]] = []
@@ -314,6 +320,7 @@ def _build_report(state_dir: Path) -> dict[str, Any]:
             summary["detected_regimes"][str(detected or detected_from_state or "unknown")] += 1
             summary["candidate_regimes"][str(candidate)] += 1
             summary["stable_regimes"][str(shadow_stable or "unknown")] += 1
+            summary["detection_sources"][str(last_detection_source.get(symbol) or "unknown")] += 1
 
         rows.append(
             {
@@ -327,6 +334,11 @@ def _build_report(state_dir: Path) -> dict[str, Any]:
                 "detected_from_state": detected_from_state,
                 "detected_confidence": route.get("detected_regime_confidence"),
                 "detected_confidence_from_state": last_detected_conf.get(symbol),
+                "detection_source_from_state": last_detection_source.get(symbol),
+                "detection_timestamp_epoch_from_state": _num(
+                    last_detection_timestamp.get(symbol),
+                    None,
+                ),
                 "last_effective_strategy_state": last_effective_strategy.get(symbol),
                 "min_confidence": min_conf,
                 "min_confirmations": min_confirms,
@@ -355,6 +367,7 @@ def _build_report(state_dir: Path) -> dict[str, Any]:
             "detected_regimes": dict(summary["detected_regimes"]),
             "candidate_regimes": dict(summary["candidate_regimes"]),
             "stable_regimes": dict(summary["stable_regimes"]),
+            "detection_sources": dict(summary["detection_sources"]),
         },
         "rows": rows,
     }

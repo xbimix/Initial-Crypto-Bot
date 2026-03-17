@@ -98,6 +98,8 @@ type StrategyState = {
   last_detected_regime?: Record<string, string>;
   last_detected_regime_confidence?: Record<string, number>;
   last_detected_regime_confidence_label?: Record<string, string>;
+  last_detection_source?: Record<string, string>;
+  last_detection_timestamp_epoch?: Record<string, number>;
   last_effective_strategy?: Record<string, string>;
   last_auto_fallback_reason?: Record<string, string>;
 };
@@ -144,10 +146,18 @@ type SymbolControl = {
   detectedRegime: string | null;
   detectedRegimeConfidenceLabel: string;
   detectedRegimeConfidenceScore: number | null;
+  detectionSource: string;
+  detectionTimestampEpoch: number | null;
+  detectionTimestampAt: string | null;
   detectedRegimeExplanation: string;
   detectedRegimeStructureBias: string;
   detectedRegimeVolatilityState: string;
   detectedRegimeParticipationState: string;
+  detectedRegimeTrendScore: number | null;
+  detectedRegimeRangeScore: number | null;
+  detectedRegimeBreakoutScore: number | null;
+  detectedRegimeMixedScore: number | null;
+  detectedRegimeStabilityScore: number | null;
   effectiveStrategy: string;
   autoFallbackReason: string | null;
   buyEnabled: boolean;
@@ -1535,6 +1545,8 @@ export async function GET() {
   const runtimeDetectedRegimeMap = parseTextMap(strategy.last_detected_regime);
   const runtimeDetectedRegimeConfidenceMap = parseNumberMap(strategy.last_detected_regime_confidence);
   const runtimeDetectedRegimeConfidenceLabelMap = parseTextMap(strategy.last_detected_regime_confidence_label);
+  const runtimeDetectionSourceMap = parseTextMap(strategy.last_detection_source);
+  const runtimeDetectionTimestampEpochMap = parseNumberMap(strategy.last_detection_timestamp_epoch);
   const runtimeEffectiveStrategyMap = parseTextMap(strategy.last_effective_strategy);
   const runtimeAutoFallbackReasonMap = parseTextMap(strategy.last_auto_fallback_reason);
   const allSymbols = uniqueSymbols(
@@ -1626,6 +1638,7 @@ export async function GET() {
     regimeAdvisoryBySymbol[symbol] = analyzeRegimeGovernor({
       symbol,
       pricePoints: history,
+      latestSnapshot: snapshots[symbol] ?? null,
       nowEpoch: anchorNow,
     });
   }
@@ -1730,6 +1743,21 @@ export async function GET() {
       ?? deriveConfiguredEffectiveStrategy(configuredRegime, strategyMode),
     );
     const autoFallbackReason = runtimeAutoFallbackReasonMap[symbol] ?? null;
+    const detectionSource = (
+      runtimeDetectionSourceMap[symbol]
+      ?? regimeAdvisory?.detectionSource
+      ?? "advisory_multitimeframe"
+    );
+    const detectionTimestampEpoch = runtimeDetectionTimestampEpochMap[symbol]
+      ?? regimeAdvisory?.analysisAnchorEpoch
+      ?? null;
+    const detectionTimestampAt = (
+      detectionTimestampEpoch === null
+      || !Number.isFinite(detectionTimestampEpoch)
+    )
+      ? null
+      : new Date(detectionTimestampEpoch * 1000).toISOString();
+    const regimeComponentScores = regimeAdvisory?.componentScores ?? null;
     const symbolAllocatedUsd = symbolCostBasisUsd[symbol] ?? 0;
     const executableStatus = computeBuyExecutableStatus({
       buyEnabled,
@@ -1755,10 +1783,18 @@ export async function GET() {
       detectedRegime,
       detectedRegimeConfidenceLabel,
       detectedRegimeConfidenceScore,
+      detectionSource,
+      detectionTimestampEpoch,
+      detectionTimestampAt,
       detectedRegimeExplanation: regimeAdvisory?.explanation ?? "Insufficient advisory context",
       detectedRegimeStructureBias: regimeAdvisory?.components?.structureBias ?? "UNCLEAR",
       detectedRegimeVolatilityState: regimeAdvisory?.components?.volatilityState ?? "NORMAL",
       detectedRegimeParticipationState: regimeAdvisory?.components?.participationState ?? "NORMAL",
+      detectedRegimeTrendScore: regimeComponentScores?.trend_score ?? regimeComponentScores?.trendScore ?? null,
+      detectedRegimeRangeScore: regimeComponentScores?.range_score ?? regimeComponentScores?.rangeScore ?? null,
+      detectedRegimeBreakoutScore: regimeComponentScores?.breakout_score ?? regimeComponentScores?.breakoutScore ?? null,
+      detectedRegimeMixedScore: regimeComponentScores?.mixed_score ?? regimeComponentScores?.mixedScore ?? null,
+      detectedRegimeStabilityScore: regimeAdvisory?.stability_score ?? regimeAdvisory?.stabilityScore ?? null,
       effectiveStrategy,
       autoFallbackReason,
       buyEnabled,
@@ -2168,10 +2204,36 @@ export async function GET() {
         control.detectedRegimeConfidenceScore === null
           ? null
           : round(control.detectedRegimeConfidenceScore, 1),
+      detectionSource: control.detectionSource,
+      detectionTimestampEpoch:
+        control.detectionTimestampEpoch === null
+          ? null
+          : round(control.detectionTimestampEpoch, 3),
+      detectionTimestampAt: control.detectionTimestampAt,
       detectedRegimeExplanation: control.detectedRegimeExplanation,
       detectedRegimeStructureBias: control.detectedRegimeStructureBias,
       detectedRegimeVolatilityState: control.detectedRegimeVolatilityState,
       detectedRegimeParticipationState: control.detectedRegimeParticipationState,
+      detectedRegimeTrendScore:
+        control.detectedRegimeTrendScore === null
+          ? null
+          : round(control.detectedRegimeTrendScore, 2),
+      detectedRegimeRangeScore:
+        control.detectedRegimeRangeScore === null
+          ? null
+          : round(control.detectedRegimeRangeScore, 2),
+      detectedRegimeBreakoutScore:
+        control.detectedRegimeBreakoutScore === null
+          ? null
+          : round(control.detectedRegimeBreakoutScore, 2),
+      detectedRegimeMixedScore:
+        control.detectedRegimeMixedScore === null
+          ? null
+          : round(control.detectedRegimeMixedScore, 2),
+      detectedRegimeStabilityScore:
+        control.detectedRegimeStabilityScore === null
+          ? null
+          : round(control.detectedRegimeStabilityScore, 2),
       effectiveStrategy: control.effectiveStrategy,
       autoFallbackReason: control.autoFallbackReason,
       buyOpportunityPct:

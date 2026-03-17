@@ -179,6 +179,81 @@ function classifyVolatilityState(timeframeRows, baselineRows) {
   return "NORMAL";
 }
 
+function computeComponentScores({
+  structureClass,
+  volatilityState,
+  waveSlopePct,
+  waveAmplitudePct,
+  higherHighs,
+  lowerHighs,
+  higherLows,
+  lowerLows,
+  currentPrice,
+  highPrice,
+  lowPrice,
+}) {
+  const absSlope = Math.abs(waveSlopePct);
+  const trendImbalance = Math.abs((higherHighs + higherLows) - (lowerHighs + lowerLows));
+  const balanceRatio = 1 - clamp(trendImbalance / 6, 0, 1);
+  const amplitudeNorm = clamp(waveAmplitudePct / 8, 0, 1);
+  const slopeNorm = clamp(absSlope / 1.2, 0, 1);
+  const nearTop = highPrice > 0 && currentPrice >= highPrice * 0.986;
+  const nearBottom = lowPrice > 0 && currentPrice <= lowPrice * 1.014;
+
+  const trendScore = clamp(
+    (
+      (structureClass === "UPTREND" || structureClass === "DOWNTREND" ? 0.45 : 0.1)
+      + (0.35 * slopeNorm)
+      + (0.20 * (1 - balanceRatio))
+    ) * 100,
+    0,
+    100,
+  );
+
+  const rangeScore = clamp(
+    (
+      (structureClass === "RANGE" ? 0.50 : 0.12)
+      + (0.30 * (1 - slopeNorm))
+      + (0.20 * balanceRatio)
+    ) * 100,
+    0,
+    100,
+  );
+
+  const breakoutScore = clamp(
+    (
+      (structureClass === "BREAKOUT_SETUP" ? 0.52 : 0.1)
+      + (volatilityState === "HIGH_VOL" ? 0.18 : 0)
+      + (0.22 * amplitudeNorm)
+      + (nearTop || nearBottom ? 0.08 : 0)
+    ) * 100,
+    0,
+    100,
+  );
+
+  const mixedScore = clamp(
+    (
+      (structureClass === "UNCLEAR" ? 0.55 : 0.14)
+      + (volatilityState === "LOW_VOL" ? 0.12 : 0)
+      + (0.18 * (1 - Math.max(trendScore, rangeScore, breakoutScore) / 100))
+      + (0.15 * balanceRatio)
+    ) * 100,
+    0,
+    100,
+  );
+
+  return {
+    trendScore: Number(trendScore.toFixed(3)),
+    rangeScore: Number(rangeScore.toFixed(3)),
+    breakoutScore: Number(breakoutScore.toFixed(3)),
+    mixedScore: Number(mixedScore.toFixed(3)),
+    trend_score: Number(trendScore.toFixed(3)),
+    range_score: Number(rangeScore.toFixed(3)),
+    breakout_score: Number(breakoutScore.toFixed(3)),
+    mixed_score: Number(mixedScore.toFixed(3)),
+  };
+}
+
 function classifyParticipationState(latestSnapshot) {
   if (!latestSnapshot || typeof latestSnapshot !== "object") {
     return "NORMAL";
@@ -270,6 +345,18 @@ function buildInsufficientResult({
     volatilityState: "NORMAL",
     participationState: "NORMAL",
     suggestedRegime: OUTPUT_REGIME_MIXED,
+    componentScores: {
+      trendScore: 0,
+      rangeScore: 0,
+      breakoutScore: 0,
+      mixedScore: 100,
+      trend_score: 0,
+      range_score: 0,
+      breakout_score: 0,
+      mixed_score: 100,
+    },
+    stabilityScore: 0,
+    stability_score: 0,
     confidenceScore: 0,
     confidenceLabel: "LOW",
   };
@@ -367,6 +454,19 @@ function analyzeTimeframe({
     volatilityState,
     waveSlopePct,
   });
+  const componentScores = computeComponentScores({
+    structureClass,
+    volatilityState,
+    waveSlopePct,
+    waveAmplitudePct,
+    higherHighs: highsProgression.higher,
+    lowerHighs: highsProgression.lower,
+    higherLows: lowsProgression.higher,
+    lowerLows: lowsProgression.lower,
+    currentPrice,
+    highPrice,
+    lowPrice,
+  });
   const confidenceScore = computeTimeframeConfidence({
     observedPointCount,
     observedHistorySpanMinutes,
@@ -380,6 +480,18 @@ function analyzeTimeframe({
     participationState,
     suggestedRegime,
   });
+  const sortedComponentValues = [
+    componentScores.trendScore,
+    componentScores.rangeScore,
+    componentScores.breakoutScore,
+    componentScores.mixedScore,
+  ].sort((left, right) => right - left);
+  const componentDominance = (sortedComponentValues[0] ?? 0) - (sortedComponentValues[1] ?? 0);
+  const stabilityScore = clamp(
+    (componentDominance * 0.6) + (confidenceScore * 0.4),
+    0,
+    100,
+  );
 
   return {
     insufficientData: false,
@@ -403,6 +515,9 @@ function analyzeTimeframe({
     volatilityState,
     participationState,
     suggestedRegime,
+    componentScores,
+    stabilityScore: Number(stabilityScore.toFixed(3)),
+    stability_score: Number(stabilityScore.toFixed(3)),
     confidenceScore: Number(confidenceScore.toFixed(3)),
     confidenceLabel: confidenceLabel(confidenceScore),
   };
@@ -442,6 +557,14 @@ function buildExplanation({ suggestedRegime, structureBias, volatilityState, par
   );
 }
 
+/**
+ * @param {{
+ *   symbol: string,
+ *   pricePoints: Array<{ tsEpoch: number, price: number }>,
+ *   latestSnapshot?: Record<string, unknown> | null,
+ *   nowEpoch?: number,
+ * }} args
+ */
 function analyzeRegimeGovernor({
   symbol,
   pricePoints,
@@ -462,6 +585,16 @@ function analyzeRegimeGovernor({
     [OUTPUT_REGIME_BREAKOUT, 0],
     [OUTPUT_REGIME_MIXED, 0],
   ]);
+  const aggregateComponentTotals = {
+    trendScore: 0,
+    rangeScore: 0,
+    breakoutScore: 0,
+    mixedScore: 0,
+  };
+  const aggregateStability = {
+    weightedTotal: 0,
+    weight: 0,
+  };
   const structureVotes = [];
   const volatilityVotes = [];
   const participationVotes = [];
@@ -486,6 +619,12 @@ function analyzeRegimeGovernor({
       row.suggestedRegime,
       (regimeBuckets.get(row.suggestedRegime) ?? 0) + confidenceWeight,
     );
+    aggregateComponentTotals.trendScore += (row.componentScores?.trendScore ?? 0) * confidenceWeight;
+    aggregateComponentTotals.rangeScore += (row.componentScores?.rangeScore ?? 0) * confidenceWeight;
+    aggregateComponentTotals.breakoutScore += (row.componentScores?.breakoutScore ?? 0) * confidenceWeight;
+    aggregateComponentTotals.mixedScore += (row.componentScores?.mixedScore ?? 0) * confidenceWeight;
+    aggregateStability.weightedTotal += (row.stabilityScore ?? 0) * confidenceWeight;
+    aggregateStability.weight += confidenceWeight;
     structureVotes.push({ value: row.structureClass, weight: confidenceWeight });
     volatilityVotes.push({ value: row.volatilityState, weight: confidenceWeight });
     participationVotes.push({ value: row.participationState, weight: confidenceWeight });
@@ -518,12 +657,41 @@ function analyzeRegimeGovernor({
       : structureBiasRaw;
   const volatilityState = weightedLabel(volatilityVotes, "NORMAL");
   const participationState = weightedLabel(participationVotes, "NORMAL");
+  const componentScores = totalWeight > 0
+    ? {
+        trendScore: Number((aggregateComponentTotals.trendScore / totalWeight).toFixed(3)),
+        rangeScore: Number((aggregateComponentTotals.rangeScore / totalWeight).toFixed(3)),
+        breakoutScore: Number((aggregateComponentTotals.breakoutScore / totalWeight).toFixed(3)),
+        mixedScore: Number((aggregateComponentTotals.mixedScore / totalWeight).toFixed(3)),
+      }
+    : {
+        trendScore: 0,
+        rangeScore: 0,
+        breakoutScore: 0,
+        mixedScore: 100,
+      };
+  const stabilityScore = aggregateStability.weight > 0
+    ? Number((aggregateStability.weightedTotal / aggregateStability.weight).toFixed(3))
+    : 0;
+  const analysisAnchorAt = new Date(anchorNow * 1000).toISOString();
 
   return {
     symbol,
     suggestedRegime,
     confidenceScore,
     confidenceLabel: confidenceLabel(confidenceScore),
+    detectionSource: "advisory_multitimeframe",
+    analysisAnchorEpoch: Number(anchorNow.toFixed(3)),
+    analysisAnchorAt,
+    componentScores: {
+      ...componentScores,
+      trend_score: componentScores.trendScore,
+      range_score: componentScores.rangeScore,
+      breakout_score: componentScores.breakoutScore,
+      mixed_score: componentScores.mixedScore,
+    },
+    stabilityScore,
+    stability_score: stabilityScore,
     explanation: buildExplanation({
       suggestedRegime,
       structureBias,

@@ -61,6 +61,43 @@ def evaluate_trend_pullback_entry(
         return "HOLD", "trend_pullback_missing_trend_baseline"
     if ema_50 <= ema_200:
         return "HOLD", "trend_pullback_not_uptrend"
+    ema_50_slope = _as_float(snapshot.get("ema_50_slope"), default=None)
+    if ema_50_slope is not None and ema_50_slope <= 0:
+        return "HOLD", "trend_pullback_flat_or_negative_slope"
+
+    structure_prices_raw = snapshot.get("recent_prices", [])
+    structure_prices: list[float] = []
+    if isinstance(structure_prices_raw, list):
+        for value in structure_prices_raw:
+            numeric = _as_float(value, default=None)
+            if numeric is not None and numeric > 0:
+                structure_prices.append(float(numeric))
+    structure_lookback = int(_as_float(mode_cfg.get("structure_lookback_points"), 8) or 8)
+    structure_lookback = max(structure_lookback, 6)
+    if len(structure_prices) < structure_lookback:
+        return "HOLD", "trend_pullback_insufficient_structure_history"
+
+    structure_window = structure_prices[-structure_lookback:]
+    half = structure_lookback // 2
+    older_window = structure_window[:half]
+    newer_window = structure_window[half:]
+    if len(older_window) < 2 or len(newer_window) < 2:
+        return "HOLD", "trend_pullback_insufficient_structure_history"
+
+    min_higher_high_pct = max(_as_float(mode_cfg.get("min_higher_high_pct"), 0.001) or 0.001, 0.0)
+    min_higher_low_pct = max(_as_float(mode_cfg.get("min_higher_low_pct"), 0.0) or 0.0, 0.0)
+    older_high = max(older_window)
+    newer_high = max(newer_window)
+    older_low = min(older_window)
+    newer_low = min(newer_window)
+    if newer_high <= older_high * (1.0 + min_higher_high_pct):
+        return "HOLD", "trend_pullback_no_higher_high"
+    if newer_low <= older_low * (1.0 + min_higher_low_pct):
+        return "HOLD", "trend_pullback_no_higher_low"
+
+    bounce_confirm_pct = max(_as_float(mode_cfg.get("bounce_confirm_pct"), 0.001) or 0.001, 0.0)
+    if price < newer_low * (1.0 + bounce_confirm_pct):
+        return "HOLD", "trend_pullback_wait_bounce_confirmation"
 
     pullback_buffer_pct = max(_as_float(mode_cfg.get("pullback_buffer_pct"), 0.005) or 0.005, 0.0)
     pullback_depth_pct = max(_as_float(mode_cfg.get("pullback_depth_pct"), 0.03) or 0.03, 0.0)
@@ -97,4 +134,3 @@ def evaluate_trend_pullback_entry(
         return "HOLD", "trend_pullback_missing_vwap"
 
     return "BUY", "trend_pullback_entry"
-

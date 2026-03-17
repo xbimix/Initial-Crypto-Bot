@@ -166,6 +166,100 @@ def _aggregate_volatility_opportunity(
     return high_counts_sorted, avg_scores_sorted
 
 
+def _aggregate_regime_route_effectiveness(
+    rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    totals: dict[str, dict[str, float]] = {}
+    days_with_data = 0
+
+    for row in rows:
+        advisory = row.get("advisory", {})
+        if not isinstance(advisory, dict):
+            continue
+        route_effectiveness = advisory.get("regime_route_effectiveness", {})
+        if not isinstance(route_effectiveness, dict):
+            continue
+        route_rows = route_effectiveness.get("routes", {})
+        if not isinstance(route_rows, dict) or not route_rows:
+            continue
+        days_with_data += 1
+
+        for route, item in route_rows.items():
+            if not isinstance(item, dict):
+                continue
+            closed = max(_to_int(item.get("closed_trades"), 0), 0)
+            if closed <= 0:
+                continue
+            win_rate = _to_float(item.get("win_rate_pct"), 0.0)
+            avg_pnl = _to_float(item.get("avg_realized_pnl_usd"), 0.0)
+            avg_drawdown = item.get("avg_max_drawdown_pct")
+            avg_drawdown_value = (
+                _to_float(avg_drawdown, 0.0)
+                if avg_drawdown is not None
+                else None
+            )
+            bucket = totals.setdefault(
+                str(route),
+                {
+                    "closed_trades": 0.0,
+                    "wins": 0.0,
+                    "pnl_total": 0.0,
+                    "drawdown_total": 0.0,
+                    "drawdown_count": 0.0,
+                },
+            )
+            bucket["closed_trades"] += closed
+            bucket["wins"] += closed * max(min(win_rate, 100.0), 0.0) / 100.0
+            bucket["pnl_total"] += avg_pnl * closed
+            if avg_drawdown_value is not None:
+                bucket["drawdown_total"] += avg_drawdown_value * closed
+                bucket["drawdown_count"] += closed
+
+    routes: dict[str, Any] = {}
+    best_route = None
+    best_route_avg_pnl = None
+    for route, bucket in sorted(totals.items(), key=lambda item: item[0]):
+        closed = int(bucket.get("closed_trades", 0.0))
+        if closed <= 0:
+            continue
+        win_rate_pct = (bucket.get("wins", 0.0) / closed) * 100.0
+        avg_pnl_usd = bucket.get("pnl_total", 0.0) / closed
+        drawdown_count = bucket.get("drawdown_count", 0.0)
+        avg_drawdown_pct = (
+            bucket.get("drawdown_total", 0.0) / drawdown_count
+            if drawdown_count > 0
+            else None
+        )
+        routes[route] = {
+            "closed_trades": closed,
+            "win_rate_pct": round(win_rate_pct, 3),
+            "avg_realized_pnl_usd": round(avg_pnl_usd, 3),
+            "avg_max_drawdown_pct": (
+                round(avg_drawdown_pct, 3)
+                if avg_drawdown_pct is not None
+                else None
+            ),
+        }
+        if best_route_avg_pnl is None or avg_pnl_usd > best_route_avg_pnl:
+            best_route = route
+            best_route_avg_pnl = avg_pnl_usd
+
+    return {
+        "days_with_data": days_with_data,
+        "best_route_by_avg_pnl": best_route,
+        "best_route_avg_pnl_usd": (
+            round(best_route_avg_pnl, 3)
+            if best_route_avg_pnl is not None
+            else None
+        ),
+        "routes": routes,
+        "note": (
+            "Advisory-only weekly aggregation from daily regime-route effectiveness snapshots; "
+            "execution behavior unchanged."
+        ),
+    }
+
+
 def build_weekly_summary(
     end_day_iso: str | None = None,
     *,
@@ -315,8 +409,27 @@ def build_weekly_summary(
         if rows and isinstance(rows[-1].get("summary"), dict)
         else 0
     )
+    latest_best_regime_route = ""
+    if rows:
+        latest_row = rows[-1]
+        latest_summary = latest_row.get("summary", {})
+        if isinstance(latest_summary, dict):
+            latest_best_regime_route = str(
+                latest_summary.get("best_regime_route_by_avg_pnl") or ""
+            ).strip()
+        if not latest_best_regime_route:
+            latest_advisory = latest_row.get("advisory", {})
+            if isinstance(latest_advisory, dict):
+                latest_route_effectiveness = latest_advisory.get(
+                    "regime_route_effectiveness", {}
+                )
+                if isinstance(latest_route_effectiveness, dict):
+                    latest_best_regime_route = str(
+                        latest_route_effectiveness.get("best_route_by_avg_pnl") or ""
+                    ).strip()
     high_signal_frequency_by_symbol, avg_opportunity_score_by_symbol = _aggregate_volatility_opportunity(rows)
     top_high_opportunity_symbols = list(high_signal_frequency_by_symbol.keys())[:5]
+    regime_route_effectiveness = _aggregate_regime_route_effectiveness(rows)
     blocked_reasons = _aggregate_reason_counts(rows, "blocked_reasons")
     anomalies = _build_anomaly_notes(rows)
     coverage_end_age_hours = max(
@@ -372,6 +485,13 @@ def build_weekly_summary(
             "stale_data_blocks_total": stale_block_total,
             "latest_high_opportunity_symbol_count": latest_high_opportunity_symbol_count,
             "top_high_opportunity_symbols": top_high_opportunity_symbols,
+            "latest_best_regime_route_by_avg_pnl": latest_best_regime_route or None,
+            "weekly_best_regime_route_by_avg_pnl": regime_route_effectiveness.get(
+                "best_route_by_avg_pnl"
+            ),
+            "weekly_best_regime_route_avg_pnl_usd": regime_route_effectiveness.get(
+                "best_route_avg_pnl_usd"
+            ),
         },
         "blocked_reasons_top": blocked_reasons,
         "volatility_opportunity": {
@@ -382,6 +502,7 @@ def build_weekly_summary(
                 "Advisory-only aggregation from daily volatility opportunity radar; no execution behavior changes."
             ),
         },
+        "regime_route_effectiveness": regime_route_effectiveness,
         "anomaly_notes": anomalies,
         "daily_rows": rows,
     }

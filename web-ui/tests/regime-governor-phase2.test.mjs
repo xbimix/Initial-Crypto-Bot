@@ -49,6 +49,14 @@ run("regime analyzer outputs advisory shape with confidence fields", () => {
   assert.ok(["LOW", "MEDIUM", "HIGH"].includes(result.confidenceLabel));
   assert.ok(typeof result.explanation === "string");
   assert.ok(typeof result.components?.structureBias === "string");
+  assert.ok(Number.isFinite(result.componentScores?.trend_score));
+  assert.ok(Number.isFinite(result.componentScores?.range_score));
+  assert.ok(Number.isFinite(result.componentScores?.breakout_score));
+  assert.ok(Number.isFinite(result.componentScores?.mixed_score));
+  assert.ok(Number.isFinite(result.stability_score));
+  assert.ok(result.stability_score >= 0 && result.stability_score <= 100);
+  assert.equal(result.detectionSource, "advisory_multitimeframe");
+  assert.ok(Number.isFinite(result.analysisAnchorEpoch));
   assert.ok(typeof result.timeframeSummary?.["1h"] === "object");
 });
 
@@ -86,8 +94,11 @@ run("dashboard and token routes expose detected regime advisory fields", async (
   assert.match(dashboardSource, /detectedRegime/);
   assert.match(dashboardSource, /detectedRegimeConfidenceLabel/);
   assert.match(dashboardSource, /detectedRegimeConfidenceScore/);
+  assert.match(dashboardSource, /detectionSource/);
+  assert.match(dashboardSource, /detectionTimestampEpoch/);
   assert.match(tokenRouteSource, /regimeAdvisory/);
   assert.match(tokenRouteSource, /detectedRegimeExplanation/);
+  assert.match(tokenRouteSource, /detectionSource/);
   assert.match(tokenPageSource, /Regime Analysis/);
   assert.match(tokenPageSource, /detectedRegimeConfidenceLabel/);
 });

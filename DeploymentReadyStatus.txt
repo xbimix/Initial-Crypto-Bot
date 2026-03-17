@@ -1,0 +1,39 @@
+You’re close for **local paper deployment**, but not fully “deployment-ready” yet.
+
+What I verified now:
+- Replay regression passes (`78/78` matched).
+- Python tests pass (`86 passed`).
+- Web tests/lint/TS/Next compile build pass.
+- Full local gate fails only at behavior-lock hash step in [check_local.ps1](D:/Python-Codes/RevBot/scripts/check_local.ps1:38).
+
+**Missing before deployment (priority order):**
+
+1. **Behavior-lock baseline is out of date**
+- Hash drift blocks full green gate for:
+  - `crypto_bot/strategy/strategy_engine.py`
+  - `crypto_bot/strategy/regime_router.py`
+  - `crypto_bot/main.py`
+- This is the current hard blocker for “one-command green”.
+
+2. **Your runtime config is currently armed**
+- [config.json](D:/Python-Codes/RevBot/crypto_bot/state/config.json:2) has `"enabled": true` and [config.json](D:/Python-Codes/RevBot/crypto_bot/state/config.json:501) has `"trading_enabled": true`.
+- For safe idle deployment, ship with both false and arm via control only.
+
+3. **Mutating auth should be strict in deployed mode**
+- Control mutating routes require token when set, but startup readiness does not fail if token is missing ([control_server.py](D:/Python-Codes/RevBot/crypto_bot/control/control_server.py:394)).
+- UI mutating auth currently allows same-origin fallback when token is missing ([mutatingAuth.ts](D:/Python-Codes/RevBot/web-ui/src/app/api/_lib/mutatingAuth.ts:164)).
+- For deployment: require tokens always.
+
+4. **Decide fallback model (single-host vs distributed)**
+- UI API routes can mutate local state files as fallback ([control route](D:/Python-Codes/RevBot/web-ui/src/app/api/control/route.ts:34), [stateFallback.ts](D:/Python-Codes/RevBot/web-ui/src/app/api/_lib/stateFallback.ts:61)).
+- Fine for one machine; risky for multi-instance or separated UI/backend.
+
+5. **Production serving model**
+- Control server runs Flask dev server via `app.run(...)` ([control_server.py](D:/Python-Codes/RevBot/crypto_bot/control/control_server.py:1716)).
+- For real deployment, use a production WSGI host/process supervisor.
+
+6. **Repository hygiene/ops cleanup**
+- Many permission-denied temp/test dirs are polluting scans and `git status`.
+- Current cleanup script misses several of these patterns ([cleanup_artifacts.ps1](D:/Python-Codes/RevBot/scripts/cleanup_artifacts.ps1)).
+
+If you want, I can do a focused “deployment hardening pass” next that only targets these six items without touching strategy behavior. touching strategy behavior.

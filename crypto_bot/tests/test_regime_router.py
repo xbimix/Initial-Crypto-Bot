@@ -69,6 +69,8 @@ def reset_strategy_globals(monkeypatch, tmp_path: Path):
         "_last_detected_regime",
         "_last_detected_regime_confidence",
         "_last_detected_regime_confidence_label",
+        "_last_detection_source",
+        "_last_detection_timestamp_epoch",
         "_last_effective_strategy",
         "_last_auto_fallback_reason",
         "_shadow_regime_state",
@@ -152,16 +154,17 @@ def test_manual_trend_pullback_route_triggers_entry():
 
     decision = se.generate_decision(
         _snapshot(
-            price=99.9,
+            price=101.4,
             momentum_norm=0.4,
             trade_count=30,
             high_24h=110.0,
             low_24h=90.0,
             atr=1.0,
-            vwap=100.4,
-            ema_50=100.0,
+            vwap=101.3,
+            ema_50=101.2,
             ema_200=95.0,
-            recent_prices=[102.0, 101.0, 100.5, 100.2, 100.0, 99.9, 99.8, 99.9],
+            ema_50_slope=0.08,
+            recent_prices=[96.0, 97.8, 99.2, 100.4, 101.6, 100.8, 101.2, 101.4],
         ),
         cfg,
     )
@@ -199,6 +202,7 @@ def test_manual_breakout_momentum_route_triggers_entry():
 def test_auto_low_confidence_falls_back_to_default():
     cfg = _base_cfg()
     cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["strategy_defaults"] = {"router": {"auto_use_multitimeframe_advisory": True}}
     decision = se.generate_decision(
         _snapshot(
             regime_advisory={
@@ -218,18 +222,21 @@ def test_auto_high_confidence_routes_to_trend_pullback():
     cfg = _base_cfg()
     cfg["token_regimes"] = {"TEST-USD": "AUTO"}
     cfg["market_regime"]["min_score_to_buy"] = 0
+    cfg["strategy_defaults"] = {"router": {"auto_use_multitimeframe_advisory": True}}
 
     decision = se.generate_decision(
         _snapshot(
-            price=99.9,
+            price=101.4,
             momentum_norm=0.42,
             trade_count=30,
             high_24h=110.0,
             low_24h=90.0,
             atr=1.0,
-            vwap=100.3,
-            ema_50=100.0,
+            vwap=101.3,
+            ema_50=101.2,
             ema_200=95.0,
+            ema_50_slope=0.08,
+            recent_prices=[96.0, 97.8, 99.2, 100.4, 101.6, 100.8, 101.2, 101.4],
             regime_advisory={
                 "suggestedRegime": "TREND_CONTINUATION",
                 "confidenceScore": 82,
@@ -260,15 +267,17 @@ def test_auto_uses_shadow_high_confidence_when_snapshot_advisory_missing():
 
     decision = se.generate_decision(
         _snapshot(
-            price=99.9,
+            price=101.4,
             momentum_norm=0.42,
             trade_count=30,
             high_24h=110.0,
             low_24h=90.0,
             atr=1.0,
-            vwap=100.3,
-            ema_50=100.0,
+            vwap=101.3,
+            ema_50=101.2,
             ema_200=95.0,
+            ema_50_slope=0.08,
+            recent_prices=[96.0, 97.8, 99.2, 100.4, 101.6, 100.8, 101.2, 101.4],
         ),
         cfg,
     )
@@ -304,6 +313,7 @@ def test_auto_high_confidence_routes_to_breakout_momentum():
     cfg = _base_cfg()
     cfg["token_regimes"] = {"TEST-USD": "AUTO"}
     cfg["market_regime"]["min_score_to_buy"] = 0
+    cfg["strategy_defaults"] = {"router": {"auto_use_multitimeframe_advisory": True}}
 
     decision = se.generate_decision(
         _snapshot(
@@ -314,6 +324,10 @@ def test_auto_high_confidence_routes_to_breakout_momentum():
             low_24h=100.0,
             atr=1.0,
             vwap=108.0,
+            rsi=78.0,
+            ema_50=107.5,
+            ema_200=104.0,
+            recent_prices=[103.0, 104.5, 105.2, 106.3, 107.1, 108.2, 109.0, 109.9],
             regime_advisory={
                 "suggestedRegime": "BREAKOUT_EXPANSION",
                 "confidenceScore": 84,
@@ -354,3 +368,52 @@ def test_auto_respects_legacy_scalper_default():
     assert decision["reason"] == "volatility_scalper_entry"
     assert decision["effective_strategy"] == "volatility_scalper"
     assert decision["auto_fallback_reason"] == "legacy_scalper_mode"
+
+
+def test_auto_ignores_snapshot_advisory_when_multitimeframe_flag_disabled():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    decision = se.generate_decision(
+        _snapshot(
+            regime_advisory={
+                "suggestedRegime": "TREND_CONTINUATION",
+                "confidenceScore": 92,
+            },
+        ),
+        cfg,
+    )
+    assert decision["configured_regime"] == "AUTO"
+    assert decision["effective_strategy"] == "mean_reversion"
+    assert decision["auto_fallback_reason"] == "insufficient_shadow_state"
+
+
+def test_auto_can_use_current_cycle_shadow_when_enabled():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["market_regime"]["min_score_to_buy"] = 0
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_current_cycle_shadow": True,
+            "auto_min_confirmations": 1,
+            "auto_min_confidence": 35,
+        }
+    }
+    decision = se.generate_decision(
+        _snapshot(
+            price=101.4,
+            momentum_norm=0.42,
+            trade_count=30,
+            high_24h=110.0,
+            low_24h=90.0,
+            atr=1.0,
+            vwap=101.3,
+            ema_50=101.2,
+            ema_200=95.0,
+            ema_50_slope=0.08,
+            recent_prices=[96.0, 97.8, 99.2, 100.4, 101.6, 100.8, 101.2, 101.4],
+        ),
+        cfg,
+    )
+    assert decision["configured_regime"] == "AUTO"
+    assert decision["effective_strategy"] == "trend_pullback"
+    assert decision["reason"] == "trend_pullback_entry"

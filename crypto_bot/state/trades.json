@@ -954,5 +954,23 @@
     "size": 124.478745,
     "balance": 9005.867871246595,
     "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1773724833.0193057,
+    "symbol": "ICP-USD",
+    "side": "BUY",
+    "price": 2.7116,
+    "size": 73.757191,
+    "balance": 8805.867872130995,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1773725922.6924837,
+    "symbol": "HYPE-USD",
+    "side": "BUY",
+    "price": 40.5403,
+    "size": 4.933363,
+    "balance": 8605.867856102095,
+    "reason": "bear_market_mean_reversion_buy"
   }
 ]

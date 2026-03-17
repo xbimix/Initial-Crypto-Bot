@@ -65,6 +65,8 @@ def reset_strategy_globals(monkeypatch, tmp_path: Path):
         "_last_detected_regime",
         "_last_detected_regime_confidence",
         "_last_detected_regime_confidence_label",
+        "_last_detection_source",
+        "_last_detection_timestamp_epoch",
         "_last_effective_strategy",
         "_last_auto_fallback_reason",
         "_shadow_regime_state",

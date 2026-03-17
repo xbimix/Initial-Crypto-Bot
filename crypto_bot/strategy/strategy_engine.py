@@ -9,6 +9,12 @@ from strategy.scoring import score_indicators
 from strategy.trend_pullback import evaluate_trend_pullback_entry
 from utils.logger import setup_logger
 from utils.state_io import read_json_file, write_json_file
+from utils.token_regimes import (
+    TOKEN_REGIME_AUTO,
+    TOKEN_REGIME_MEAN_REVERSION,
+    normalize_symbol as normalize_token_symbol,
+    normalize_token_regime,
+)
 
 try:
     from analysis.data_analysis import calculate_support_resistance
@@ -34,6 +40,8 @@ _last_configured_regime = {}
 _last_detected_regime = {}
 _last_detected_regime_confidence = {}
 _last_detected_regime_confidence_label = {}
+_last_detection_source = {}
+_last_detection_timestamp_epoch = {}
 _last_effective_strategy = {}
 _last_auto_fallback_reason = {}
 _shadow_regime_state = {}
@@ -116,6 +124,8 @@ def _sync_with_broker_state():
             _last_detected_regime,
             _last_detected_regime_confidence,
             _last_detected_regime_confidence_label,
+            _last_detection_source,
+            _last_detection_timestamp_epoch,
             _last_effective_strategy,
             _last_auto_fallback_reason,
         ):
@@ -192,6 +202,166 @@ def evaluate_symbol(snapshot: dict, cfg: dict) -> dict:
     return generate_decision(snapshot, cfg)
 
 
+def _router_cfg(cfg: dict) -> dict:
+    strategy_defaults = cfg.get("strategy_defaults", {})
+    if not isinstance(strategy_defaults, dict):
+        return {}
+    router = strategy_defaults.get("router", {})
+    if not isinstance(router, dict):
+        return {}
+    return router
+
+
+def _router_flag(cfg: dict, key: str, default: bool = False) -> bool:
+    raw = _router_cfg(cfg).get(key)
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    if isinstance(raw, str):
+        normalized = raw.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
+def _configured_regime_for_symbol(cfg: dict, symbol: str) -> str:
+    token_regimes = cfg.get("token_regimes", {})
+    if not isinstance(token_regimes, dict):
+        return TOKEN_REGIME_MEAN_REVERSION
+    symbol_key = normalize_token_symbol(symbol)
+    if not symbol_key:
+        return TOKEN_REGIME_MEAN_REVERSION
+    raw = token_regimes.get(symbol_key)
+    return normalize_token_regime(raw, default=TOKEN_REGIME_MEAN_REVERSION)
+
+
+def _confidence_label_from_score(score: float) -> str:
+    if score >= 72.0:
+        return "HIGH"
+    if score >= 48.0:
+        return "MEDIUM"
+    return "LOW"
+
+
+def _build_runtime_multitimeframe_advisory(snapshot: dict, now_epoch: float) -> dict | None:
+    prices_raw = snapshot.get("recent_prices", [])
+    if not isinstance(prices_raw, list):
+        return None
+    prices = []
+    for value in prices_raw:
+        numeric = _parse_numeric(value, fallback=None)
+        if numeric is None or numeric <= 0:
+            continue
+        prices.append(float(numeric))
+    if len(prices) < 24:
+        return {
+            "detectionSource": "advisory_multitimeframe_runtime",
+            "analysisAnchorEpoch": now_epoch,
+            "suggestedRegime": "MIXED_OR_UNCLEAR",
+            "confidenceScore": 0.0,
+            "confidenceLabel": "LOW",
+            "insufficientData": True,
+            "insufficientReasonCode": "insufficient_recent_prices",
+            "insufficientReasonMessage": "Need at least 24 recent prices for runtime multitimeframe advisory.",
+        }
+
+    window_sizes = [12, 24, 36, 48]
+    trend_votes = 0.0
+    range_votes = 0.0
+    breakout_votes = 0.0
+    mixed_votes = 0.0
+    total_weight = 0.0
+
+    for index, size in enumerate(window_sizes):
+        if len(prices) < size:
+            continue
+        window = prices[-size:]
+        first_price = window[0]
+        last_price = window[-1]
+        if first_price <= 0:
+            continue
+        high_price = max(window)
+        low_price = min(window)
+        if low_price <= 0:
+            continue
+        slope_pct = ((last_price - first_price) / first_price) * 100.0
+        amplitude_pct = ((high_price - low_price) / ((high_price + low_price) / 2.0)) * 100.0
+        abs_slope = abs(slope_pct)
+        weight = 1.0 + (index * 0.35)
+        total_weight += weight
+
+        trend_component = (
+            (0.45 if abs_slope >= 0.28 else 0.12)
+            + min(abs_slope / 1.4, 1.0) * 0.35
+            + (0.10 if amplitude_pct >= 1.0 else 0.0)
+        )
+        range_component = (
+            (0.45 if abs_slope <= 0.18 else 0.10)
+            + (0.30 if 0.4 <= amplitude_pct <= 7.5 else 0.0)
+            + (0.15 if abs_slope <= 0.12 else 0.0)
+        )
+        breakout_component = (
+            (0.40 if amplitude_pct >= 2.2 else 0.08)
+            + (0.20 if abs_slope >= 0.32 else 0.0)
+            + (0.15 if last_price >= high_price * 0.995 or last_price <= low_price * 1.005 else 0.0)
+        )
+
+        top_component = max(trend_component, range_component, breakout_component)
+        mixed_component = max(0.0, 0.85 - top_component)
+
+        trend_votes += trend_component * weight
+        range_votes += range_component * weight
+        breakout_votes += breakout_component * weight
+        mixed_votes += mixed_component * weight
+
+    if total_weight <= 0:
+        return {
+            "detectionSource": "advisory_multitimeframe_runtime",
+            "analysisAnchorEpoch": now_epoch,
+            "suggestedRegime": "MIXED_OR_UNCLEAR",
+            "confidenceScore": 0.0,
+            "confidenceLabel": "LOW",
+            "insufficientData": True,
+            "insufficientReasonCode": "insufficient_weighted_windows",
+            "insufficientReasonMessage": "Insufficient weighted windows for runtime advisory.",
+        }
+
+    scored = [
+        ("TREND_CONTINUATION", trend_votes),
+        ("MEAN_REVERSION_FRIENDLY", range_votes),
+        ("BREAKOUT_EXPANSION", breakout_votes),
+        ("MIXED_OR_UNCLEAR", mixed_votes),
+    ]
+    scored.sort(key=lambda row: row[1], reverse=True)
+    top_label, top_score = scored[0]
+    second_score = scored[1][1] if len(scored) > 1 else 0.0
+    dominance = max(top_score - second_score, 0.0)
+    confidence_score = max(0.0, min((dominance / total_weight) * 140.0, 100.0))
+    suggested = top_label
+    if suggested != "MIXED_OR_UNCLEAR" and confidence_score < 45.0:
+        suggested = "MIXED_OR_UNCLEAR"
+    if suggested == "MIXED_OR_UNCLEAR":
+        confidence_score = min(confidence_score, 55.0)
+
+    return {
+        "detectionSource": "advisory_multitimeframe_runtime",
+        "analysisAnchorEpoch": now_epoch,
+        "suggestedRegime": suggested,
+        "confidenceScore": round(confidence_score, 3),
+        "confidenceLabel": _confidence_label_from_score(confidence_score),
+        "insufficientData": False,
+        "componentScores": {
+            "trend_score": round((trend_votes / total_weight) * 100.0, 3),
+            "range_score": round((range_votes / total_weight) * 100.0, 3),
+            "breakout_score": round((breakout_votes / total_weight) * 100.0, 3),
+            "mixed_score": round((mixed_votes / total_weight) * 100.0, 3),
+        },
+    }
+
+
 
 # ============================================================
 # CORE STRATEGY
@@ -224,10 +394,41 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     profit_cfg = cfg.get("profit_locks", {})
     scalper_cfg = _resolve_scalper_config(cfg)
     strategy_mode = _strategy_for_symbol(cfg, symbol, scalper_cfg=scalper_cfg)
+    configured_regime = _configured_regime_for_symbol(cfg, symbol)
+    route_snapshot = snapshot
+    shadow_updated_pre_route = False
+    pre_route_candidate_regime = None
+    if (
+        _router_flag(cfg, "auto_use_current_cycle_shadow", False)
+        and configured_regime == TOKEN_REGIME_AUTO
+    ):
+        pre_route_candidate_regime = detect_regime(snapshot, regime_cfg)
+        _record_shadow_regime_metrics(
+            symbol=symbol,
+            snapshot=snapshot,
+            candidate_regime=pre_route_candidate_regime,
+            cfg=cfg,
+        )
+        shadow_updated_pre_route = True
+
+    if (
+        _router_flag(cfg, "auto_use_multitimeframe_advisory", False)
+        and configured_regime == TOKEN_REGIME_AUTO
+    ):
+        route_snapshot = dict(snapshot)
+        existing_advisory = route_snapshot.get("regime_advisory")
+        if not isinstance(existing_advisory, dict) or not existing_advisory:
+            runtime_advisory = _build_runtime_multitimeframe_advisory(
+                snapshot=snapshot,
+                now_epoch=time.time(),
+            )
+            if isinstance(runtime_advisory, dict):
+                route_snapshot["regime_advisory"] = runtime_advisory
+
     entry_route = resolve_entry_route(
         cfg=cfg,
         symbol=symbol,
-        snapshot=snapshot,
+        snapshot=route_snapshot,
         default_strategy=strategy_mode,
         shadow_state=_shadow_regime_state,
     )
@@ -279,12 +480,13 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             regime_cfg=regime_cfg,
         )
     _record_symbol_metrics(symbol, regime, score, volatility)
-    _record_shadow_regime_metrics(
-        symbol=symbol,
-        snapshot=snapshot,
-        candidate_regime=regime,
-        cfg=cfg,
-    )
+    if not shadow_updated_pre_route or regime != pre_route_candidate_regime:
+        _record_shadow_regime_metrics(
+            symbol=symbol,
+            snapshot=snapshot,
+            candidate_regime=regime,
+            cfg=cfg,
+        )
     _flush_metrics_state_if_due()
 
     if effective_strategy == "volatility_scalper":
@@ -428,6 +630,11 @@ def _record_route_metadata(symbol: str, route: dict):
         fallback=None,
     )
     detected_confidence_label = route.get("detected_regime_confidence_label")
+    detection_source = route.get("detection_source")
+    detection_timestamp_epoch = _parse_numeric(
+        route.get("detection_timestamp_epoch"),
+        fallback=None,
+    )
     effective = route.get("effective_strategy")
     fallback_reason = route.get("auto_fallback_reason")
     changed = False
@@ -461,6 +668,24 @@ def _record_route_metadata(symbol: str, route: dict):
     else:
         if symbol in _last_detected_regime_confidence_label:
             _last_detected_regime_confidence_label.pop(symbol, None)
+            changed = True
+
+    if isinstance(detection_source, str) and detection_source:
+        if _last_detection_source.get(symbol) != detection_source:
+            _last_detection_source[symbol] = detection_source
+            changed = True
+    else:
+        if symbol in _last_detection_source:
+            _last_detection_source.pop(symbol, None)
+            changed = True
+
+    if detection_timestamp_epoch is None:
+        if symbol in _last_detection_timestamp_epoch:
+            _last_detection_timestamp_epoch.pop(symbol, None)
+            changed = True
+    else:
+        if _last_detection_timestamp_epoch.get(symbol) != detection_timestamp_epoch:
+            _last_detection_timestamp_epoch[symbol] = detection_timestamp_epoch
             changed = True
 
     if isinstance(effective, str) and effective:
@@ -896,6 +1121,8 @@ def _save_strategy_state():
         "last_detected_regime": _last_detected_regime,
         "last_detected_regime_confidence": _last_detected_regime_confidence,
         "last_detected_regime_confidence_label": _last_detected_regime_confidence_label,
+        "last_detection_source": _last_detection_source,
+        "last_detection_timestamp_epoch": _last_detection_timestamp_epoch,
         "last_effective_strategy": _last_effective_strategy,
         "last_auto_fallback_reason": _last_auto_fallback_reason,
         "shadow_regime_state": _shadow_regime_state,
@@ -928,6 +1155,8 @@ def _load_strategy_state():
         _last_detected_regime.update(state.get("last_detected_regime", {}))
         _last_detected_regime_confidence.update(state.get("last_detected_regime_confidence", {}))
         _last_detected_regime_confidence_label.update(state.get("last_detected_regime_confidence_label", {}))
+        _last_detection_source.update(state.get("last_detection_source", {}))
+        _last_detection_timestamp_epoch.update(state.get("last_detection_timestamp_epoch", {}))
         _last_effective_strategy.update(state.get("last_effective_strategy", {}))
         _last_auto_fallback_reason.update(state.get("last_auto_fallback_reason", {}))
         _shadow_regime_state.update(
@@ -972,6 +1201,8 @@ def _cleanup(symbol, price):
     _last_detected_regime.pop(symbol, None)
     _last_detected_regime_confidence.pop(symbol, None)
     _last_detected_regime_confidence_label.pop(symbol, None)
+    _last_detection_source.pop(symbol, None)
+    _last_detection_timestamp_epoch.pop(symbol, None)
     _last_effective_strategy.pop(symbol, None)
     _last_auto_fallback_reason.pop(symbol, None)
 
@@ -999,6 +1230,10 @@ def _decision(symbol, action, price, momentum, reason):
         payload["detected_regime_confidence"] = _last_detected_regime_confidence[symbol]
     if symbol in _last_detected_regime_confidence_label:
         payload["detected_regime_confidence_label"] = _last_detected_regime_confidence_label[symbol]
+    if symbol in _last_detection_source:
+        payload["detection_source"] = _last_detection_source[symbol]
+    if symbol in _last_detection_timestamp_epoch:
+        payload["detection_timestamp_epoch"] = _last_detection_timestamp_epoch[symbol]
     if symbol in _last_effective_strategy:
         payload["effective_strategy"] = _last_effective_strategy[symbol]
     if symbol in _last_auto_fallback_reason:

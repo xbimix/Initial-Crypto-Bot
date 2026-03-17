@@ -139,10 +139,17 @@ def test_daily_summary_build_and_write(tmp_path, monkeypatch):
     assert "symbols_flagged_high_opportunity_count" in report["summary"]
     assert report["summary"]["symbols_flagged_high_opportunity_count"] == 0
     assert report["summary"]["highest_opportunity_score"] is None
+    assert report["summary"]["regime_route_closed_trades"] == 1
+    assert report["summary"]["best_regime_route_by_avg_pnl"] == "mean_reversion"
     assert "volatility_opportunity_radar" in report["advisory"]
     radar = report["advisory"]["volatility_opportunity_radar"]
     assert isinstance(radar["symbols"], list)
     assert radar["high_opportunity_symbol_count"] == 0
+    assert "regime_route_effectiveness" in report["advisory"]
+    route_effectiveness = report["advisory"]["regime_route_effectiveness"]
+    assert route_effectiveness["total_closed_trades"] == 1
+    assert route_effectiveness["best_route_by_avg_pnl"] == "mean_reversion"
+    assert route_effectiveness["routes"]["mean_reversion"]["closed_trades"] == 1
     assert report["trade_reasons"]["entry_reasons"]["entry_signal"] == 1
     assert report["trade_reasons"]["exit_reasons"]["exit_signal"] == 1
     assert report["trade_reasons"]["blocked_reasons"]["spread_too_wide"] == 1

@@ -314,6 +314,38 @@ def normalize_config(
     normalize_bool_map("symbol_sell_enabled")
     normalize_token_regime_map()
 
+    # Strategy defaults / routing safety flags.
+    strategy_defaults = ensure_dict(cfg, "strategy_defaults", "strategy_defaults")
+    router = ensure_dict(strategy_defaults, "router", "strategy_defaults.router")
+    normalize_float(
+        router,
+        "auto_min_confidence",
+        68.0,
+        "strategy_defaults.router.auto_min_confidence",
+        min_value=0.0,
+        max_value=100.0,
+    )
+    normalize_int(
+        router,
+        "auto_min_confirmations",
+        2,
+        "strategy_defaults.router.auto_min_confirmations",
+        min_value=1,
+        max_value=10,
+    )
+    normalize_bool(
+        router,
+        "auto_use_current_cycle_shadow",
+        False,
+        "strategy_defaults.router.auto_use_current_cycle_shadow",
+    )
+    normalize_bool(
+        router,
+        "auto_use_multitimeframe_advisory",
+        False,
+        "strategy_defaults.router.auto_use_multitimeframe_advisory",
+    )
+
     # Risk section.
     risk = ensure_dict(cfg, "risk", "risk")
     normalize_float(risk, "risk_percent", 0.02, "risk.risk_percent", min_value=0.0, max_value=1.0)

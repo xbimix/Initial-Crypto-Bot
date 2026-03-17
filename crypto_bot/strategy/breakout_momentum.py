@@ -55,6 +55,36 @@ def evaluate_breakout_momentum_entry(
     if atr_value < min_mode_atr:
         return "HOLD", "breakout_momentum_volatility_too_low"
 
+    structure_prices_raw = snapshot.get("recent_prices", [])
+    structure_prices: list[float] = []
+    if isinstance(structure_prices_raw, list):
+        for value in structure_prices_raw:
+            numeric = _as_float(value, default=None)
+            if numeric is not None and numeric > 0:
+                structure_prices.append(float(numeric))
+    structure_lookback = int(_as_float(mode_cfg.get("compression_lookback_points"), 8) or 8)
+    structure_lookback = max(structure_lookback, 8)
+    if len(structure_prices) < structure_lookback:
+        return "HOLD", "breakout_momentum_insufficient_compression_history"
+
+    structure_window = structure_prices[-structure_lookback:]
+    half = structure_lookback // 2
+    prior_window = structure_window[:half]
+    recent_window = structure_window[half:]
+    if len(prior_window) < 2 or len(recent_window) < 2:
+        return "HOLD", "breakout_momentum_insufficient_compression_history"
+
+    prior_range = max(prior_window) - min(prior_window)
+    recent_range = max(recent_window) - min(recent_window)
+    max_compression_ratio = max(_as_float(mode_cfg.get("max_compression_ratio"), 0.92) or 0.92, 0.1)
+    if prior_range > 0 and (recent_range / prior_range) > max_compression_ratio:
+        return "HOLD", "breakout_momentum_no_compression"
+
+    breakout_confirm_pct = max(_as_float(mode_cfg.get("breakout_confirm_pct"), 0.0015) or 0.0015, 0.0)
+    prior_high_before_breakout = max(structure_window[:-1]) if len(structure_window) > 1 else max(structure_window)
+    if price < prior_high_before_breakout * (1.0 + breakout_confirm_pct):
+        return "HOLD", "breakout_momentum_breakout_unconfirmed"
+
     if high_24h <= low_24h:
         return "HOLD", "breakout_momentum_insufficient_range_data"
 
@@ -90,4 +120,3 @@ def evaluate_breakout_momentum_entry(
         return "HOLD", "breakout_momentum_missing_vwap"
 
     return "BUY", "breakout_momentum_entry"
-

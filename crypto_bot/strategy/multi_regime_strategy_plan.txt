@@ -1,473 +1,54 @@
-RevBot Multi-Regime / Multi-Strategy Plan
-=========================================
-
-Goal
-----
-Implement independent regime detection per symbol, then route each symbol to the most suitable strategy for its current regime.
-This must work per coin, simultaneously, without requiring all coins to share one market regime or one entry model.
-
-Important constraint for now
-----------------------------
-Do not change live trading behavior yet.
-This document is a design / implementation plan only.
-
-
-1. Current state
-----------------
-- `main.py` loops through all symbols and calls `fetch_market_snapshot(symbol, cfg)`.
-- `strategy_engine.evaluate_symbol(snapshot, cfg)` makes one decision path for every symbol.
-- `detect_regime(snapshot, regime_cfg)` exists, but it is only advisory inside one strategy.
-- Strategy state is already partly per-symbol:
-  - `_entry_price[symbol]`
-  - `_profit_lock[symbol]`
-  - `_last_momentum[symbol]`
-- Config is mostly global:
-  - one `market_regime`
-  - one buy model
-  - one volatility filter set
-
-This means the bot already tracks positions independently, but it does not yet choose a different strategy per coin.
-
-
-2. Target architecture
-----------------------
-Separate the decision stack into 4 layers:
-
-Layer A: Market snapshot
-- Per-symbol market data only.
-- Already exists in `market_data.py`.
-
-Layer B: Regime detection
-- Per-symbol regime classification.
-- Output should be explicit and stored per symbol.
-- Example regimes:
-  - `trend_up`
-  - `trend_down`
-  - `range`
-  - `accumulation`
-  - `spike`
-  - `dump`
-  - `unknown`
-
-Layer C: Strategy router
-- Takes `(symbol, snapshot, regime, cfg)`.
-- Chooses which strategy module should evaluate the symbol.
-- This is the dispatch layer.
-
-Layer D: Strategy modules
-- Each strategy contains its own entry logic.
-- A shared exit/risk layer can still remain centralized.
-
-
-3. Core design principle
-------------------------
-Do not use one "global market regime" for all coins.
-Each symbol must have:
-- its own regime
-- its own rolling state
-- its own strategy assignment
-- its own cooldown / momentum memory / entry memory
-
-This gives "simultaneous" behavior without needing threads.
-The bot can stay single-looped; symbol independence comes from state isolation by symbol key.
-
-
-4. Recommended file structure
------------------------------
-Add these later:
-
-- `strategy/regime_engine.py`
-  Purpose:
-  - manage per-symbol regime detection
-  - apply smoothing / confirmation rules
-  - persist latest regime state
-
-- `strategy/strategy_router.py`
-  Purpose:
-  - map regime -> strategy name
-  - load strategy module
-  - apply symbol overrides if configured
-
-- `strategy/strategies/base.py`
-  Purpose:
-  - common interface all strategies must implement
-
-- `strategy/strategies/mean_reversion.py`
-- `strategy/strategies/trend_follow.py`
-- `strategy/strategies/breakout.py`
-- `strategy/strategies/defensive.py`
-
-- `state/regime_state.json`
-  Purpose:
-  - persist latest regime per symbol
-  - store confirmation counters / last regime change time
-
-
-5. Strategy interface
----------------------
-Each strategy should expose the same function signature:
-
-`evaluate(symbol_context: dict, cfg: dict) -> dict`
-
-Where `symbol_context` contains:
-- `symbol`
-- `snapshot`
-- `regime`
-- `position`
-- `risk_state`
-- `strategy_state`
-
-Return format should stay compatible with the current executor:
-- `symbol`
-- `action` (`BUY`, `SELL`, `HOLD`)
-- `price`
-- `reason`
-- optional:
-  - `strategy`
-  - `regime`
-  - `meta`
-
-
-6. Regime engine design
------------------------
-Current `detect_regime()` is a good primitive, but not enough by itself.
-Add a regime engine that wraps it and adds:
-
-- Per-symbol regime memory
-  - last regime
-  - last stable regime
-  - consecutive confirmations
-  - last update timestamp
-
-- Regime confirmation
-  - avoid flipping on one noisy candle
-  - require N confirmations before switching
-
-- Regime cooldown
-  - after a regime switch, optionally pause new entries for a short time
-
-- Confidence score
-  - return both regime and confidence
-  - example:
-    - `("range", 0.78)`
-    - `("trend_down", 0.64)`
-
-Suggested output:
-
-`{
-  "regime": "range",
-  "confidence": 0.78,
-  "candidate_regime": "range",
-  "stable_regime": "range",
-  "confirmations": 3,
-  "switched": false,
-  "timestamp": 0
-}`
-
-
-7. Data / calculations needed per symbol
-----------------------------------------
-To choose the best strategy, regime detection needs more than one raw signal.
-
-Minimum calculations:
-- `range_pos`
-  - `(price - low_24h) / (high_24h - low_24h)`
-- `range_pct`
-  - `(high_24h - low_24h) / price`
-- `atr` or `atr_pct`
-  - already available in your bot as a relative volatility ratio
-- `vwap_distance`
-  - `(price - vwap) / vwap`
-- `z_score`
-  - `(price - vwap) / atr`
-- `ema_alignment`
-  - price vs `ema_50`
-  - `ema_50` vs `ema_200`
-  - `ema_50_slope`
-- `momentum_norm`
-- `trade_count`
-
-Recommended later:
-- short-window structure:
-  - recent swing high / low
-  - last N candle breakout / breakdown
-- optional order-book features:
-  - bid/ask imbalance
-  - nearest large wall distance
-  - spread
-
-
-8. Initial regime -> strategy mapping
--------------------------------------
-Start simple. One regime maps to one strategy.
-
-- `range`
-  -> `mean_reversion`
-  Buy lower range, exit near mid / upper range.
-
-- `accumulation`
-  -> `mean_reversion`
-  Similar to range, but allow slightly earlier entries when momentum stops deteriorating.
-
-- `trend_up`
-  -> `trend_follow`
-  Buy pullbacks above key moving averages, avoid buying deep weakness.
-
-- `trend_down`
-  -> `defensive`
-  Usually no new longs, or only very strict oversold bounce setups.
-
-- `dump`
-  -> `defensive`
-  Hard block new entries until stabilization criteria are met.
-
-- `spike`
-  -> `breakout`
-  Either breakout continuation with tight confirmation, or no-trade if spread / slippage expands.
-
-- `unknown`
-  -> `hold_only`
-  No new trades until data quality improves.
-
-
-9. First strategy set
----------------------
-Implement in this order:
-
-Strategy 1: Mean reversion
-- Use for `range` and `accumulation`.
-- Entry:
-  - low range position
-  - negative z-score stretch
-  - momentum no longer worsening
-- Exit:
-  - revert to VWAP
-  - upper range band
-  - defensive stop if support fails
-
-Strategy 2: Trend follow
-- Use for `trend_up`.
-- Entry:
-  - price above `ema_50`
-  - `ema_50 > ema_200`
-  - positive `ema_50_slope`
-  - pullback toward VWAP / EMA, then recovery
-- Exit:
-  - loss of trend structure
-  - close back below support / moving average
-
-Strategy 3: Defensive
-- Use for `trend_down`, `dump`, `unknown`.
-- Default:
-  - no new long entries
-- Optional later:
-  - micro bounce scalp only when oversold + reversal + strong confirmation
-
-Strategy 4: Breakout
-- Use for `spike`.
-- Entry:
-  - price compresses under breakout level
-  - breakout confirmed by momentum + volume/trade count
-- Exit:
-  - failed breakout
-  - fast partial profit taking
-
-
-10. Shared vs strategy-specific state
--------------------------------------
-Keep these shared across all strategies:
-- broker sync
-- open position tracking
-- profit lock persistence
-- last sell price
-- executor integration
-- risk manager
-
-Move these to strategy-specific or symbol-scoped state:
-- last momentum
-- last regime
-- strategy-specific trigger memory
-- breakout levels
-- mean reversion swing anchors
-
-Recommended state shape:
-
-`strategy_state = {
-  "BTC-USD": {
-    "active_strategy": "trend_follow",
-    "last_regime": "trend_up",
-    "strategy_data": {
-      "last_pullback_low": 0,
-      "last_breakout_level": 0
-    }
-  }
-}`
-
-
-11. Config design
------------------
-Replace one global `market_regime` assumption with:
-
-- global defaults
-- optional per-regime config
-- optional per-symbol overrides
-
-Suggested shape:
-
-`{
-  "strategy_defaults": {
-    "router": {
-      "confirmations_required": 2,
-      "regime_cooldown_seconds": 60
-    }
-  },
-  "regime_config": {
-    "range": {
-      "strategy": "mean_reversion"
-    },
-    "trend_up": {
-      "strategy": "trend_follow"
-    },
-    "trend_down": {
-      "strategy": "defensive"
-    }
-  },
-  "symbol_overrides": {
-    "XRP-USD": {
-      "router": {
-        "preferred_strategies": {
-          "range": "mean_reversion"
-        }
-      },
-      "volatility_filters": {
-        "min_atr": 0.00025
-      }
-    }
-  }
-}`
-
-This allows each coin to be "smart" in a controlled way without hardcoding behavior in Python.
-
-
-12. Integration path (low-risk)
--------------------------------
-Phase 1: Refactor only
-- Extract current buy logic into `mean_reversion.py`.
-- Keep behavior unchanged.
-- Keep `strategy_engine` as a thin wrapper.
-
-Phase 2: Add router
-- Add `strategy_router.py`.
-- Route all regimes to the same extracted `mean_reversion` strategy at first.
-- No behavior change, but architecture becomes ready.
-
-Phase 3: Add regime engine
-- Wrap `detect_regime()` with regime confirmation / persistence.
-- Log regime per symbol without changing trade selection yet.
-
-Phase 4: Enable differentiated routing
-- `range` / `accumulation` -> `mean_reversion`
-- `trend_up` -> `trend_follow`
-- `trend_down` / `dump` -> `defensive`
-- `unknown` -> hold
-
-Phase 5: Add symbol overrides
-- Allow per-symbol thresholds and per-symbol strategy preferences.
-
-Phase 6: Shadow mode validation
-- Log:
-  - detected regime
-  - chosen strategy
-  - hypothetical action
-- Compare against current live strategy before enabling execution.
-
-
-13. Execution flow after refactor
----------------------------------
-Future desired flow:
-
-1. `main.py` gets a snapshot for one symbol
-2. `strategy_engine.evaluate_symbol(snapshot, cfg)` builds symbol context
-3. `regime_engine` returns stable regime for that symbol
-4. `strategy_router` selects the best strategy for that symbol
-5. Selected strategy evaluates entry/hold/exit
-6. Shared risk / executor validates and executes
-7. State is persisted per symbol
-
-This keeps the bot independent per coin while still using one main loop.
-
-
-14. Risk controls that must remain global
------------------------------------------
-Even with per-coin strategies, these controls should stay centralized:
-- max concurrent positions
-- max daily trade count
-- per-trade risk sizing
-- cooldown rules
-- account-level capital allocation
-- emergency trading disable
-
-Per-coin intelligence should choose the entry model.
-It should not bypass portfolio risk limits.
-
-
-15. Logging to add before enabling execution
---------------------------------------------
-For each symbol, log:
-- detected regime
-- regime confidence
-- active strategy
-- blocked reason (if any)
-- key metrics used by that strategy
-
-Example:
-
-`XRP-USD | regime=range conf=0.76 | strategy=mean_reversion | z=-1.82 range_pos=0.18 atr=0.0012`
-
-This will make it much easier to validate whether routing is actually selecting the right behavior.
-
-
-16. Practical first implementation recommendation
--------------------------------------------------
-The lowest-risk first step is:
-
-1. Extract current `_evaluate_buy()` logic into a dedicated `mean_reversion` strategy module.
-2. Add a router that still routes every coin to that same strategy.
-3. Add per-symbol regime state logging only.
-4. After log validation, add `trend_follow` for `trend_up`.
-5. After that, add `defensive` for `trend_down` / `dump`.
-
-This gets the architecture in place first, then improves intelligence incrementally.
-
-
-17. Key rule for independence
------------------------------
-Never store mutable regime / strategy state as one shared global value.
-Always store it by symbol.
-
-Good:
-- `state[symbol]["regime"]`
-- `state[symbol]["strategy"]`
-
-Bad:
-- `current_regime = "range"`
-- `active_strategy = "mean_reversion"`
-
-If this rule is followed, the bot can treat BTC, XRP, SOL, ETH, etc. differently in the same loop safely.
-
-
-18. Definition of done for the future implementation
-----------------------------------------------------
-This feature is complete when:
-- every symbol gets its own stable regime classification
-- every symbol can be routed to a different strategy
-- strategy-specific state is isolated by symbol
-- config supports per-symbol overrides
-- risk controls remain centralized
-- logs clearly show regime + strategy + reason
-- a shadow mode validates routing before live execution
-
-
-End state
----------
-The final design should let one coin trade mean reversion, another coin stay blocked in defensive mode, and another coin run trend-following, all in the same bot cycle, using the same executor and risk controls.
+Implemented. I actioned the full ordered gap list in `RevBot` and validated it end-to-end.
+
+**What I changed (in order)**
+- Passed `latestSnapshot` into regime advisory analysis in both dashboard/token API paths (participation no longer defaults neutral):
+  - [dashboard route](d:/Python-Codes/RevBot/web-ui/src/app/api/dashboard/route.ts)
+  - [token route](d:/Python-Codes/RevBot/web-ui/src/app/api/token/[symbol]/route.ts)
+- Added explicit advisory component scores + stability score + detection metadata:
+  - [regime analyzer](d:/Python-Codes/RevBot/web-ui/src/app/lib/regimeGovernorAnalyzer.mjs)
+- Exposed detection source/timestamp + component/stability fields into API/UI payloads:
+  - [dashboard route](d:/Python-Codes/RevBot/web-ui/src/app/api/dashboard/route.ts)
+  - [dashboard UI](d:/Python-Codes/RevBot/web-ui/src/app/components/RevbotDashboard.tsx)
+  - [token route](d:/Python-Codes/RevBot/web-ui/src/app/api/token/[symbol]/route.ts)
+  - [token page](d:/Python-Codes/RevBot/web-ui/src/app/token/[symbol]/page.tsx)
+- Improved precision-report observability:
+  - SNAPSHOT logs now include EMA fields: [market_data.py](d:/Python-Codes/RevBot/crypto_bot/data/market_data.py)
+  - precision report now tracks runtime detection source/timestamp: [regime_precision_report.py](d:/Python-Codes/RevBot/scripts/regime_precision_report.py)
+- Added safe runtime flags in router/config/runtime:
+  - `auto_use_current_cycle_shadow`
+  - `auto_use_multitimeframe_advisory`
+  - [regime_router.py](d:/Python-Codes/RevBot/crypto_bot/strategy/regime_router.py)
+  - [strategy_engine.py](d:/Python-Codes/RevBot/crypto_bot/strategy/strategy_engine.py)
+  - [config_schema.py](d:/Python-Codes/RevBot/crypto_bot/utils/config_schema.py)
+- Tightened manual mode entry guards (additive, isolated):
+  - [trend_pullback.py](d:/Python-Codes/RevBot/crypto_bot/strategy/trend_pullback.py)
+  - [breakout_momentum.py](d:/Python-Codes/RevBot/crypto_bot/strategy/breakout_momentum.py)
+- Added regime-route effectiveness to reporting:
+  - [daily_summary.py](d:/Python-Codes/RevBot/crypto_bot/reporting/daily_summary.py)
+  - [weekly_summary.py](d:/Python-Codes/RevBot/crypto_bot/reporting/weekly_summary.py)
+- Updated/extended tests:
+  - [test_regime_router.py](d:/Python-Codes/RevBot/crypto_bot/tests/test_regime_router.py)
+  - [test_strategy_regression.py](d:/Python-Codes/RevBot/crypto_bot/tests/test_strategy_regression.py)
+  - [test_daily_summary.py](d:/Python-Codes/RevBot/crypto_bot/tests/test_daily_summary.py)
+  - [test_weekly_summary.py](d:/Python-Codes/RevBot/crypto_bot/tests/test_weekly_summary.py)
+  - [regime-governor-phase2.test.mjs](d:/Python-Codes/RevBot/web-ui/tests/regime-governor-phase2.test.mjs)
+
+**Additional fix during validation**
+- Prevented runtime advisory injection from overwriting an already provided `snapshot.regime_advisory`:
+  - [strategy_engine.py](d:/Python-Codes/RevBot/crypto_bot/strategy/strategy_engine.py)
+- Added JS doc typing so TS accepts `latestSnapshot` object:
+  - [regimeGovernorAnalyzer.mjs](d:/Python-Codes/RevBot/web-ui/src/app/lib/regimeGovernorAnalyzer.mjs)
+
+**Validation status**
+- Focused Python suite: `27 passed`
+- Full local gate: `check_local.ps1` passed fully
+  - behavior hash check: pass
+  - replay regression: pass (78/78)
+  - pytest suite in local gate: pass (88 passed)
+  - web advisory tests: pass
+  - lint + TS + Next build: pass
+- Behavior hash baseline updated to reflect intended behavior-sensitive changes:
+  - [strategy_hash_baseline.json](d:/Python-Codes/RevBot/crypto_bot/strategy/strategy_hash_baseline.json)
+
+**Note**
+- `check_local` generated new replay report artifacts in `crypto_bot/state/reports/` and runtime state files changed during execution, as expected.

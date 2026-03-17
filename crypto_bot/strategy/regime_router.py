@@ -53,6 +53,20 @@ def _as_float(value: Any) -> float | None:
     return parsed
 
 
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        raw = value.strip().lower()
+        if raw in {"1", "true", "yes", "on"}:
+            return True
+        if raw in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
 def _normalized_confidence_label(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
@@ -127,6 +141,11 @@ def _auto_min_confirmations(cfg: dict[str, Any]) -> int:
     return max(value, 1)
 
 
+def _auto_use_multitimeframe_advisory(cfg: dict[str, Any]) -> bool:
+    router = _router_cfg(cfg)
+    return _as_bool(router.get("auto_use_multitimeframe_advisory"), False)
+
+
 def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
     advisory = snapshot.get("regime_advisory")
     if not isinstance(advisory, dict):
@@ -169,6 +188,22 @@ def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
     if not insufficient_data:
         insufficient_data = _is_insufficient(advisory.get("insufficient_data"))
 
+    detection_source = advisory.get("detectionSource")
+    if not isinstance(detection_source, str):
+        detection_source = advisory.get("detection_source")
+    if not isinstance(detection_source, str):
+        detection_source = "advisory_multitimeframe"
+
+    detection_timestamp_epoch = _as_float(advisory.get("analysisAnchorEpoch"))
+    if detection_timestamp_epoch is None:
+        detection_timestamp_epoch = _as_float(advisory.get("analysis_anchor_epoch"))
+    if detection_timestamp_epoch is None:
+        detection_timestamp_epoch = _as_float(advisory.get("detectionTimestampEpoch"))
+    if detection_timestamp_epoch is None:
+        detection_timestamp_epoch = _as_float(advisory.get("detection_timestamp_epoch"))
+    if detection_timestamp_epoch is None:
+        detection_timestamp_epoch = _as_float(snapshot.get("detected_regime_timestamp_epoch"))
+
     normalized_suggested = ""
     if isinstance(suggested, str):
         normalized_suggested = suggested.strip().upper()
@@ -179,6 +214,8 @@ def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
         "confidence_label": confidence_label,
         "insufficient_data": insufficient_data,
         "insufficient_reason": "snapshot_advisory_insufficient" if insufficient_data else None,
+        "detection_source": detection_source.strip().lower(),
+        "detection_timestamp_epoch": detection_timestamp_epoch,
     }
 
 
@@ -209,6 +246,8 @@ def _extract_shadow_advisory(
             "confidence_label": None,
             "insufficient_data": True,
             "insufficient_reason": "missing_shadow_state",
+            "detection_source": "runtime_shadow",
+            "detection_timestamp_epoch": None,
         }
 
     row = shadow_state.get(symbol_key)
@@ -219,6 +258,8 @@ def _extract_shadow_advisory(
             "confidence_label": None,
             "insufficient_data": True,
             "insufficient_reason": "missing_shadow_state",
+            "detection_source": "runtime_shadow",
+            "detection_timestamp_epoch": None,
         }
 
     confirmations = _as_float(row.get("confirmations"))
@@ -231,6 +272,8 @@ def _extract_shadow_advisory(
             ),
             "insufficient_data": True,
             "insufficient_reason": "insufficient_shadow_confirmations",
+            "detection_source": "runtime_shadow",
+            "detection_timestamp_epoch": _as_float(row.get("last_update_ts")),
         }
 
     stable = str(
@@ -248,6 +291,8 @@ def _extract_shadow_advisory(
         "confidence_label": confidence_label,
         "insufficient_data": False,
         "insufficient_reason": None,
+        "detection_source": "runtime_shadow",
+        "detection_timestamp_epoch": _as_float(row.get("last_update_ts")),
     }
 
 
@@ -280,6 +325,8 @@ def resolve_entry_route(
         "detected_regime": None,
         "detected_regime_confidence": None,
         "detected_regime_confidence_label": None,
+        "detection_source": "configured_manual",
+        "detection_timestamp_epoch": None,
         "effective_strategy": normalized_default,
         "auto_fallback_reason": None,
     }
@@ -309,8 +356,25 @@ def resolve_entry_route(
 
     min_confidence_score = _auto_min_confidence_score(cfg)
     min_confirmations = _auto_min_confirmations(cfg)
-    advisory = _extract_regime_advisory(snapshot)
-    if not advisory["suggested_regime"] and isinstance(shadow_state, dict):
+    use_multitimeframe_advisory = _auto_use_multitimeframe_advisory(cfg)
+    advisory = {
+        "suggested_regime": None,
+        "confidence_score": None,
+        "confidence_label": None,
+        "insufficient_data": True,
+        "insufficient_reason": "missing_shadow_state",
+        "detection_source": "runtime_shadow",
+        "detection_timestamp_epoch": None,
+    }
+    if use_multitimeframe_advisory:
+        advisory = _extract_regime_advisory(snapshot)
+        if not advisory["suggested_regime"] and isinstance(shadow_state, dict):
+            advisory = _extract_shadow_advisory(
+                symbol=symbol,
+                shadow_state=shadow_state,
+                min_confirmations=min_confirmations,
+            )
+    elif isinstance(shadow_state, dict):
         advisory = _extract_shadow_advisory(
             symbol=symbol,
             shadow_state=shadow_state,
@@ -320,6 +384,8 @@ def resolve_entry_route(
     result["detected_regime"] = advisory["suggested_regime"]
     result["detected_regime_confidence"] = advisory["confidence_score"]
     result["detected_regime_confidence_label"] = advisory["confidence_label"]
+    result["detection_source"] = str(advisory.get("detection_source") or "runtime_shadow")
+    result["detection_timestamp_epoch"] = _as_float(advisory.get("detection_timestamp_epoch"))
 
     if not advisory["suggested_regime"]:
         if advisory.get("insufficient_reason") == "insufficient_shadow_confirmations":

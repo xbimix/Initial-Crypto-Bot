@@ -419,6 +419,10 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             "ema_50_slope": ema_50_slope,
         }
 
+        ema_50_log = f"{ema_50:.5f}" if ema_50 is not None else "NA"
+        ema_200_log = f"{ema_200:.5f}" if ema_200 is not None else "NA"
+        ema_50_slope_log = f"{ema_50_slope:.8f}" if ema_50_slope is not None else "NA"
+
         logger.info(
             f"SNAPSHOT {symbol} | "
             f"price={last_price:.5f} "
@@ -432,7 +436,10 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             f"points={len(prices)} "
             f"quality={data_quality_reason} "
             f"24h_low={low_24h:.5f} "
-            f"24h_high={high_24h:.5f}"
+            f"24h_high={high_24h:.5f} "
+            f"ema_50={ema_50_log} "
+            f"ema_200={ema_200_log} "
+            f"ema_50_slope={ema_50_slope_log}"
         )
 
         return snapshot

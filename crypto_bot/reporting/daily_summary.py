@@ -155,6 +155,123 @@ def _avg(values: list[float]) -> float | None:
     return sum(values) / len(values)
 
 
+def _entry_route_from_reason(reason: Any) -> str:
+    raw = str(reason or "").strip().lower()
+    if "trend_pullback" in raw:
+        return "trend_pullback"
+    if "breakout_momentum" in raw:
+        return "breakout_momentum"
+    if "volatility_scalper" in raw or raw.startswith("scalper_"):
+        return "volatility_scalper"
+    if raw == "observe_only_mode":
+        return "observe_only"
+    if not raw:
+        return "unknown"
+    return "mean_reversion"
+
+
+def _build_regime_route_effectiveness(
+    day_buys: list[dict[str, Any]],
+    day_sells: list[dict[str, Any]],
+) -> dict[str, Any]:
+    buy_queue_by_symbol: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for trade in sorted(day_buys, key=lambda row: _to_float(row.get("time"), 0.0)):
+        symbol = _normalize_symbol(trade.get("symbol"))
+        trade_ts = _to_float(trade.get("time"), fallback=0.0)
+        if not symbol or trade_ts <= 0:
+            continue
+        buy_queue_by_symbol[symbol].append(
+            {
+                "time": trade_ts,
+                "price": _to_float(trade.get("price"), fallback=0.0),
+                "route": _entry_route_from_reason(trade.get("reason")),
+            }
+        )
+
+    route_rows: dict[str, dict[str, list[float]]] = defaultdict(
+        lambda: {
+            "pnl_usd": [],
+            "hold_hours": [],
+            "drawdown_pct": [],
+            "wins": [],
+        }
+    )
+
+    for sell_trade in sorted(day_sells, key=lambda row: _to_float(row.get("time"), 0.0)):
+        symbol = _normalize_symbol(sell_trade.get("symbol"))
+        exit_ts = _to_float(sell_trade.get("time"), fallback=0.0)
+        if not symbol or exit_ts <= 0:
+            continue
+        matched_buy = None
+        if buy_queue_by_symbol[symbol]:
+            matched_buy = buy_queue_by_symbol[symbol].pop(0)
+
+        route = _entry_route_from_reason((matched_buy or {}).get("route"))
+        if route == "mean_reversion":
+            route = _entry_route_from_reason((matched_buy or {}).get("route") or sell_trade.get("reason"))
+        pnl_usd = _to_float(sell_trade.get("pnl"), fallback=0.0)
+        entry_price = _to_float((matched_buy or {}).get("price"), fallback=0.0)
+        exit_price = _to_float(sell_trade.get("price"), fallback=0.0)
+        pnl_pct = None
+        if entry_price > 0 and exit_price > 0:
+            pnl_pct = ((exit_price - entry_price) / entry_price) * 100.0
+        drawdown_pct = min(pnl_pct or 0.0, 0.0)
+
+        route_rows[route]["pnl_usd"].append(pnl_usd)
+        route_rows[route]["drawdown_pct"].append(drawdown_pct)
+        route_rows[route]["wins"].append(1.0 if pnl_usd > 0 else 0.0)
+        if matched_buy:
+            hold_hours = max((exit_ts - _to_float(matched_buy.get("time"), 0.0)) / 3600.0, 0.0)
+            route_rows[route]["hold_hours"].append(hold_hours)
+
+    routes: dict[str, Any] = {}
+    total_closed_trades = 0
+    best_route = None
+    best_route_avg_pnl = None
+    for route, values in sorted(route_rows.items(), key=lambda item: item[0]):
+        closed_count = len(values["pnl_usd"])
+        if closed_count <= 0:
+            continue
+        total_closed_trades += closed_count
+        avg_realized_pnl_usd = _avg(values["pnl_usd"])
+        win_rate_pct = (_avg(values["wins"]) or 0.0) * 100.0
+        avg_hold_hours = _avg(values["hold_hours"])
+        avg_max_drawdown_pct = _avg(values["drawdown_pct"])
+        routes[route] = {
+            "closed_trades": closed_count,
+            "win_rate_pct": round(win_rate_pct, 3),
+            "avg_realized_pnl_usd": round(_to_float(avg_realized_pnl_usd, 0.0), 3),
+            "avg_hold_hours": (
+                round(_to_float(avg_hold_hours, 0.0), 3)
+                if avg_hold_hours is not None
+                else None
+            ),
+            "avg_max_drawdown_pct": (
+                round(_to_float(avg_max_drawdown_pct, 0.0), 3)
+                if avg_max_drawdown_pct is not None
+                else None
+            ),
+        }
+        if best_route_avg_pnl is None or _to_float(avg_realized_pnl_usd, 0.0) > best_route_avg_pnl:
+            best_route_avg_pnl = _to_float(avg_realized_pnl_usd, 0.0)
+            best_route = route
+
+    return {
+        "total_closed_trades": total_closed_trades,
+        "best_route_by_avg_pnl": best_route,
+        "best_route_avg_pnl_usd": (
+            round(_to_float(best_route_avg_pnl, 0.0), 3)
+            if best_route_avg_pnl is not None
+            else None
+        ),
+        "routes": routes,
+        "note": (
+            "Advisory-only regime-route effectiveness derived from same-day BUY/SELL pairings; "
+            "does not change strategy or execution."
+        ),
+    }
+
+
 def _build_closed_trades_by_symbol(
     trades: list[dict[str, Any]],
     stale_review_age_hours_threshold: float,
@@ -1000,6 +1117,10 @@ def build_daily_summary(day_iso: str) -> dict[str, Any]:
         if day_holding_seconds
         else 0.0
     )
+    regime_route_effectiveness = _build_regime_route_effectiveness(
+        day_buys=day_buys,
+        day_sells=day_sells,
+    )
 
     entry_reason_counts: dict[str, int] = defaultdict(int)
     for trade in day_buys:
@@ -1189,6 +1310,16 @@ def build_daily_summary(day_iso: str) -> dict[str, Any]:
                 else None
             ),
             "symbols_flagged_high_opportunity_count": symbols_flagged_high_opportunity_count,
+            "regime_route_closed_trades": int(
+                regime_route_effectiveness.get("total_closed_trades") or 0
+            ),
+            "best_regime_route_by_avg_pnl": (
+                str(regime_route_effectiveness.get("best_route_by_avg_pnl") or "")
+                or None
+            ),
+            "best_regime_route_avg_pnl_usd": regime_route_effectiveness.get(
+                "best_route_avg_pnl_usd"
+            ),
         },
         "advisory": {
             "max_drawdown_during_trade": {
@@ -1241,6 +1372,7 @@ def build_daily_summary(day_iso: str) -> dict[str, Any]:
                     "Advisory-only near-term volatility opportunity radar derived from observed snapshots; does not change strategy or execution."
                 ),
             },
+            "regime_route_effectiveness": regime_route_effectiveness,
         },
         "trade_reasons": {
             "entry_reasons": _counter_to_sorted_dict(entry_reason_counts),
