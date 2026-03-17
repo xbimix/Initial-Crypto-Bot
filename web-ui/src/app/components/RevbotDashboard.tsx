@@ -8,6 +8,7 @@ type DashboardPayload = {
   generatedAt: string;
   summary: {
     enabled: boolean;
+    tradingEnabled: boolean;
     executionMode: string;
     trackedSymbols: number;
     activeSymbols: number;
@@ -1435,8 +1436,8 @@ export default function RevbotDashboard() {
   const topStatusCards = [
     {
       label: "Bot Status",
-      value: data.summary.enabled ? "Running" : "Paused",
-      helper: `Mode ${String(data.summary.executionMode).toUpperCase()}`,
+      value: data.summary.enabled ? "Process Online" : "Process Offline",
+      helper: `Trading ${data.summary.tradingEnabled ? "Armed" : "Disarmed"} | Mode ${String(data.summary.executionMode).toUpperCase()}`,
       tone: data.summary.enabled ? "text-emerald-200" : "text-rose-200",
     },
     {
@@ -1626,12 +1627,12 @@ export default function RevbotDashboard() {
                 </h1>
                 <span
                   className={`rb-chip ${
-                    data.summary.enabled
+                    data.summary.tradingEnabled
                       ? "rb-chip--positive"
                       : "rb-chip--negative"
                   }`}
                 >
-                  {data.summary.enabled ? "Bot active" : "Bot paused"}
+                  {data.summary.tradingEnabled ? "Trading armed" : "Trading disarmed"}
                 </span>
               </div>
               <p className="rb-helper mt-3 max-w-2xl text-sm">
@@ -1680,6 +1681,12 @@ export default function RevbotDashboard() {
               >
                 {busyCloseAll ? "Closing..." : "Close all"}
               </button>
+              <Link
+                href="/universe"
+                className="rb-action-btn rb-action-btn--neutral"
+              >
+                Universe Manager
+              </Link>
             </div>
           </header>
 

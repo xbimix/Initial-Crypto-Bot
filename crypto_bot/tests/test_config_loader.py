@@ -24,6 +24,7 @@ def test_normalize_config_warn_mode_populates_defaults():
     assert changed is True
     assert warnings
     assert normalized["config_version"] == CONFIG_SCHEMA_VERSION
+    assert normalized["trading_enabled"] is False
     assert normalized["symbols"] == ["BTC-USD", "ETH-USD"]
     assert normalized["risk"]["max_concurrent_trades"] == 3
     assert normalized["risk"]["trade_window_utc"]["enabled"] is True

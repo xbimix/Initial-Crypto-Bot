@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:wave-zones": "node tests/wave-zone-analyzer.test.mjs && node tests/volatility-opportunity-radar.test.mjs && node tests/token-wave-page.test.mjs && node tests/regime-governor-phase1.test.mjs && node tests/regime-governor-phase2.test.mjs"
+    "test:wave-zones": "node tests/wave-zone-analyzer.test.mjs && node tests/volatility-opportunity-radar.test.mjs && node tests/token-wave-page.test.mjs && node tests/regime-governor-phase1.test.mjs && node tests/regime-governor-phase2.test.mjs && node tests/revolut-universe-manager.test.mjs"
   },
   "dependencies": {
     "next": "16.1.5",

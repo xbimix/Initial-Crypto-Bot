@@ -841,5 +841,118 @@
     "pnl": 5.270175955199982,
     "balance": 9362.563917384055,
     "reason": "profit_lock_exit_3pct"
+  },
+  {
+    "time": 1773656925.6688478,
+    "symbol": "SOL-USD",
+    "side": "BUY",
+    "price": 93.50800000000001,
+    "size": 2.138854,
+    "balance": 9162.563957552056,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1773671444.6983874,
+    "symbol": "ETH-USD",
+    "side": "BUY",
+    "price": 2266.91,
+    "size": 0.088226,
+    "balance": 8962.563555892057,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1773671502.3295426,
+    "symbol": "XRP-USD",
+    "side": "BUY",
+    "price": 1.47335,
+    "size": 135.745071,
+    "balance": 8762.563555534207,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1773672884.4933145,
+    "symbol": "BTC-USD",
+    "side": "BUY",
+    "price": 73382.295,
+    "size": 0.002725,
+    "balance": 8562.596801659207,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1773699958.270476,
+    "symbol": "ETH-USD",
+    "side": "SELL",
+    "price": 2356.425,
+    "size": 0.088226,
+    "pnl": 7.897550390000029,
+    "balance": 8770.494753709207,
+    "reason": "profit_lock_exit_4pct"
+  },
+  {
+    "time": 1773701701.6981008,
+    "symbol": "SOL-USD",
+    "side": "SELL",
+    "price": 96.27350000000001,
+    "size": 2.138854,
+    "pnl": 5.915000737000006,
+    "balance": 8976.409714278207,
+    "reason": "profit_lock_exit_3pct"
+  },
+  {
+    "time": 1773717725.2784853,
+    "symbol": "XLM-USD",
+    "side": "SELL",
+    "price": 0.1788505,
+    "size": 1161.888883,
+    "pnl": 7.804407627111002,
+    "balance": 9184.214121947198,
+    "reason": "profit_lock_exit_4pct"
+  },
+  {
+    "time": 1773718300.6300979,
+    "symbol": "XRP-USD",
+    "side": "SELL",
+    "price": 1.5592000000000001,
+    "size": 135.745071,
+    "pnl": 11.653714345350027,
+    "balance": 9395.867836650397,
+    "reason": "profit_lock_exit_6pct"
+  },
+  {
+    "time": 1773719396.3545198,
+    "symbol": "ETH-USD",
+    "side": "BUY",
+    "price": 2311.31,
+    "size": 0.086531,
+    "balance": 9195.867871040396,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1773720897.970524,
+    "symbol": "POLS-USD",
+    "side": "SELL",
+    "price": 0.06615,
+    "size": 3174.603175,
+    "pnl": 10.000000001250001,
+    "balance": 9405.867871066646,
+    "reason": "profit_lock_exit_5pct"
+  },
+  {
+    "time": 1773720997.5255442,
+    "symbol": "XRP-USD",
+    "side": "BUY",
+    "price": 1.54905,
+    "size": 129.111391,
+    "balance": 9205.867870838096,
+    "reason": "bear_market_mean_reversion_buy"
+  },
+  {
+    "time": 1773721292.604901,
+    "symbol": "DOT-USD",
+    "side": "BUY",
+    "price": 1.6067,
+    "size": 124.478745,
+    "balance": 9005.867871246595,
+    "reason": "bear_market_mean_reversion_buy"
   }
 ]

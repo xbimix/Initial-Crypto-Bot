@@ -16,3 +16,14 @@
 {"event_type":"process_start","time_utc":"2026-03-16T05:48:19.219027+00:00","day_utc":"2026-03-16","pid":11388,"service":"bot","restart_cause":"manual","startup_ok":true}
 {"event_type":"process_start","time_utc":"2026-03-16T05:58:42.235730+00:00","day_utc":"2026-03-16","pid":28044,"service":"bot","restart_cause":"manual","startup_ok":true}
 {"event_type":"process_start","time_utc":"2026-03-16T06:25:50.189553+00:00","day_utc":"2026-03-16","pid":17968,"service":"bot","restart_cause":"manual","startup_ok":true}
+{"event_type":"process_exit","time_utc":"2026-03-16T10:14:14.087198+00:00","day_utc":"2026-03-16","pid":17968,"service":"bot","clean_shutdown":true,"reason":"keyboard_interrupt","ended_at_utc":"2026-03-16T10:14:14.086529+00:00"}
+{"event_type":"process_start","time_utc":"2026-03-16T10:14:17.756658+00:00","day_utc":"2026-03-16","pid":7936,"service":"bot","restart_cause":"manual","startup_ok":true}
+{"event_type":"main_loop_error","time_utc":"2026-03-16T14:50:40.944586+00:00","day_utc":"2026-03-16","pid":7936,"service":"bot","error":"[WinError 5] Access is denied: 'D:\\\\Python-Codes\\\\RevBot\\\\crypto_bot\\\\state\\\\.strategy_state.json.mkox48p0.tmp' -> 'D:\\\\Python-Codes\\\\RevBot\\\\crypto_bot\\\\state\\\\strategy_state.json'"}
+{"event_type":"process_exit","time_utc":"2026-03-17T03:32:08.557268+00:00","day_utc":"2026-03-17","pid":7936,"service":"bot","clean_shutdown":true,"reason":"keyboard_interrupt","ended_at_utc":"2026-03-17T03:32:08.553243+00:00"}
+{"event_type":"process_start","time_utc":"2026-03-17T03:32:13.648932+00:00","day_utc":"2026-03-17","pid":30632,"service":"bot","restart_cause":"manual","startup_ok":true}
+{"event_type":"process_exit","time_utc":"2026-03-17T03:35:39.352309+00:00","day_utc":"2026-03-17","pid":30632,"service":"bot","clean_shutdown":true,"reason":"keyboard_interrupt","ended_at_utc":"2026-03-17T03:35:39.351816+00:00"}
+{"event_type":"process_start","time_utc":"2026-03-17T03:35:41.130604+00:00","day_utc":"2026-03-17","pid":15716,"service":"bot","restart_cause":"manual","startup_ok":true}
+{"event_type":"process_exit","time_utc":"2026-03-17T03:45:40.308206+00:00","day_utc":"2026-03-17","pid":15716,"service":"bot","clean_shutdown":true,"reason":"keyboard_interrupt","ended_at_utc":"2026-03-17T03:45:40.307727+00:00"}
+{"event_type":"process_start","time_utc":"2026-03-17T03:45:43.524468+00:00","day_utc":"2026-03-17","pid":4784,"service":"bot","restart_cause":"manual","startup_ok":true}
+{"event_type":"process_exit","time_utc":"2026-03-17T04:11:16.988505+00:00","day_utc":"2026-03-17","pid":4784,"service":"bot","clean_shutdown":true,"reason":"keyboard_interrupt","ended_at_utc":"2026-03-17T04:11:16.986237+00:00"}
+{"event_type":"process_start","time_utc":"2026-03-17T04:11:19.841195+00:00","day_utc":"2026-03-17","pid":10108,"service":"bot","restart_cause":"manual","startup_ok":true}

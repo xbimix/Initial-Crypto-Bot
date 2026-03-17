@@ -1,13 +1,11 @@
-from pathlib import Path
 from utils.logger import setup_logger
+from api.revolut_secrets import load_api_key
+
 logger = setup_logger("revolut_auth")
 
 
-
-
-API_KEY_PATH = Path("revolut-keys/api_key.txt")
-
 def get_api_key() -> str:
-    if not API_KEY_PATH.exists():
-        raise RuntimeError("API key file not found (revolut-keys/api_key.txt)")
-    return API_KEY_PATH.read_text().strip()
+    key, source = load_api_key(allow_missing=False)
+    logger.debug(f"Loaded Revolut API key from {source}")
+    assert key is not None
+    return key

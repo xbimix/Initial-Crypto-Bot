@@ -1,9 +1,17 @@
+from __future__ import annotations
+
+import base64
+import json
 import time
 from collections import deque
-from pathlib import Path
+from functools import lru_cache
+from urllib.parse import urlencode
 
 import requests
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from api.revolut_secrets import load_api_key, resolve_private_key_path
 from utils.logger import setup_logger
 
 logger = setup_logger("revolut_api")
@@ -14,26 +22,97 @@ PUBLIC_MAX_REQUESTS = 18
 PUBLIC_THROTTLE_PADDING = 0.05
 RETRYABLE_STATUS_CODES = {429}
 MAX_RETRIES = 1
+REQUEST_TIMEOUT_SECONDS = 10
+USER_AGENT = "RevBot/1.0 (+local)"
 _PUBLIC_REQUEST_TIMES = deque()
+_MISSING_AUTH_WARNED = False
+_MISSING_SIGNING_WARNED = False
 
-API_KEY_PATH = Path("revolut-keys/api_key.txt")
 
-API_KEY = None
-if API_KEY_PATH.exists():
-    API_KEY = API_KEY_PATH.read_text().strip()
-else:
-    logger.warning("API key not found — running in public-data-only mode")
+@lru_cache(maxsize=1)
+def _load_signing_key() -> tuple[Ed25519PrivateKey, str]:
+    private_key_path, source = resolve_private_key_path(allow_missing=False)
+    assert private_key_path is not None
+
+    key_bytes = private_key_path.read_bytes()
+    key = serialization.load_pem_private_key(key_bytes, password=None)
+    if not isinstance(key, Ed25519PrivateKey):
+        raise RuntimeError(
+            f"Revolut private key at {private_key_path} is not Ed25519"
+        )
+    return key, source
+
+
+def _build_signed_headers(
+    *,
+    method: str,
+    path: str,
+    params: dict | None = None,
+    payload: dict | None = None,
+) -> dict:
+    global _MISSING_AUTH_WARNED
+    global _MISSING_SIGNING_WARNED
+
+    headers = {
+        "Accept": "application/json",
+        "User-Agent": USER_AGENT,
+    }
+
+    api_key, source = load_api_key(allow_missing=True)
+    if not api_key:
+        if not _MISSING_AUTH_WARNED:
+            logger.warning(
+                "Authenticated Revolut request blocked because API key is missing. "
+                "Set REVBOT_REVOLUT_API_KEY or revolut-keys/api_key.txt."
+            )
+            _MISSING_AUTH_WARNED = True
+        raise RuntimeError("Revolut API key unavailable for authenticated request")
+
+    timestamp = str(int(time.time() * 1000))
+    method_upper = method.upper().strip()
+
+    query = urlencode(params or {}, doseq=True)
+    request_path = f"/api/1.0{path}"
+    if query:
+        request_path = f"{request_path}?{query}"
+
+    body = ""
+    if payload is not None:
+        body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+
+    message = f"{timestamp}{method_upper}{request_path}{body}".encode("utf-8")
+
+    try:
+        private_key, key_source = _load_signing_key()
+    except Exception as exc:
+        if not _MISSING_SIGNING_WARNED:
+            logger.warning(
+                "Authenticated Revolut request blocked because private signing key is unavailable/invalid. "
+                "Set REVBOT_REVOLUT_PRIVATE_KEY_PATH or revolut-keys/private.pem."
+            )
+            _MISSING_SIGNING_WARNED = True
+        raise RuntimeError("Revolut private signing key unavailable") from exc
+
+    signature = private_key.sign(message)
+    signature_b64 = base64.b64encode(signature).decode("ascii")
+
+    logger.debug(
+        "Using Revolut auth credentials from "
+        f"{source} and {key_source} for {method_upper} {path}"
+    )
+    headers["X-Revx-API-Key"] = api_key
+    headers["X-Revx-Timestamp"] = timestamp
+    headers["X-Revx-Signature"] = signature_b64
+    return headers
 
 
 def _headers(auth_required: bool = False) -> dict:
-    headers = {
+    if auth_required:
+        return _build_signed_headers(method="GET", path="/balances")
+    return {
         "Accept": "application/json",
+        "User-Agent": USER_AGENT,
     }
-
-    if auth_required and API_KEY:
-        headers["X-Revx-API-Key"] = API_KEY
-
-    return headers
 
 
 def _throttle_public_request():
@@ -67,9 +146,17 @@ def _get(path: str, params: dict | None = None, auth: bool = False) -> dict:
 
         response = requests.get(
             url,
-            headers=_headers(auth),
+            headers=(
+                _build_signed_headers(method="GET", path=path, params=params)
+                if auth
+                else {
+                    "Accept": "application/json",
+                    "User-Agent": USER_AGENT,
+                }
+            ),
             params=params,
-            timeout=10,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            allow_redirects=False,
         )
         last_response = response
 
@@ -99,36 +186,22 @@ def _get(path: str, params: dict | None = None, auth: bool = False) -> dict:
 
 def _post(path: str, payload: dict, auth: bool = True) -> dict:
     url = f"{BASE_URL}{path}"
-    logger.debug(f"POST {url} payload={payload}")
+    logger.debug(f"POST {url}")
 
     response = requests.post(
         url,
-        headers=_headers(auth),
+        headers=(
+            _build_signed_headers(method="POST", path=path, payload=payload)
+            if auth
+            else {
+                "Accept": "application/json",
+                "User-Agent": USER_AGENT,
+            }
+        ),
         json=payload,
-        timeout=10,
+        timeout=REQUEST_TIMEOUT_SECONDS,
+        allow_redirects=False,
     )
 
     response.raise_for_status()
     return response.json()
-
-
-# import requests
-# from utils.logger import logger
-
-# BASE_URL = "https://revx.revolut.com/api/1.0"
-
-# DEFAULT_HEADERS = {
-#     "Accept": "application/json",
-# }
-
-# def _get(path: str, params: dict | None = None, headers: dict | None = None):
-#     url = f"{BASE_URL}{path}"
-#     h = DEFAULT_HEADERS.copy()
-#     if headers:
-#         h.update(headers)
-
-#     logger.debug(f"HTTP GET {url} params={params}")
-
-#     r = requests.get(url, params=params, headers=h, timeout=10)
-#     r.raise_for_status()
-#     return r.json()

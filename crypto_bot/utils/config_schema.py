@@ -299,6 +299,7 @@ def normalize_config(
 
     # Top-level defaults and normalization.
     normalize_bool(cfg, "enabled", False, "enabled")
+    normalize_bool(cfg, "trading_enabled", False, "trading_enabled")
     normalize_bool(cfg, "emergency_stop", False, "emergency_stop")
     normalize_float(cfg, "starting_balance", 10000.0, "starting_balance", min_value=0.0)
     normalize_int(cfg, "lookback", 200, "lookback", min_value=20)

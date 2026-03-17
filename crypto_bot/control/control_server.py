@@ -10,6 +10,8 @@ from pathlib import Path
 from flask import Flask, g, jsonify, request
 from werkzeug.exceptions import HTTPException
 
+from api.revolut_account_sync import read_account_snapshot, sync_account_snapshot
+from api.revolut_universe import get_universe_snapshot
 from utils.config_loader import load_config, update_config
 from utils.logger import setup_logger
 from utils.runtime_events import append_runtime_event
@@ -71,6 +73,7 @@ MUTATING_ENDPOINTS = {
     "/cooldown",
     "/close-all",
     "/manual-sell",
+    "/universe-track",
 }
 LOCAL_LOOPBACKS = {"127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost"}
 try:
@@ -633,15 +636,19 @@ def _apply_control_action(action, reason=None):
 
         if action_key == "START":
             cfg["enabled"] = True
+            cfg["trading_enabled"] = True
             cfg["emergency_stop"] = False
             cfg.pop("emergency_stop_at", None)
             cfg.pop("emergency_stop_reason", None)
-            logger.info("Bot enabled via control server")
+            logger.info("Bot process enabled and trading armed via control server")
         elif action_key == "STOP":
-            cfg["enabled"] = False
-            logger.info("Bot disabled via control server")
+            cfg["enabled"] = True
+            cfg["trading_enabled"] = False
+            cfg["emergency_stop"] = False
+            logger.info("Bot process kept online; trading disarmed via control server")
         else:
             cfg["enabled"] = False
+            cfg["trading_enabled"] = False
             cfg["emergency_stop"] = True
             cfg["emergency_stop_at"] = time.time()
             cfg["emergency_stop_reason"] = reason or "manual_kill"
@@ -652,6 +659,7 @@ def _apply_control_action(action, reason=None):
     cfg = update_config(_mutate)
     return {
         "enabled": bool(cfg.get("enabled", False)),
+        "trading_enabled": bool(cfg.get("trading_enabled", False)),
         "emergency_stop": bool(cfg.get("emergency_stop", False)),
         "action": action_key,
     }, None
@@ -691,6 +699,7 @@ def status():
     return jsonify(
         {
             "enabled": bool(cfg.get("enabled", False)),
+            "trading_enabled": bool(cfg.get("trading_enabled", False)),
             "emergency_stop": bool(cfg.get("emergency_stop", False)),
             "execution_mode": cfg.get("execution_mode"),
             "symbols": symbols,
@@ -726,6 +735,26 @@ def health():
             "time": _now_utc_iso(),
         }
     )
+
+
+@app.route("/revolut-account", methods=["GET"])
+def revolut_account():
+    force = str(request.args.get("force", "0")).strip().lower() in {"1", "true", "yes", "on"}
+    if force:
+        snapshot = sync_account_snapshot()
+    else:
+        snapshot = read_account_snapshot(default={})
+        if not snapshot:
+            snapshot = sync_account_snapshot()
+    return jsonify(snapshot)
+
+
+@app.route("/revolut-universe", methods=["GET"])
+def revolut_universe():
+    cfg = load_config()
+    force = str(request.args.get("force", "0")).strip().lower() in {"1", "true", "yes", "on"}
+    snapshot = get_universe_snapshot(cfg, force_refresh=force)
+    return jsonify(snapshot)
 
 
 @app.route("/ready", methods=["GET"])
@@ -896,6 +925,74 @@ def update_symbols():
         "symbols_update",
         old=old_payload,
         new={"symbol": symbol, "side": side, "enabled": enabled},
+        result=result,
+    )
+    return jsonify(result)
+
+
+@app.route("/universe-track", methods=["POST"])
+def update_universe_track():
+    body = request.get_json(silent=True) or {}
+    symbol = _normalize_symbol(body.get("symbol"))
+    tracked = body.get("tracked")
+
+    if not symbol:
+        return _json_error("Missing symbol")
+    if not isinstance(tracked, bool):
+        return _json_error("tracked must be a boolean")
+
+    cfg_before = load_config()
+    old_payload = {}
+    if isinstance(cfg_before, dict):
+        old_payload = {
+            "symbols": cfg_before.get("symbols"),
+            "symbol_buy_enabled": cfg_before.get("symbol_buy_enabled"),
+            "symbol_sell_enabled": cfg_before.get("symbol_sell_enabled"),
+        }
+
+    result = {}
+
+    def _mutate(cfg):
+        nonlocal result
+
+        symbols = _normalize_symbols(cfg.get("symbols", []))
+        buy_map = _parse_enabled_map(cfg.get("symbol_buy_enabled", {}))
+        sell_map = _parse_enabled_map(cfg.get("symbol_sell_enabled", {}))
+        legacy_map = _parse_enabled_map(cfg.get("symbol_enabled", {}))
+
+        if tracked:
+            if symbol not in symbols:
+                symbols.append(symbol)
+            buy_map[symbol] = True
+            sell_map[symbol] = True
+            legacy_map[symbol] = True
+        else:
+            symbols = [item for item in symbols if item != symbol]
+            buy_map[symbol] = False
+            # Keep SELL enabled so open-position exits remain safe.
+            sell_map[symbol] = True
+            legacy_map[symbol] = False
+
+        cfg["symbols"] = symbols
+        cfg["symbol_buy_enabled"] = buy_map
+        cfg["symbol_sell_enabled"] = sell_map
+        cfg["symbol_enabled"] = legacy_map
+
+        result = {
+            "symbol": symbol,
+            "tracked": tracked,
+            "symbols": symbols,
+            "symbol_buy_enabled": buy_map,
+            "symbol_sell_enabled": sell_map,
+            "symbol_enabled": legacy_map,
+        }
+        return cfg
+
+    update_config(_mutate)
+    _write_audit_event(
+        "universe_track_update",
+        old=old_payload,
+        new={"symbol": symbol, "tracked": tracked},
         result=result,
     )
     return jsonify(result)

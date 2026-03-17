@@ -1,5 +1,5 @@
 {
-  "balance": 9362.563917384055,
+  "balance": 9005.867871246595,
   "positions": {
     "CRV-USD": {
       "price": 0.25637,
@@ -13,22 +13,34 @@
       "entry_time": 1772953757.0136933,
       "reason": "bear_market_mean_reversion_buy"
     },
-    "POLS-USD": {
-      "price": 0.063,
-      "size": 3174.603175,
-      "entry_time": 1773506205.845191,
-      "reason": "bear_market_mean_reversion_buy"
-    },
     "SUI-USD": {
       "price": 1.06145,
       "size": 188.421499,
       "entry_time": 1773649623.6210284,
       "reason": "bear_market_mean_reversion_buy"
     },
-    "XLM-USD": {
-      "price": 0.1721335,
-      "size": 1161.888883,
-      "entry_time": 1773649735.4874718,
+    "BTC-USD": {
+      "price": 73382.295,
+      "size": 0.002725,
+      "entry_time": 1773672884.4933138,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "ETH-USD": {
+      "price": 2311.31,
+      "size": 0.086531,
+      "entry_time": 1773719396.354518,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "XRP-USD": {
+      "price": 1.54905,
+      "size": 129.111391,
+      "entry_time": 1773720997.5255427,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "DOT-USD": {
+      "price": 1.6067,
+      "size": 124.478745,
+      "entry_time": 1773721292.6048973,
       "reason": "bear_market_mean_reversion_buy"
     }
   }

@@ -4,6 +4,8 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
+from api.revolut_account_sync import sync_account_snapshot
+from api.revolut_universe import build_universe_snapshot
 from data.market_data import fetch_market_snapshot
 from strategy.strategy_engine import evaluate_symbol
 from trading.executor import Executor
@@ -23,6 +25,8 @@ from utils.state_validator import validate_state_files
 logger = setup_logger("main")
 
 HEARTBEAT_INTERVAL = 60
+ACCOUNT_SYNC_INTERVAL_SECONDS = 120
+UNIVERSE_SYNC_INTERVAL_SECONDS = 300
 _buy_signal_streak: dict[str, int] = {}
 STATE_DIR = Path(__file__).resolve().parent / "state"
 REQUIRED_STATE_FILES = (
@@ -261,6 +265,8 @@ def main():
 
     executor: Executor | None = None
     last_heartbeat = 0.0
+    last_account_sync_at = 0.0
+    last_universe_sync_at = 0.0
     clean_shutdown = False
     shutdown_reason = "unknown"
 
@@ -268,6 +274,35 @@ def main():
         while True:
             try:
                 cfg = load_config()
+                now = time.time()
+
+                if (now - last_account_sync_at) >= ACCOUNT_SYNC_INTERVAL_SECONDS:
+                    try:
+                        account_snapshot = sync_account_snapshot()
+                        logger.info(
+                            "Revolut account sync: "
+                            f"status={account_snapshot.get('sync_status', 'unknown')} "
+                            f"assets={account_snapshot.get('asset_count', 0)}"
+                        )
+                    except Exception as exc:
+                        logger.warning(f"Revolut account sync failed: {exc}")
+                    finally:
+                        last_account_sync_at = now
+
+                if (now - last_universe_sync_at) >= UNIVERSE_SYNC_INTERVAL_SECONDS:
+                    try:
+                        universe_snapshot = build_universe_snapshot(cfg)
+                        universe_summary = universe_snapshot.get("summary", {})
+                        logger.info(
+                            "Revolut universe sync: "
+                            f"symbols={universe_summary.get('total_symbols', 0)} "
+                            f"eligible={universe_summary.get('eligible_count', 0)} "
+                            f"tracked={universe_summary.get('tracked_count', 0)}"
+                        )
+                    except Exception as exc:
+                        logger.warning(f"Revolut universe sync failed: {exc}")
+                    finally:
+                        last_universe_sync_at = now
 
                 if cfg.get("emergency_stop", False):
                     logger.warning("Emergency stop active - waiting for START command")
@@ -275,9 +310,11 @@ def main():
                     continue
 
                 if not cfg.get("enabled", False):
-                    logger.info("Bot disabled - waiting")
+                    logger.info("Bot process disabled - waiting")
                     time.sleep(5)
                     continue
+
+                trading_enabled = bool(cfg.get("trading_enabled", False))
 
                 if executor is None:
                     executor = Executor(cfg)
@@ -305,6 +342,13 @@ def main():
                     decision = evaluate_symbol(market, cfg)
                     action = decision.get("action")
                     if action != "HOLD":
+                        if action == "BUY" and not trading_enabled:
+                            logger.info(
+                                f"{symbol} -> BUY blocked (trading disabled)"
+                            )
+                            time.sleep(0.2)
+                            continue
+
                         if action == "BUY":
                             required_cycles = _signal_confirmation_cycles(cfg)
                             streak = _buy_signal_streak.get(symbol, 0) + 1

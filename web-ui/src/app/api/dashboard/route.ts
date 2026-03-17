@@ -6,6 +6,7 @@ import { analyzeRegimeGovernor } from "../../lib/regimeGovernorAnalyzer.mjs";
 
 type ConfigState = {
   enabled?: boolean;
+  trading_enabled?: boolean;
   execution_mode?: string;
   starting_balance?: number;
   min_atr?: number;
@@ -2049,6 +2050,7 @@ export async function GET() {
     generatedAt: new Date().toISOString(),
     summary: {
       enabled: Boolean(config.enabled),
+      tradingEnabled: Boolean(config.trading_enabled),
       executionMode: config.execution_mode ?? "paper",
       trackedSymbols: symbolControls.length,
       activeSymbols: buyEnabledSymbolsCount,

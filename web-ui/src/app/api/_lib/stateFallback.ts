@@ -32,6 +32,11 @@ type SymbolsBody = {
   enabled?: unknown;
 };
 
+type UniverseTrackBody = {
+  symbol?: unknown;
+  tracked?: unknown;
+};
+
 type ScalperBody = {
   symbol?: unknown;
   enabled?: unknown;
@@ -58,6 +63,8 @@ const CONFIG_PATH = path.join(STATE_DIR, "config.json");
 const PAPER_STATE_PATH = path.join(STATE_DIR, "paper_state.json");
 const STRATEGY_STATE_PATH = path.join(STATE_DIR, "strategy_state.json");
 const TRADES_PATH = path.join(STATE_DIR, "trades.json");
+const REVOLUT_ACCOUNT_SNAPSHOT_PATH = path.join(STATE_DIR, "revolut_account_snapshot.json");
+const REVOLUT_UNIVERSE_SNAPSHOT_PATH = path.join(STATE_DIR, "revolut_universe_snapshot.json");
 const AUDIT_LOG_PATH = path.join(STATE_DIR, "audit_actions.jsonl");
 const MANUAL_ACTION_CACHE_PATH = path.join(STATE_DIR, "manual_action_cache.json");
 const LOG_PATH = path.join(STATE_DIR, "bot.log");
@@ -368,6 +375,49 @@ export function formatRouteError(error: unknown) {
   return { status: 500, payload: { error: message } };
 }
 
+export async function readRevolutAccountLocal() {
+  const snapshot = toObject(await readJson<JsonMap>(REVOLUT_ACCOUNT_SNAPSHOT_PATH, {}));
+  if (Object.keys(snapshot).length === 0) {
+    return {
+      last_sync_time: null,
+      sync_status: "degraded",
+      sync_error: "backend_unavailable_and_no_local_account_snapshot",
+      assets: [],
+      asset_count: 0,
+      estimated_total_quote_value: 0,
+      fallback: true,
+    };
+  }
+  return {
+    ...snapshot,
+    fallback: true,
+  };
+}
+
+export async function readRevolutUniverseLocal() {
+  const snapshot = toObject(await readJson<JsonMap>(REVOLUT_UNIVERSE_SNAPSHOT_PATH, {}));
+  if (Object.keys(snapshot).length === 0) {
+    return {
+      generated_at: null,
+      sync_status: "degraded",
+      sync_error: "backend_unavailable_and_no_local_universe_snapshot",
+      rows: [],
+      summary: {
+        total_symbols: 0,
+        eligible_count: 0,
+        tracked_count: 0,
+        ineligible_count: 0,
+        top_score: 0,
+      },
+      fallback: true,
+    };
+  }
+  return {
+    ...snapshot,
+    fallback: true,
+  };
+}
+
 async function readLatestSnapshotPrice(symbol: string): Promise<number | null> {
   try {
     const handle = await fs.open(LOG_PATH, "r");
@@ -414,13 +464,17 @@ export async function applyControlLocal(body: {
 
     if (action === "START") {
       cfg.enabled = true;
+      cfg.trading_enabled = true;
       cfg.emergency_stop = false;
       delete cfg.emergency_stop_at;
       delete cfg.emergency_stop_reason;
     } else if (action === "STOP") {
-      cfg.enabled = false;
+      cfg.enabled = true;
+      cfg.trading_enabled = false;
+      cfg.emergency_stop = false;
     } else {
       cfg.enabled = false;
+      cfg.trading_enabled = false;
       cfg.emergency_stop = true;
       cfg.emergency_stop_at = Date.now() / 1000;
       cfg.emergency_stop_reason = reason || "manual_kill";
@@ -430,11 +484,66 @@ export async function applyControlLocal(body: {
     const payload = {
       action,
       enabled: Boolean(cfg.enabled),
+      trading_enabled: Boolean(cfg.trading_enabled),
       emergency_stop: Boolean(cfg.emergency_stop),
       fallback: true,
     };
     await appendAuditEvent("control_action_fallback", {
       new: { action, reason },
+      result: payload,
+    });
+    return payload;
+  });
+}
+
+export async function updateUniverseTrackLocal(body: UniverseTrackBody) {
+  const symbol = normalizeSymbol(body.symbol);
+  if (!symbol) {
+    throw new RouteError(400, "Missing symbol");
+  }
+  if (typeof body.tracked !== "boolean") {
+    throw new RouteError(400, "tracked must be a boolean");
+  }
+  const tracked = body.tracked;
+
+  return withFileLock(CONFIG_PATH, async () => {
+    const cfg = toObject(await readJson<ConfigState>(CONFIG_PATH, {}));
+    let symbols = normalizeSymbols(cfg.symbols);
+    const buyMap = parseEnabledMap(cfg.symbol_buy_enabled);
+    const sellMap = parseEnabledMap(cfg.symbol_sell_enabled);
+    const legacyMap = parseEnabledMap(cfg.symbol_enabled);
+
+    if (tracked) {
+      if (!symbols.includes(symbol)) {
+        symbols.push(symbol);
+      }
+      buyMap[symbol] = true;
+      sellMap[symbol] = true;
+      legacyMap[symbol] = true;
+    } else {
+      symbols = symbols.filter((value) => value !== symbol);
+      buyMap[symbol] = false;
+      sellMap[symbol] = true;
+      legacyMap[symbol] = false;
+    }
+
+    cfg.symbols = symbols;
+    cfg.symbol_buy_enabled = buyMap;
+    cfg.symbol_sell_enabled = sellMap;
+    cfg.symbol_enabled = legacyMap;
+    await writeJsonAtomic(CONFIG_PATH, cfg);
+
+    const payload = {
+      symbol,
+      tracked,
+      symbols,
+      symbol_buy_enabled: buyMap,
+      symbol_sell_enabled: sellMap,
+      symbol_enabled: legacyMap,
+      fallback: true,
+    };
+    await appendAuditEvent("universe_track_update_fallback", {
+      new: { symbol, tracked },
       result: payload,
     });
     return payload;
