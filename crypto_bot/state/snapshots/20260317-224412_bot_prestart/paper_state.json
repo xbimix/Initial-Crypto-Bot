@@ -1,5 +1,5 @@
 {
-  "balance": 5426.839791243797,
+  "balance": 6822.013956985997,
   "positions": {
     "CRV-USD": {
       "price": 0.25637,
@@ -47,6 +47,12 @@
       "price": 2.7116,
       "size": 73.757191,
       "entry_time": 1773724833.0193048,
+      "reason": "bear_market_mean_reversion_buy"
+    },
+    "HYPE-USD": {
+      "price": 40.5403,
+      "size": 4.933363,
+      "entry_time": 1773725922.6924825,
       "reason": "bear_market_mean_reversion_buy"
     },
     "TIA-USD": {
@@ -102,54 +108,6 @@
       "size": 33003.30033,
       "entry_time": 1773772523.4202986,
       "reason": "trend_pullback_entry"
-    },
-    "ATOM-USD": {
-      "price": 1.96015,
-      "size": 102.033008,
-      "entry_time": 1773788545.7295215,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "LTC-USD": {
-      "price": 58.3615,
-      "size": 3.426917,
-      "entry_time": 1773788741.799248,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "HYPE-USD": {
-      "price": 41.422200000000004,
-      "size": 4.828329,
-      "entry_time": 1773788765.146948,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "AVAX-USD": {
-      "price": 10.250499999999999,
-      "size": 19.511243,
-      "entry_time": 1773788869.950178,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "CVX-USD": {
-      "price": 2.0468,
-      "size": 97.713504,
-      "entry_time": 1773789250.7615764,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "SOL-USD": {
-      "price": 94.993,
-      "size": 2.105418,
-      "entry_time": 1773789770.4270062,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "LINK-USD": {
-      "price": 9.8355,
-      "size": 20.334503,
-      "entry_time": 1773790046.2640445,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "UNI-USD": {
-      "price": 3.966,
-      "size": 50.428643,
-      "entry_time": 1773790549.6431963,
-      "reason": "bear_market_mean_reversion_buy"
     }
   }
 }

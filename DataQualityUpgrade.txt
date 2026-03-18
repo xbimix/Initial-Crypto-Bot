@@ -1,0 +1,451 @@
+PROJECT NAME
+RevBot
+
+PLATFORM
+Revolut / Revolut X
+
+PRIMARY GOAL
+Upgrade market data quality, volatility analytics, regime analytics, and UI clarity for RevBot using Revolut-specific data sources and constraints.
+
+CRITICAL RULES
+1. Do NOT change current strategy logic.
+2. Do NOT change buy logic.
+3. Do NOT change sell logic.
+4. Do NOT change execution flow.
+5. Do NOT change current risk/profit-lock/trailing behavior.
+6. Do NOT silently connect new analytics to strategy decisions.
+7. All work in this project is advisory/data-quality/UI-quality only.
+8. RevBot must remain behavior-compatible unless explicitly requested later.
+
+EXPECTED RESULT
+- more accurate advisory analytics
+- better volatility signals
+- better regime signals
+- clearer confidence and sufficiency labels
+- cleaner human-readable UI
+- no trade behavior changes
+
+IMPORTANT PLATFORM NOTE
+RevBot uses Revolut-specific APIs/data systems.
+Do NOT assume Binance endpoints, payloads, symbol formats, or candle endpoints.
+Use the best official Revolut/Revolut X market/account/history endpoints available in this codebase and current platform support.
+If Revolut history depth is weaker than Binance, degrade gracefully and label data quality honestly.
+
+==================================================
+PHASE 1 — REVOLUT REAL CANDLE DATA LAYER
+==================================================
+
+OBJECTIVE
+Build a proper OHLCV candle/history layer for RevBot using Revolut-specific market data sources.
+
+REQUIREMENTS
+1. Support normalized candle storage for:
+   - 1m
+   - 5m
+   - 15m
+   - 1h
+   - 4h
+   - 1d
+2. If Revolut cannot provide all windows directly, derive the closest safe subset and mark unsupported windows honestly.
+3. Normalize to:
+   {
+     "ts": ...,
+     "open": ...,
+     "high": ...,
+     "low": ...,
+     "close": ...,
+     "volume": ...
+   }
+4. Deduplicate candles by timestamp.
+5. Sort ascending by timestamp.
+6. Keep bounded history.
+7. Add freshness metadata:
+   - last_update_ts
+   - candle_count
+   - stale
+   - source
+   - supported_timeframe true/false
+
+IMPLEMENTATION PREFERENCE
+Create modules such as:
+- crypto_bot/data/revolut_candle_fetcher.py
+- crypto_bot/data/candle_store.py
+- crypto_bot/data/candle_cache.py
+
+RULE
+Use Revolut platform-specific data endpoints only.
+Do NOT reuse Binance-specific parsing logic unless explicitly abstracted and safe.
+
+TESTS
+- normalization
+- sparse data handling
+- unsupported timeframe handling
+- deduplication
+- freshness metadata
+
+VALIDATION AFTER PHASE
+1. summarize changed files
+2. summarize new payload fields
+3. confirm no strategy/buy/sell/execution logic changed
+4. run/add tests
+5. confirm local validation still passes
+
+==================================================
+PHASE 2 — REVOLUT INDICATOR ENGINE
+==================================================
+
+OBJECTIVE
+Build advisory indicators from Revolut candle/history data.
+
+REQUIREMENTS
+Implement or upgrade:
+- ATR
+- RSI
+- return volatility
+- candle range %
+- momentum
+- recent high / low
+- compression score
+- expansion score
+- VWAP if practical from available Revolut data
+
+IMPLEMENTATION PREFERENCE
+Create:
+- crypto_bot/data/indicator_engine.py
+or equivalent shared module if already abstracted cleanly
+
+OUTPUT
+Return structured indicator bundles with data-quality metadata.
+
+RULE
+Do NOT wire these into trading decisions in this phase.
+
+TESTS
+- ATR correctness
+- RSI correctness
+- insufficient-data handling
+- low-volatility handling
+- no bogus zeros unless actually valid
+
+VALIDATION AFTER PHASE
+1. summarize changed files
+2. summarize new payload fields
+3. confirm no strategy/buy/sell/execution logic changed
+4. run/add tests
+5. confirm local validation still passes
+
+==================================================
+PHASE 3 — REVOLUT VOLATILITY ENGINE REBUILD
+==================================================
+
+OBJECTIVE
+Rebuild volatility analytics for RevBot using proper candle data.
+
+REQUIREMENTS
+Compute:
+- ATR normalized
+- expansion ratio
+- compression score
+- impulse strength
+- bounce context
+- liquidity/market quality if Revolut data supports it
+
+IMPLEMENTATION PREFERENCE
+Create:
+- crypto_bot/analytics/volatility_engine.py
+or RevBot advisory equivalent
+
+OUTPUT
+Per symbol:
+{
+  "volatility_state": "LOW" | "NORMAL" | "EXPANDING" | "EXTREME",
+  "volatility_score": 0-100,
+  "components": {...},
+  "confidence": ...,
+  "insufficient_data": ...
+}
+
+UI LABELS
+- Low Volatility
+- Normal Volatility
+- Expanding
+- Extreme
+- Weak Bounce Context
+- Strong Bounce Context
+
+RULE
+Advisory-only. No trading behavior changes.
+
+TESTS
+- low vol case
+- expansion case
+- insufficient history
+- label mapping
+
+VALIDATION AFTER PHASE
+1. summarize changed files
+2. summarize new payload fields
+3. confirm no strategy/buy/sell/execution logic changed
+4. run/add tests
+5. confirm local validation still passes
+
+==================================================
+PHASE 4 — REVOLUT REGIME ENGINE REBUILD
+==================================================
+
+OBJECTIVE
+Rebuild regime detection using real Revolut candle/history structure.
+
+REQUIREMENTS
+Analyze:
+- 1h
+- 4h
+- 8h
+- 12h
+- 16h
+- 24h
+- 3d
+- 7d
+
+If Revolut does not support all these windows fully, degrade gracefully and mark status honestly.
+
+Derive:
+- swing highs/lows
+- higher highs/lows
+- lower highs/lows
+- slope
+- amplitude
+- median high zone
+- median low zone
+- structure bias
+
+IMPLEMENTATION PREFERENCE
+Create:
+- crypto_bot/analytics/regime_engine.py
+or RevBot advisory equivalent
+
+OUTPUT
+{
+  "suggested_regime": ...,
+  "confidence_score": ...,
+  "confidence_label": ...,
+  "structure_bias": ...,
+  "volatility_state": ...,
+  "participation_state": ...,
+  "explanation": ...,
+  "timeframe_summary": ...
+}
+
+RULE
+Advisory only.
+Do NOT change current mean-reversion default behavior.
+
+TESTS
+- range case
+- uptrend case
+- downtrend case
+- mixed/sparse case
+- unsupported timeframe behavior
+
+VALIDATION AFTER PHASE
+1. summarize changed files
+2. summarize new payload fields
+3. confirm no strategy/buy/sell/execution logic changed
+4. run/add tests
+5. confirm local validation still passes
+
+==================================================
+PHASE 5 — REVOLUT DATA QUALITY LAYER
+==================================================
+
+OBJECTIVE
+Make analytics honest and explainable.
+
+REQUIREMENTS
+Support:
+- GOOD
+- PARTIAL
+- INSUFFICIENT
+- STALE
+- UNSUPPORTED_WINDOW if needed
+
+Apply to:
+- volatility card
+- regime card
+- wave analyzer
+- token page
+- dashboard summary
+
+OUTPUT
+{
+  "data_quality": {
+    "status": "...",
+    "reason": "...",
+    "sample_counts": {...},
+    "last_update_ts": ...
+  }
+}
+
+RULE
+No trade behavior changes.
+
+TESTS
+- status mapping
+- unsupported window mapping
+- payload shape
+
+VALIDATION AFTER PHASE
+1. summarize changed files
+2. summarize new payload fields
+3. confirm no strategy/buy/sell/execution logic changed
+4. run/add tests
+5. confirm local validation still passes
+
+==================================================
+PHASE 6 — REVBOT UI UPGRADE (REVOLUT)
+==================================================
+
+OBJECTIVE
+Display upgraded analytics more clearly and more human-readably.
+
+CRITICAL UI RULES
+1. Keep current controls and page functions intact.
+2. Use sticky/static table headers.
+3. Use vertical scrolling inside large tables where needed.
+4. Avoid left-right scrolling as much as possible.
+5. Column headers must be clickable to sort.
+6. Keep labels human-readable, not backend-style.
+7. UI improvements must not break existing actions/toggles.
+
+TABLE BEHAVIOR RULES
+For all major data tables:
+- fixed/sticky header row at top while body scrolls vertically
+- table container should scroll up/down
+- avoid horizontal overflow by:
+  - tightening column widths
+  - wrapping long text
+  - truncating long reason text with tooltip or expand-on-click
+  - hiding low-priority columns behind expandable details if needed
+- clicking a header toggles sort:
+  - ascending
+  - descending
+  - optional neutral reset
+
+DASHBOARD REQUIREMENTS
+Improve/add:
+- Volatility State column
+- Regime Suggestion column
+- Confidence column with bar or badge
+- Data Quality column/badge
+
+TOKEN PAGE REQUIREMENTS
+Add/improve:
+1. Volatility Card
+2. Regime Card
+3. Timeframe Summary Table
+4. Data Quality display
+5. clearer explanations for why no trade / weak signal
+
+RECOMMENDED VISIBLE LABELS
+- Volatility
+- Regime
+- Confidence
+- Data Quality
+- Structure
+- Bounce Setup
+- Market Quality
+- Why No Trade
+
+TIMEFRAME TABLE COLUMNS
+- Window
+- Structure
+- Amplitude
+- Slope
+- Median High
+- Median Low
+- Sample
+- Data Quality
+
+TOKEN PAGE TABLE RULES
+- sticky header
+- scroll vertically
+- sortable by window, amplitude, slope, quality
+
+DASHBOARD TABLE RULES
+- sticky header
+- sortable by regime, confidence, volatility, buy opportunity, data quality
+- preserve current token controls
+
+TESTS
+- payload tests
+- sorting behavior tests
+- sticky header render-safe tests if practical
+- no broken controls or tabs
+
+VALIDATION AFTER PHASE
+1. summarize changed files
+2. summarize new payload fields
+3. confirm no strategy/buy/sell/execution logic changed
+4. run/add tests
+5. confirm local validation still passes
+
+==================================================
+PHASE 7 — REVOLUT SOURCE REFINEMENT (OPTIONAL)
+==================================================
+
+OBJECTIVE
+Optimize RevBot analytics for Revolut platform limits.
+
+REQUIREMENTS
+- keep one normalized candle interface
+- use best official Revolut endpoints available
+- expose unsupported or partial data honestly
+- do not copy Binance assumptions into RevBot
+
+RULE
+No strategy changes.
+
+VALIDATION AFTER PHASE
+1. summarize changed files
+2. summarize new payload fields
+3. confirm no strategy/buy/sell/execution logic changed
+4. run/add tests
+5. confirm local validation still passes
+
+==================================================
+ORDER OF EXECUTION
+==================================================
+
+Run in this order:
+1. Phase 1
+2. Phase 2
+3. Phase 3
+4. Phase 4
+5. Phase 5
+6. Phase 6
+7. Phase 7 optional
+
+Do NOT combine all phases in one patch.
+Do one phase at a time.
+
+==================================================
+FINAL SAFETY REMINDER
+==================================================
+
+This entire RevBot project is advisory/data/UI only.
+
+Do NOT:
+- change strategy logic
+- change buy logic
+- change sell logic
+- change execution flow
+- change risk behavior
+- replace current decisions with new analytics unless explicitly requested later
+
+Only improve:
+- market data accuracy
+- indicator accuracy
+- volatility analytics
+- regime analytics
+- data sufficiency honesty
+- UI clarity
