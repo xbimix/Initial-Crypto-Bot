@@ -2,6 +2,7 @@ import time
 from pathlib import Path
 
 from strategy.breakout_momentum import evaluate_breakout_momentum_entry
+from strategy.route_quality import load_route_quality_report_cached
 from strategy.regime_engine import normalize_shadow_state, update_regime_shadow_state
 from strategy.regime_engine_v2 import evaluate_regime_v2
 from strategy.regime_router import resolve_entry_route
@@ -456,6 +457,18 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
                 cfg=cfg,
             )
             shadow_updated_pre_route = True
+
+        try:
+            route_quality = load_route_quality_report_cached(
+                state_dir=STATE_DIR,
+                cfg=cfg,
+                now_epoch=route_eval_ts,
+            )
+            if isinstance(route_quality, dict):
+                route_snapshot["route_quality"] = route_quality
+        except Exception:
+            # Route quality gates are conservative extras; ignore transient scorecard issues.
+            pass
 
     entry_route = resolve_entry_route(
         cfg=cfg,

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from strategy import strategy_engine as se
+from utils.state_io import write_json_file
 
 
 def _base_cfg() -> dict:
@@ -86,8 +87,16 @@ def reset_strategy_globals(monkeypatch, tmp_path: Path):
     ):
         getattr(se, mapping_name).clear()
 
-    monkeypatch.setattr(se, "STRATEGY_STATE_FILE", tmp_path / "strategy_state.json")
-    monkeypatch.setattr(se, "PAPER_STATE_FILE", tmp_path / "paper_state.json")
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    write_json_file(state_dir / "trades.json", [])
+    write_json_file(state_dir / "config.json", {})
+    write_json_file(state_dir / "strategy_state.json", {})
+    write_json_file(state_dir / "paper_state.json", {"positions": {}, "balance": 10000})
+
+    monkeypatch.setattr(se, "STATE_DIR", state_dir)
+    monkeypatch.setattr(se, "STRATEGY_STATE_FILE", state_dir / "strategy_state.json")
+    monkeypatch.setattr(se, "PAPER_STATE_FILE", state_dir / "paper_state.json")
     monkeypatch.setattr(se, "_synced", True)
     monkeypatch.setattr(se, "_last_paper_state_mtime", None)
     monkeypatch.setattr(se, "_metrics_dirty", False)
@@ -248,11 +257,43 @@ def test_auto_low_confidence_falls_back_to_mean_reversion_even_with_strategy_ove
     assert decision["auto_fallback_reason"] == "low_confidence"
 
 
+def test_manual_scalper_override_takes_precedence_over_auto_regime():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["symbol_strategies"] = {"TEST-USD": "volatility_scalper"}
+    cfg["strategy_defaults"] = {"router": {"auto_use_multitimeframe_advisory": True}}
+
+    decision = se.generate_decision(
+        _snapshot(
+            momentum_norm=0.7,
+            trade_count=60,
+            atr=0.03,
+            regime_advisory={
+                "suggestedRegime": "TREND_CONTINUATION",
+                "confidenceScore": 90,
+                "stabilityScore": 85,
+                "persistenceScore": 84,
+                "dataQuality": {"status": "GOOD", "supportedKeyWindows": True},
+            },
+        ),
+        cfg,
+    )
+    assert decision["configured_regime"] == "AUTO"
+    assert decision["effective_strategy"] == "volatility_scalper"
+    assert decision["effective_route"] == "volatility_scalper"
+    assert decision["fallback_reason"] == "manual_scalper_override"
+
+
 def test_auto_high_confidence_routes_to_trend_pullback():
     cfg = _base_cfg()
     cfg["token_regimes"] = {"TEST-USD": "AUTO"}
     cfg["market_regime"]["min_score_to_buy"] = 0
-    cfg["strategy_defaults"] = {"router": {"auto_use_multitimeframe_advisory": True}}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "auto_use_route_quality_gates": False,
+        }
+    }
 
     decision = se.generate_decision(
         _snapshot(
@@ -286,7 +327,12 @@ def test_auto_uses_shadow_high_confidence_when_snapshot_advisory_missing():
     cfg = _base_cfg()
     cfg["token_regimes"] = {"TEST-USD": "AUTO"}
     cfg["market_regime"]["min_score_to_buy"] = 0
-    cfg["strategy_defaults"] = {"router": {"auto_min_confirmations": 2}}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_min_confirmations": 2,
+            "auto_use_route_quality_gates": False,
+        }
+    }
 
     se._shadow_regime_state["TEST-USD"] = {
         "candidate_regime": "trend_up",
@@ -346,7 +392,12 @@ def test_auto_high_confidence_routes_to_breakout_momentum():
     cfg = _base_cfg()
     cfg["token_regimes"] = {"TEST-USD": "AUTO"}
     cfg["market_regime"]["min_score_to_buy"] = 0
-    cfg["strategy_defaults"] = {"router": {"auto_use_multitimeframe_advisory": True}}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "auto_use_route_quality_gates": False,
+        }
+    }
 
     decision = se.generate_decision(
         _snapshot(
@@ -376,7 +427,91 @@ def test_auto_high_confidence_routes_to_breakout_momentum():
     assert decision["effective_strategy"] == "breakout_momentum"
 
 
-def test_auto_ignores_legacy_scalper_default_and_routes_by_regime():
+def test_auto_trend_route_blocked_when_not_promoted():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["strategy_defaults"] = {"router": {"auto_use_multitimeframe_advisory": True}}
+
+    decision = se.generate_decision(
+        _snapshot(
+            price=101.4,
+            momentum_norm=0.42,
+            trade_count=30,
+            high_24h=110.0,
+            low_24h=90.0,
+            atr=1.0,
+            vwap=101.3,
+            ema_50=101.2,
+            ema_200=95.0,
+            ema_50_slope=0.08,
+            recent_prices=[96.0, 97.8, 99.2, 100.4, 101.6, 100.8, 101.2, 101.4],
+            regime_advisory={
+                "suggestedRegime": "TREND_CONTINUATION",
+                "confidenceScore": 90,
+                "stabilityScore": 84,
+                "persistenceScore": 83,
+                "dataQuality": {"status": "GOOD", "supportedKeyWindows": True},
+            },
+        ),
+        cfg,
+    )
+    assert decision["effective_strategy"] == "mean_reversion"
+    assert decision["auto_fallback_reason"] == "route_not_promoted"
+
+
+def test_auto_trend_route_allowed_when_promoted():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["market_regime"]["min_score_to_buy"] = 0
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "trend_min_closed_trades": 1,
+            "trend_min_win_rate_pct": 1,
+            "trend_min_expectancy_usd": 0,
+        }
+    }
+    write_json_file(
+        se.STATE_DIR / "trades.json",
+        [
+            {
+                "time": se.time.time() - 3600,
+                "symbol": "TEST-USD",
+                "side": "SELL",
+                "reason": "trend_pullback_exit",
+                "pnl": 1.5,
+            }
+        ],
+    )
+
+    decision = se.generate_decision(
+        _snapshot(
+            price=101.4,
+            momentum_norm=0.42,
+            trade_count=30,
+            high_24h=110.0,
+            low_24h=90.0,
+            atr=1.0,
+            vwap=101.3,
+            ema_50=101.2,
+            ema_200=95.0,
+            ema_50_slope=0.08,
+            recent_prices=[96.0, 97.8, 99.2, 100.4, 101.6, 100.8, 101.2, 101.4],
+            regime_advisory={
+                "suggestedRegime": "TREND_CONTINUATION",
+                "confidenceScore": 90,
+                "stabilityScore": 84,
+                "persistenceScore": 83,
+                "dataQuality": {"status": "GOOD", "supportedKeyWindows": True},
+            },
+        ),
+        cfg,
+    )
+    assert decision["effective_strategy"] == "trend_pullback"
+    assert decision["reason"] == "trend_pullback_entry"
+
+
+def test_auto_respects_manual_scalper_override_even_with_strong_regime_signal():
     cfg = _base_cfg()
     cfg["token_regimes"] = {"TEST-USD": "AUTO"}
     cfg["symbol_strategies"] = {"TEST-USD": "volatility_scalper"}
@@ -407,10 +542,9 @@ def test_auto_ignores_legacy_scalper_default_and_routes_by_regime():
         ),
         cfg,
     )
-    assert decision["action"] == "BUY"
-    assert decision["reason"] == "trend_pullback_entry"
-    assert decision["effective_strategy"] == "trend_pullback"
-    assert decision.get("auto_fallback_reason") is None
+    assert decision["effective_strategy"] == "volatility_scalper"
+    assert decision["effective_route"] == "volatility_scalper"
+    assert decision.get("fallback_reason") == "manual_scalper_override"
 
 
 def test_auto_ignores_snapshot_advisory_when_multitimeframe_flag_disabled():
@@ -441,6 +575,10 @@ def test_auto_can_use_current_cycle_shadow_when_enabled():
             "auto_min_confidence": 35,
             "auto_min_stability": 30,
             "auto_min_persistence": 30,
+            "auto_trend_min_confidence": 35,
+            "auto_trend_min_stability": 30,
+            "auto_trend_min_persistence": 30,
+            "auto_use_route_quality_gates": False,
         }
     }
     decision = se.generate_decision(
@@ -474,6 +612,7 @@ def test_auto_exposes_route_and_regime_timestamps():
             "auto_min_confidence": 70,
             "auto_min_stability": 55,
             "auto_min_persistence": 55,
+            "auto_use_route_quality_gates": False,
         },
     }
     anchor_epoch = se.time.time()

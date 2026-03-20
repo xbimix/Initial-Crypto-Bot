@@ -93,6 +93,7 @@ def run_incremental_sync_tick(
     request_cap = _max_requests(cfg)
 
     jobs: list[dict[str, Any]] = []
+    attempted_jobs = 0
     requests = 0
     inserted = 0
     errors = 0
@@ -107,7 +108,7 @@ def run_incremental_sync_tick(
 
     for symbol in unique_symbols:
         for timeframe in timeframes:
-            if requests >= request_cap:
+            if attempted_jobs >= request_cap:
                 break
             cadence_seconds = max(1, int(cadence.get(timeframe, 60)))
             key = (symbol, timeframe)
@@ -121,6 +122,7 @@ def run_incremental_sync_tick(
             if not due:
                 continue
 
+            attempted_jobs += 1
             try:
                 result = sync_new_candles(symbol=symbol, timeframe=timeframe, include_partial=False)
                 requests += int(result.get("requests", 0) or 0)
@@ -147,11 +149,12 @@ def run_incremental_sync_tick(
             finally:
                 _last_sync_at[key] = now
 
-        if requests >= request_cap:
+        if attempted_jobs >= request_cap:
             break
 
     return {
         "enabled": True,
+        "attempted_jobs": attempted_jobs,
         "requests": requests,
         "inserted": inserted,
         "errors": errors,

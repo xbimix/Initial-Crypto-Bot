@@ -13,6 +13,7 @@ from werkzeug.exceptions import HTTPException
 from api.revolut_account_sync import read_account_snapshot, sync_account_snapshot
 from api.revolut_universe import get_universe_snapshot
 from data import market_data_service
+from strategy.route_quality import load_route_quality_report_cached
 from utils.config_loader import load_config, update_config
 from utils.logger import setup_logger
 from utils.runtime_events import append_runtime_event
@@ -934,6 +935,20 @@ def market_data_orderbook_top5():
         return _json_error("failed to load orderbook", status=500, code="market_data_error")
 
     return jsonify({"status": "ok", "symbol": symbol, "orderbook": payload})
+
+
+@app.route("/route-quality", methods=["GET"])
+def route_quality():
+    cfg = load_config()
+    try:
+        payload = load_route_quality_report_cached(
+            state_dir=STATE_DIR,
+            cfg=cfg if isinstance(cfg, dict) else {},
+        )
+    except Exception as exc:
+        logger.exception(f"route quality report failed: {exc}")
+        return _json_error("failed to build route quality report", status=500, code="route_quality_error")
+    return jsonify({"status": "ok", "route_quality": payload})
 
 
 @app.route("/ready", methods=["GET"])

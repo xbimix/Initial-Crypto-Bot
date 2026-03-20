@@ -168,9 +168,16 @@
     "min_history_points": 8,
     "max_spread_bps": 150,
     "max_book_trade_gap_pct": 0.02,
-    "trade_confirmation_limit": 100
+    "trade_confirmation_limit": 0,
+    "fast_poll_seconds": 20,
+    "mid_poll_seconds": 90,
+    "slow_poll_seconds": 240,
+    "top_opportunity_count": 6,
+    "mid_tier_count": 14,
+    "max_symbols_per_cycle": 4,
+    "max_sync_requests_per_tick": 2
   },
-  "loop_sleep": 10,
+  "loop_sleep": 12,
   "log_level": "INFO",
   "symbol_enabled": {
     "DOGE-USD": true,
@@ -514,5 +521,28 @@
     ]
   },
   "config_version": 1,
-  "trading_enabled": true
+  "trading_enabled": true,
+  "strategy_defaults": {
+    "router": {
+      "auto_min_confidence": 68.0,
+      "auto_min_confirmations": 2,
+      "auto_use_current_cycle_shadow": false,
+      "auto_use_multitimeframe_advisory": false,
+      "auto_use_route_quality_gates": true,
+      "auto_trend_min_confidence": 74.0,
+      "auto_trend_min_stability": 68.0,
+      "auto_trend_min_persistence": 68.0,
+      "auto_breakout_min_confidence": 82.0,
+      "auto_breakout_min_stability": 76.0,
+      "auto_breakout_min_persistence": 76.0,
+      "auto_trend_max_route_share_pct": 35.0,
+      "auto_breakout_max_route_share_pct": 8.0,
+      "trend_min_closed_trades": 8,
+      "trend_min_win_rate_pct": 52,
+      "trend_min_expectancy_usd": 0.25,
+      "breakout_min_closed_trades": 12,
+      "breakout_min_win_rate_pct": 55,
+      "breakout_min_expectancy_usd": 0.5
+    }
+  }
 }

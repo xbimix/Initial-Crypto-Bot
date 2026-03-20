@@ -376,6 +376,88 @@ function parseSnapshotMetrics(rawFields: string): SnapshotMetrics {
   };
 }
 
+function mergeSnapshotMetricValue<T extends number | string | null>(
+  incoming: T | undefined,
+  existing: T | undefined,
+): T {
+  if (incoming !== undefined && incoming !== null) {
+    return incoming;
+  }
+  if (existing !== undefined && existing !== null) {
+    return existing;
+  }
+  return null as T;
+}
+
+function mergeSnapshotMetrics(
+  existing: SnapshotMetrics | undefined,
+  incoming: SnapshotMetrics,
+): SnapshotMetrics {
+  return {
+    price: mergeSnapshotMetricValue(incoming.price, existing?.price),
+    vwap: mergeSnapshotMetricValue(incoming.vwap, existing?.vwap),
+    atrRaw: mergeSnapshotMetricValue(incoming.atrRaw, existing?.atrRaw),
+    momNorm: mergeSnapshotMetricValue(incoming.momNorm, existing?.momNorm),
+    points: mergeSnapshotMetricValue(incoming.points, existing?.points),
+    low24h: mergeSnapshotMetricValue(incoming.low24h, existing?.low24h),
+    high24h: mergeSnapshotMetricValue(incoming.high24h, existing?.high24h),
+    spreadBps: mergeSnapshotMetricValue(incoming.spreadBps, existing?.spreadBps),
+    quality: mergeSnapshotMetricValue(incoming.quality, existing?.quality),
+  };
+}
+
+function deriveSnapshotMetricsFromHistory(
+  points: SnapshotPoint[],
+): Partial<SnapshotMetrics> {
+  if (!Array.isArray(points) || points.length === 0) {
+    return {};
+  }
+  const latest = points[points.length - 1];
+  const recent24h = points.slice(-1440);
+  const shortWindow = points.slice(-60);
+  const baselineWindow = points.slice(-240);
+  const low24h = recent24h.length > 0
+    ? Math.min(...recent24h.map((row) => row.price))
+    : null;
+  const high24h = recent24h.length > 0
+    ? Math.max(...recent24h.map((row) => row.price))
+    : null;
+  const vwap = baselineWindow.length > 0
+    ? baselineWindow.reduce((sum, row) => sum + row.price, 0) / baselineWindow.length
+    : null;
+  let atrRaw: number | null = null;
+  if (baselineWindow.length >= 2) {
+    const ranges: number[] = [];
+    for (let index = 1; index < baselineWindow.length; index += 1) {
+      const prev = baselineWindow[index - 1].price;
+      const curr = baselineWindow[index].price;
+      if (prev <= 0 || curr <= 0) {
+        continue;
+      }
+      ranges.push(Math.abs(curr - prev));
+    }
+    if (ranges.length > 0) {
+      atrRaw = ranges.reduce((sum, value) => sum + value, 0) / ranges.length;
+    }
+  }
+  let momNorm: number | null = null;
+  if (shortWindow.length >= 2 && latest.price > 0) {
+    const lookback = shortWindow[0].price;
+    if (lookback > 0) {
+      momNorm = ((latest.price - lookback) / lookback) * 100;
+    }
+  }
+  return {
+    price: latest.price,
+    points: points.length,
+    low24h,
+    high24h,
+    vwap,
+    atrRaw,
+    momNorm,
+  };
+}
+
 async function readLatestSnapshots(symbols: string[]) {
   const snapshots: Record<string, SnapshotMetrics> = {};
   const snapshotHistory: Record<string, SnapshotPoint[]> = {};
@@ -386,7 +468,6 @@ async function readLatestSnapshots(symbols: string[]) {
     return { snapshots, snapshotHistory, lastSnapshotAt };
   }
 
-  const unresolved = new Set(symbols);
   try {
     const symbolParam = symbols.join(",");
     const response = await fetch(
@@ -435,15 +516,10 @@ async function readLatestSnapshots(symbols: string[]) {
           quality: row.meta?.stale ? "stale" : "ok",
         };
         lastSnapshotAt = new Date(latest.tsEpoch * 1000).toISOString().replace("T", " ").slice(0, 19);
-        unresolved.delete(symbol);
       }
     }
   } catch {
     // Keep legacy fallback path below.
-  }
-
-  if (unresolved.size === 0) {
-    return { snapshots, snapshotHistory, lastSnapshotAt };
   }
 
   const tail = await readLogTail(LOG_PATH, LOG_TAIL_BYTES);
@@ -458,12 +534,12 @@ async function readLatestSnapshots(symbols: string[]) {
     }
 
     const symbol = match[2];
-    if (!unresolved.has(symbol)) {
+    if (!wanted.has(symbol)) {
       continue;
     }
 
     const parsed = parseSnapshotMetrics(match[3]);
-    snapshots[symbol] = parsed;
+    snapshots[symbol] = mergeSnapshotMetrics(snapshots[symbol], parsed);
     lastSnapshotAt = match[1];
 
     if (parsed.price !== null && parsed.price > 0) {
@@ -484,7 +560,7 @@ async function readLatestSnapshots(symbols: string[]) {
     PRICE_HISTORY_PATH,
     {},
   );
-  for (const symbol of unresolved) {
+  for (const symbol of symbols) {
     const rows = Array.isArray(priceHistory[symbol]) ? priceHistory[symbol] : [];
     if (!(symbol in snapshotHistory)) {
       snapshotHistory[symbol] = [];
@@ -496,19 +572,17 @@ async function readLatestSnapshots(symbols: string[]) {
         continue;
       }
       snapshotHistory[symbol].push({ tsEpoch, price });
-      if (!(symbol in snapshots)) {
-        snapshots[symbol] = {
-          price,
-          vwap: null,
-          atrRaw: null,
-          momNorm: null,
-          points: null,
-          low24h: null,
-          high24h: null,
-          spreadBps: null,
-          quality: "ok",
-        };
-      }
+      snapshots[symbol] = mergeSnapshotMetrics(snapshots[symbol], {
+        price,
+        vwap: null,
+        atrRaw: null,
+        momNorm: null,
+        points: null,
+        low24h: null,
+        high24h: null,
+        spreadBps: null,
+        quality: "ok",
+      });
       if (lastSnapshotAt === null || tsEpoch > Number(parseLogTimestampToEpoch(lastSnapshotAt) ?? 0)) {
         lastSnapshotAt = new Date(tsEpoch * 1000).toISOString().replace("T", " ").slice(0, 19);
       }
@@ -523,6 +597,25 @@ async function readLatestSnapshots(symbols: string[]) {
       deduped.push(row);
     }
     snapshotHistory[symbol] = deduped.slice(-50000);
+
+    const latest = snapshotHistory[symbol][snapshotHistory[symbol].length - 1];
+    if (latest) {
+      const derived = deriveSnapshotMetricsFromHistory(snapshotHistory[symbol]);
+      snapshots[symbol] = mergeSnapshotMetrics(snapshots[symbol], {
+        price: derived.price ?? latest.price,
+        vwap: derived.vwap ?? null,
+        atrRaw: derived.atrRaw ?? null,
+        momNorm: derived.momNorm ?? null,
+        points: derived.points ?? snapshotHistory[symbol].length,
+        low24h: derived.low24h ?? null,
+        high24h: derived.high24h ?? null,
+        spreadBps: null,
+        quality: snapshots[symbol]?.quality ?? "ok",
+      });
+      if (lastSnapshotAt === null || latest.tsEpoch > Number(parseLogTimestampToEpoch(lastSnapshotAt) ?? 0)) {
+        lastSnapshotAt = new Date(latest.tsEpoch * 1000).toISOString().replace("T", " ").slice(0, 19);
+      }
+    }
   }
 
   return { snapshots, snapshotHistory, lastSnapshotAt };

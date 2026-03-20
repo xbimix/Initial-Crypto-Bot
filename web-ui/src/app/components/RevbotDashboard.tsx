@@ -2856,7 +2856,13 @@ export default function RevbotDashboard() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/6 text-sm">
-                      {topVolatilityRows.map((control) => (
+                      {topVolatilityRows.length === 0 ? (
+                        <tr>
+                          <td className="px-2 py-3 text-xs text-slate-400" colSpan={7}>
+                            No tracked symbols available yet for volatility radar.
+                          </td>
+                        </tr>
+                      ) : topVolatilityRows.map((control) => (
                         <tr key={`top-radar-${control.symbol}`} className="text-slate-200">
                           <td className="px-2 py-2">
                             <Link
@@ -3495,7 +3501,13 @@ export default function RevbotDashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/6">
-                  {sortedVolatilityRadarRows.map((control) => (
+                  {sortedVolatilityRadarRows.length === 0 ? (
+                    <tr>
+                      <td className="px-3 py-3 text-xs text-slate-400" colSpan={10}>
+                        No tracked symbols available yet for near-term radar scoring.
+                      </td>
+                    </tr>
+                  ) : sortedVolatilityRadarRows.map((control) => (
                     <tr key={`radar-${control.symbol}`} className="text-slate-200">
                       <td className="px-3 py-2 text-sm font-semibold">
                         <Link

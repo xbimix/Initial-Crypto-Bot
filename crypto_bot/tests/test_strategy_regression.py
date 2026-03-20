@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from strategy import strategy_engine as se
+from utils.state_io import write_json_file
 
 
 def _base_cfg() -> dict:
@@ -82,8 +83,16 @@ def reset_strategy_globals(monkeypatch, tmp_path: Path):
     ):
         getattr(se, mapping_name).clear()
 
-    monkeypatch.setattr(se, "STRATEGY_STATE_FILE", tmp_path / "strategy_state.json")
-    monkeypatch.setattr(se, "PAPER_STATE_FILE", tmp_path / "paper_state.json")
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    write_json_file(state_dir / "trades.json", [])
+    write_json_file(state_dir / "config.json", {})
+    write_json_file(state_dir / "strategy_state.json", {})
+    write_json_file(state_dir / "paper_state.json", {"positions": {}, "balance": 10000})
+
+    monkeypatch.setattr(se, "STATE_DIR", state_dir)
+    monkeypatch.setattr(se, "STRATEGY_STATE_FILE", state_dir / "strategy_state.json")
+    monkeypatch.setattr(se, "PAPER_STATE_FILE", state_dir / "paper_state.json")
     monkeypatch.setattr(se, "_synced", True)
     monkeypatch.setattr(se, "_last_paper_state_mtime", None)
     monkeypatch.setattr(se, "_metrics_dirty", False)
@@ -147,7 +156,7 @@ def test_profit_lock_exit_regression():
     assert str(sell_decision["reason"]).startswith("profit_lock_exit_")
 
 
-def test_auto_with_scalper_override_falls_back_to_mean_reversion_until_confident():
+def test_auto_with_scalper_override_forces_scalper_route():
     cfg = _base_cfg()
     cfg["symbol_strategies"] = {"GST-USD": "volatility_scalper"}
     cfg["volatility_scalper"] = {"symbols": ["GST-USD"]}
@@ -169,9 +178,10 @@ def test_auto_with_scalper_override_falls_back_to_mean_reversion_until_confident
         cfg,
     )
 
-    assert decision["action"] == "HOLD"
-    assert decision["effective_strategy"] == "mean_reversion"
-    assert decision.get("auto_fallback_reason") == "insufficient_shadow_state"
+    assert decision["effective_strategy"] == "volatility_scalper"
+    assert decision["effective_route"] == "volatility_scalper"
+    assert decision.get("fallback_reason") == "manual_scalper_override"
+    assert str(decision["reason"]).startswith("volatility_scalper_")
 
 
 def test_shadow_regime_telemetry_is_additive_only():

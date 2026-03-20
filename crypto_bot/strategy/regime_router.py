@@ -23,6 +23,14 @@ AUTO_DEFAULT_MIN_CONFIRMATIONS = 2
 AUTO_DEFAULT_MIN_STABILITY_SCORE = 58.0
 AUTO_DEFAULT_MIN_PERSISTENCE_SCORE = 58.0
 AUTO_DEFAULT_MAX_ROUTE_AGE_SECONDS = 15 * 60
+AUTO_DEFAULT_TREND_MIN_CONFIDENCE_SCORE = 74.0
+AUTO_DEFAULT_TREND_MIN_STABILITY_SCORE = 68.0
+AUTO_DEFAULT_TREND_MIN_PERSISTENCE_SCORE = 68.0
+AUTO_DEFAULT_BREAKOUT_MIN_CONFIDENCE_SCORE = 82.0
+AUTO_DEFAULT_BREAKOUT_MIN_STABILITY_SCORE = 76.0
+AUTO_DEFAULT_BREAKOUT_MIN_PERSISTENCE_SCORE = 76.0
+AUTO_DEFAULT_TREND_MAX_ROUTE_SHARE_PCT = 35.0
+AUTO_DEFAULT_BREAKOUT_MAX_ROUTE_SHARE_PCT = 8.0
 
 SUGGESTED_REGIME_MEAN_REVERSION = "MEAN_REVERSION_FRIENDLY"
 SUGGESTED_REGIME_TREND = "TREND_CONTINUATION"
@@ -169,6 +177,104 @@ def _auto_min_persistence_score(cfg: dict[str, Any]) -> float:
     if configured is None:
         return AUTO_DEFAULT_MIN_PERSISTENCE_SCORE
     return configured
+
+
+def _auto_use_route_quality_gates(cfg: dict[str, Any]) -> bool:
+    router = _router_cfg(cfg)
+    return _as_bool(router.get("auto_use_route_quality_gates"), True)
+
+
+def _auto_strategy_min_confidence_score(cfg: dict[str, Any], strategy: str) -> float:
+    router = _router_cfg(cfg)
+    if strategy == STRATEGY_TREND_PULLBACK:
+        configured = _normalize_confidence_score(router.get("auto_trend_min_confidence"))
+        return configured if configured is not None else AUTO_DEFAULT_TREND_MIN_CONFIDENCE_SCORE
+    if strategy == STRATEGY_BREAKOUT_MOMENTUM:
+        configured = _normalize_confidence_score(router.get("auto_breakout_min_confidence"))
+        return configured if configured is not None else AUTO_DEFAULT_BREAKOUT_MIN_CONFIDENCE_SCORE
+    return _auto_min_confidence_score(cfg)
+
+
+def _auto_strategy_min_stability_score(cfg: dict[str, Any], strategy: str) -> float:
+    router = _router_cfg(cfg)
+    if strategy == STRATEGY_TREND_PULLBACK:
+        configured = _normalize_confidence_score(router.get("auto_trend_min_stability"))
+        return configured if configured is not None else AUTO_DEFAULT_TREND_MIN_STABILITY_SCORE
+    if strategy == STRATEGY_BREAKOUT_MOMENTUM:
+        configured = _normalize_confidence_score(router.get("auto_breakout_min_stability"))
+        return configured if configured is not None else AUTO_DEFAULT_BREAKOUT_MIN_STABILITY_SCORE
+    return _auto_min_stability_score(cfg)
+
+
+def _auto_strategy_min_persistence_score(cfg: dict[str, Any], strategy: str) -> float:
+    router = _router_cfg(cfg)
+    if strategy == STRATEGY_TREND_PULLBACK:
+        configured = _normalize_confidence_score(router.get("auto_trend_min_persistence"))
+        return configured if configured is not None else AUTO_DEFAULT_TREND_MIN_PERSISTENCE_SCORE
+    if strategy == STRATEGY_BREAKOUT_MOMENTUM:
+        configured = _normalize_confidence_score(router.get("auto_breakout_min_persistence"))
+        return configured if configured is not None else AUTO_DEFAULT_BREAKOUT_MIN_PERSISTENCE_SCORE
+    return _auto_min_persistence_score(cfg)
+
+
+def _auto_strategy_max_route_share_pct(cfg: dict[str, Any], strategy: str) -> float | None:
+    router = _router_cfg(cfg)
+    if strategy == STRATEGY_TREND_PULLBACK:
+        configured = _as_float(router.get("auto_trend_max_route_share_pct"))
+        if configured is None:
+            return AUTO_DEFAULT_TREND_MAX_ROUTE_SHARE_PCT
+        return max(0.0, min(configured, 100.0))
+    if strategy == STRATEGY_BREAKOUT_MOMENTUM:
+        configured = _as_float(router.get("auto_breakout_max_route_share_pct"))
+        if configured is None:
+            return AUTO_DEFAULT_BREAKOUT_MAX_ROUTE_SHARE_PCT
+        return max(0.0, min(configured, 100.0))
+    return None
+
+
+def _route_quality_payload(snapshot: dict[str, Any]) -> dict[str, Any]:
+    payload = snapshot.get("route_quality")
+    if not isinstance(payload, dict):
+        return {}
+    return payload
+
+
+def _is_route_promoted(snapshot: dict[str, Any], strategy: str) -> tuple[bool, str]:
+    payload = _route_quality_payload(snapshot)
+    promotion = payload.get("promotion")
+    if not isinstance(promotion, dict):
+        return False, "route_quality_unavailable"
+    promoted_routes = promotion.get("promoted_routes")
+    reasons = promotion.get("promotion_reasons")
+    if not isinstance(promoted_routes, dict):
+        return False, "route_quality_unavailable"
+    promoted = _as_bool(promoted_routes.get(strategy), False)
+    reason = "not_promoted"
+    if isinstance(reasons, dict):
+        reason = str(reasons.get(strategy) or reason)
+    return promoted, reason
+
+
+def _route_share_pct(snapshot: dict[str, Any], strategy: str) -> float | None:
+    payload = _route_quality_payload(snapshot)
+    current = payload.get("current")
+    if not isinstance(current, dict):
+        return None
+    counts = current.get("effective_route_counts")
+    if not isinstance(counts, dict):
+        return None
+    total = 0.0
+    target = 0.0
+    for route, raw in counts.items():
+        value = _as_float(raw)
+        if value is None or value < 0:
+            continue
+        total += value
+        if str(route).strip().lower() == strategy:
+            target += value
+    if total <= 0:
+        return None
+    return (target / total) * 100.0
 
 
 def _auto_max_route_age_seconds(cfg: dict[str, Any]) -> float:
@@ -392,6 +498,7 @@ def resolve_entry_route(
     shadow_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     configured_regime = _configured_regime(cfg, symbol)
+    normalized_default_strategy = _normalize_default_strategy(default_strategy)
 
     result = {
         "configured_regime": configured_regime,
@@ -413,6 +520,16 @@ def resolve_entry_route(
         "auto_fallback_reason": None,
         "fallback_reason": None,
     }
+
+    # Manual scalper mode must not clash with AUTO/manual regime routing.
+    # When explicitly selected per-symbol, force scalper route.
+    if normalized_default_strategy == STRATEGY_VOLATILITY_SCALPER:
+        result["detection_source"] = "configured_manual_scalper"
+        result["effective_strategy"] = STRATEGY_VOLATILITY_SCALPER
+        result["effective_route"] = STRATEGY_VOLATILITY_SCALPER
+        result["auto_fallback_reason"] = "manual_scalper_override"
+        result["fallback_reason"] = "manual_scalper_override"
+        return result
 
     if configured_regime == TOKEN_REGIME_OBSERVE_ONLY:
         result["effective_strategy"] = STRATEGY_OBSERVE_ONLY
@@ -503,24 +620,6 @@ def resolve_entry_route(
         result["fallback_reason"] = result["auto_fallback_reason"]
         return result
 
-    confidence_score = _normalize_confidence_score(advisory["confidence_score"])
-    if confidence_score is None or confidence_score < min_confidence_score:
-        result["auto_fallback_reason"] = "low_confidence"
-        result["fallback_reason"] = result["auto_fallback_reason"]
-        return result
-
-    stability_score = _normalize_confidence_score(advisory.get("stability_score"))
-    if stability_score is None or stability_score < min_stability_score:
-        result["auto_fallback_reason"] = "low_stability"
-        result["fallback_reason"] = result["auto_fallback_reason"]
-        return result
-
-    persistence_score = _normalize_confidence_score(advisory.get("persistence_score"))
-    if persistence_score is None or persistence_score < min_persistence_score:
-        result["auto_fallback_reason"] = "low_persistence"
-        result["fallback_reason"] = result["auto_fallback_reason"]
-        return result
-
     if not _as_bool(advisory.get("supported_key_windows"), False):
         result["auto_fallback_reason"] = "unsupported_key_windows"
         result["fallback_reason"] = result["auto_fallback_reason"]
@@ -544,6 +643,43 @@ def resolve_entry_route(
         result["auto_fallback_reason"] = "mixed_or_unclear_regime"
         result["fallback_reason"] = result["auto_fallback_reason"]
         return result
+
+    min_confidence_score = _auto_strategy_min_confidence_score(cfg, mapped_strategy)
+    min_stability_score = _auto_strategy_min_stability_score(cfg, mapped_strategy)
+    min_persistence_score = _auto_strategy_min_persistence_score(cfg, mapped_strategy)
+
+    confidence_score = _normalize_confidence_score(advisory["confidence_score"])
+    if confidence_score is None or confidence_score < min_confidence_score:
+        result["auto_fallback_reason"] = "low_confidence"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+        return result
+
+    stability_score = _normalize_confidence_score(advisory.get("stability_score"))
+    if stability_score is None or stability_score < min_stability_score:
+        result["auto_fallback_reason"] = "low_stability"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+        return result
+
+    persistence_score = _normalize_confidence_score(advisory.get("persistence_score"))
+    if persistence_score is None or persistence_score < min_persistence_score:
+        result["auto_fallback_reason"] = "low_persistence"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+        return result
+
+    if _auto_use_route_quality_gates(cfg) and mapped_strategy in {STRATEGY_TREND_PULLBACK, STRATEGY_BREAKOUT_MOMENTUM}:
+        promoted, promotion_reason = _is_route_promoted(snapshot, mapped_strategy)
+        if not promoted:
+            result["auto_fallback_reason"] = "route_not_promoted"
+            result["fallback_reason"] = f"route_not_promoted:{promotion_reason}"
+            return result
+
+        max_share_pct = _auto_strategy_max_route_share_pct(cfg, mapped_strategy)
+        if max_share_pct is not None:
+            current_share = _route_share_pct(snapshot, mapped_strategy)
+            if current_share is not None and current_share >= max_share_pct:
+                result["auto_fallback_reason"] = "route_share_cap"
+                result["fallback_reason"] = f"route_share_cap:{current_share:.2f}%>={max_share_pct:.2f}%"
+                return result
 
     suggested_regime = str(advisory["suggested_regime"])
     if suggested_regime == SUGGESTED_REGIME_MIXED:

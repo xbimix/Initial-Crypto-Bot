@@ -29,6 +29,12 @@ HEARTBEAT_INTERVAL = 60
 ACCOUNT_SYNC_INTERVAL_SECONDS = 120
 UNIVERSE_SYNC_INTERVAL_SECONDS = 300
 _buy_signal_streak: dict[str, int] = {}
+DEFAULT_FAST_POLL_SECONDS = 20.0
+DEFAULT_MID_POLL_SECONDS = 90.0
+DEFAULT_SLOW_POLL_SECONDS = 240.0
+DEFAULT_TOP_OPPORTUNITY_COUNT = 12
+DEFAULT_MID_TIER_COUNT = 28
+DEFAULT_MAX_SYMBOLS_PER_CYCLE = 16
 STATE_DIR = Path(__file__).resolve().parent / "state"
 REQUIRED_STATE_FILES = (
     "config.json",
@@ -77,6 +83,157 @@ def _symbols_for_scan(cfg: dict, executor: Executor | None) -> list[str]:
     configured_symbols = _normalize_symbols(cfg.get("symbols", []))
     open_symbols = executor.open_symbols() if executor else []
     return _normalize_symbols(configured_symbols + open_symbols)
+
+
+def _as_positive_float(value, default: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    if parsed <= 0:
+        return default
+    return parsed
+
+
+def _as_positive_int(value, default: int) -> int:
+    try:
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        return default
+    if parsed <= 0:
+        return default
+    return parsed
+
+
+def _polling_settings(cfg: dict) -> dict:
+    market_data_cfg = cfg.get("market_data", {})
+    if not isinstance(market_data_cfg, dict):
+        market_data_cfg = {}
+
+    fast = _as_positive_float(
+        market_data_cfg.get("fast_poll_seconds"),
+        DEFAULT_FAST_POLL_SECONDS,
+    )
+    mid = _as_positive_float(
+        market_data_cfg.get("mid_poll_seconds"),
+        DEFAULT_MID_POLL_SECONDS,
+    )
+    slow = _as_positive_float(
+        market_data_cfg.get("slow_poll_seconds"),
+        DEFAULT_SLOW_POLL_SECONDS,
+    )
+    if mid < fast:
+        mid = fast
+    if slow < mid:
+        slow = mid
+
+    return {
+        "fast_poll_seconds": fast,
+        "mid_poll_seconds": mid,
+        "slow_poll_seconds": slow,
+        "top_opportunity_count": _as_positive_int(
+            market_data_cfg.get("top_opportunity_count"),
+            DEFAULT_TOP_OPPORTUNITY_COUNT,
+        ),
+        "mid_tier_count": _as_positive_int(
+            market_data_cfg.get("mid_tier_count"),
+            DEFAULT_MID_TIER_COUNT,
+        ),
+        "max_symbols_per_cycle": _as_positive_int(
+            market_data_cfg.get("max_symbols_per_cycle"),
+            DEFAULT_MAX_SYMBOLS_PER_CYCLE,
+        ),
+    }
+
+
+def _strategy_priority_rank(cfg: dict, symbols: list[str]) -> list[str]:
+    if not symbols:
+        return []
+    state = read_json_file(STATE_DIR / "strategy_state.json", default={})
+    if not isinstance(state, dict):
+        return symbols
+
+    raw_scores = state.get("last_score", {})
+    raw_volatility = state.get("last_volatility", {})
+    score_map = raw_scores if isinstance(raw_scores, dict) else {}
+    volatility_map = raw_volatility if isinstance(raw_volatility, dict) else {}
+
+    def _score(symbol: str) -> float:
+        score_raw = score_map.get(symbol, 0)
+        volatility_raw = volatility_map.get(symbol, 0)
+        try:
+            score = float(score_raw)
+        except (TypeError, ValueError):
+            score = 0.0
+        try:
+            volatility = float(volatility_raw)
+        except (TypeError, ValueError):
+            volatility = 0.0
+        # Favor symbols with stronger score, then modestly favor higher volatility.
+        return score + (volatility * 10_000.0)
+
+    return sorted(symbols, key=lambda symbol: (_score(symbol), symbol), reverse=True)
+
+
+def _build_symbol_poll_intervals(
+    cfg: dict,
+    scan_symbols: list[str],
+    open_symbols: list[str],
+) -> dict[str, float]:
+    settings = _polling_settings(cfg)
+    configured_symbols = _normalize_symbols(cfg.get("symbols", []))
+    priority_rank = _strategy_priority_rank(cfg, configured_symbols)
+    open_set = set(_normalize_symbols(open_symbols))
+
+    top_symbols = [
+        symbol
+        for symbol in priority_rank
+        if symbol not in open_set
+    ][: settings["top_opportunity_count"]]
+    top_set = set(top_symbols)
+
+    mid_candidates = [
+        symbol
+        for symbol in priority_rank
+        if symbol not in open_set and symbol not in top_set
+    ][: settings["mid_tier_count"]]
+    mid_set = set(mid_candidates)
+
+    intervals: dict[str, float] = {}
+    for symbol in scan_symbols:
+        if symbol in open_set or symbol in top_set:
+            intervals[symbol] = settings["fast_poll_seconds"]
+        elif symbol in mid_set:
+            intervals[symbol] = settings["mid_poll_seconds"]
+        else:
+            intervals[symbol] = settings["slow_poll_seconds"]
+    return intervals
+
+
+def _select_symbols_for_cycle(
+    *,
+    symbols: list[str],
+    now_epoch: float,
+    last_polled_at: dict[str, float],
+    interval_by_symbol: dict[str, float],
+    max_symbols_per_cycle: int,
+) -> list[str]:
+    due: list[tuple[str, float, float]] = []
+    for symbol in symbols:
+        interval = float(interval_by_symbol.get(symbol, DEFAULT_SLOW_POLL_SECONDS))
+        last_ts = float(last_polled_at.get(symbol, 0.0))
+        elapsed = now_epoch - last_ts
+        if elapsed >= interval:
+            due.append((symbol, interval, elapsed))
+
+    if not due:
+        return []
+
+    due.sort(key=lambda row: (row[1], -row[2], row[0]))
+    selected = [row[0] for row in due[: max(1, max_symbols_per_cycle)]]
+    for symbol in selected:
+        last_polled_at[symbol] = now_epoch
+    return selected
 
 
 def _is_action_enabled(cfg: dict, symbol: str, action: str) -> bool:
@@ -268,6 +425,7 @@ def main():
     last_heartbeat = 0.0
     last_account_sync_at = 0.0
     last_universe_sync_at = 0.0
+    symbol_last_polled_at: dict[str, float] = {}
     clean_shutdown = False
     shutdown_reason = "unknown"
 
@@ -335,7 +493,25 @@ def main():
                     time.sleep(max(int(cfg.get("loop_sleep", 10)), 1))
                     continue
 
-                sync_summary = run_incremental_sync_tick(cfg=cfg, symbols=symbols, now_epoch=now)
+                open_symbols = executor.open_symbols() if executor else []
+                poll_intervals = _build_symbol_poll_intervals(
+                    cfg=cfg,
+                    scan_symbols=symbols,
+                    open_symbols=open_symbols,
+                )
+                poll_settings = _polling_settings(cfg)
+                cycle_symbols = _select_symbols_for_cycle(
+                    symbols=symbols,
+                    now_epoch=now,
+                    last_polled_at=symbol_last_polled_at,
+                    interval_by_symbol=poll_intervals,
+                    max_symbols_per_cycle=poll_settings["max_symbols_per_cycle"],
+                )
+                if not cycle_symbols:
+                    time.sleep(max(int(cfg.get("loop_sleep", 10)), 1))
+                    continue
+
+                sync_summary = run_incremental_sync_tick(cfg=cfg, symbols=cycle_symbols, now_epoch=now)
                 if sync_summary.get("enabled") and (
                     int(sync_summary.get("requests", 0) or 0) > 0
                     or int(sync_summary.get("errors", 0) or 0) > 0
@@ -347,7 +523,7 @@ def main():
                         f"errors={sync_summary.get('errors', 0)}"
                     )
 
-                for symbol in symbols:
+                for symbol in cycle_symbols:
                     market = fetch_market_snapshot(symbol, cfg)
                     if market is None:
                         continue
