@@ -98,10 +98,19 @@ type StrategyState = {
   last_detected_regime?: Record<string, string>;
   last_detected_regime_confidence?: Record<string, number>;
   last_detected_regime_confidence_label?: Record<string, string>;
+  last_detected_regime_stability?: Record<string, number>;
+  last_detected_regime_persistence?: Record<string, number>;
+  last_regime_data_quality_status?: Record<string, string>;
+  last_regime_key_windows_supported?: Record<string, boolean>;
+  last_suggested_regime_v2?: Record<string, string>;
   last_detection_source?: Record<string, string>;
   last_detection_timestamp_epoch?: Record<string, number>;
   last_effective_strategy?: Record<string, string>;
+  last_effective_route?: Record<string, string>;
+  last_route_eval_ts?: Record<string, number>;
+  last_regime_eval_ts?: Record<string, number>;
   last_auto_fallback_reason?: Record<string, string>;
+  last_fallback_reason?: Record<string, string>;
 };
 
 type TradeEntry = {
@@ -146,8 +155,15 @@ type SymbolControl = {
   detectedRegime: string | null;
   detectedRegimeConfidenceLabel: string;
   detectedRegimeConfidenceScore: number | null;
+  detectedRegimeStabilityScore: number | null;
+  detectedRegimePersistenceScore: number | null;
+  detectedRegimeDataQualityStatus: string;
+  detectedRegimeKeyWindowsSupported: boolean;
+  suggestedRegimeV2: string | null;
   detectionSource: string;
   detectionTimestampEpoch: number | null;
+  routeEvalTimestampEpoch: number | null;
+  regimeEvalTimestampEpoch: number | null;
   detectionTimestampAt: string | null;
   detectedRegimeExplanation: string;
   detectedRegimeStructureBias: string;
@@ -157,9 +173,10 @@ type SymbolControl = {
   detectedRegimeRangeScore: number | null;
   detectedRegimeBreakoutScore: number | null;
   detectedRegimeMixedScore: number | null;
-  detectedRegimeStabilityScore: number | null;
   effectiveStrategy: string;
+  effectiveRoute: string;
   autoFallbackReason: string | null;
+  fallbackReason: string | null;
   buyEnabled: boolean;
   sellEnabled: boolean;
   hasOpenPosition: boolean;
@@ -205,6 +222,10 @@ type SymbolControl = {
   volatilityOpportunityInsufficientData: boolean;
   volatilityOpportunityInsufficientReasonCode: string | null;
   volatilityOpportunityInsufficientReasonMessage: string | null;
+  volatilityDataQualityStatus: string;
+  volatilityDataQualityReason: string;
+  regimeDataQualityStatus: string;
+  regimeDataQualityReason: string;
 };
 
 type SnapshotMetrics = {
@@ -268,11 +289,13 @@ type SymbolRotationAdvisory = {
 };
 
 const STATE_DIR = path.resolve(process.cwd(), "..", "crypto_bot", "state");
+const BACKEND = "http://127.0.0.1:8001";
 const CONFIG_PATH = path.join(STATE_DIR, "config.json");
 const PAPER_STATE_PATH = path.join(STATE_DIR, "paper_state.json");
 const STRATEGY_STATE_PATH = path.join(STATE_DIR, "strategy_state.json");
 const TRADES_PATH = path.join(STATE_DIR, "trades.json");
 const LOG_PATH = path.join(STATE_DIR, "bot.log");
+const PRICE_HISTORY_PATH = path.join(STATE_DIR, "revolut_universe_price_history.json");
 const LOG_TAIL_BYTES = 256 * 1024;
 
 async function readJson<T>(filePath: string, fallback: T): Promise<T> {
@@ -363,6 +386,66 @@ async function readLatestSnapshots(symbols: string[]) {
     return { snapshots, snapshotHistory, lastSnapshotAt };
   }
 
+  const unresolved = new Set(symbols);
+  try {
+    const symbolParam = symbols.join(",");
+    const response = await fetch(
+      `${BACKEND}/market-data/candles-batch?timeframe=1m&limit=6000&symbols=${encodeURIComponent(symbolParam)}`,
+      { cache: "no-store" },
+    );
+    if (response.ok) {
+      const payload = await response.json() as {
+        symbols?: Record<
+          string,
+          {
+            status?: string;
+            points?: Array<{ tsEpoch?: number; price?: number }>;
+            latest?: { tsEpoch?: number; price?: number } | null;
+            meta?: { stale?: boolean };
+          }
+        >;
+      };
+      const symbolRows = payload?.symbols ?? {};
+      for (const symbol of symbols) {
+        const row = symbolRows[symbol];
+        if (!row || row.status !== "ok" || !Array.isArray(row.points) || row.points.length === 0) {
+          continue;
+        }
+        const points = row.points
+          .map((point) => ({
+            tsEpoch: Number(point?.tsEpoch ?? 0),
+            price: Number(point?.price ?? 0),
+          }))
+          .filter((point) => Number.isFinite(point.tsEpoch) && point.tsEpoch > 0 && Number.isFinite(point.price) && point.price > 0)
+          .sort((left, right) => left.tsEpoch - right.tsEpoch);
+        if (points.length === 0) {
+          continue;
+        }
+        snapshotHistory[symbol] = points.slice(-50000);
+        const latest = points[points.length - 1];
+        snapshots[symbol] = {
+          price: latest.price,
+          vwap: null,
+          atrRaw: null,
+          momNorm: null,
+          points: points.length,
+          low24h: null,
+          high24h: null,
+          spreadBps: null,
+          quality: row.meta?.stale ? "stale" : "ok",
+        };
+        lastSnapshotAt = new Date(latest.tsEpoch * 1000).toISOString().replace("T", " ").slice(0, 19);
+        unresolved.delete(symbol);
+      }
+    }
+  } catch {
+    // Keep legacy fallback path below.
+  }
+
+  if (unresolved.size === 0) {
+    return { snapshots, snapshotHistory, lastSnapshotAt };
+  }
+
   const tail = await readLogTail(LOG_PATH, LOG_TAIL_BYTES);
   const lines = tail.split(/\r?\n/);
   const snapshotPattern =
@@ -375,7 +458,7 @@ async function readLatestSnapshots(symbols: string[]) {
     }
 
     const symbol = match[2];
-    if (!wanted.has(symbol)) {
+    if (!unresolved.has(symbol)) {
       continue;
     }
 
@@ -395,6 +478,51 @@ async function readLatestSnapshots(symbols: string[]) {
         });
       }
     }
+  }
+
+  const priceHistory = await readJson<Record<string, Array<{ ts?: number; tsEpoch?: number; price?: number }>>>(
+    PRICE_HISTORY_PATH,
+    {},
+  );
+  for (const symbol of unresolved) {
+    const rows = Array.isArray(priceHistory[symbol]) ? priceHistory[symbol] : [];
+    if (!(symbol in snapshotHistory)) {
+      snapshotHistory[symbol] = [];
+    }
+    for (const row of rows) {
+      const tsEpoch = Number(row?.tsEpoch ?? row?.ts ?? 0);
+      const price = Number(row?.price ?? 0);
+      if (!Number.isFinite(tsEpoch) || tsEpoch <= 0 || !Number.isFinite(price) || price <= 0) {
+        continue;
+      }
+      snapshotHistory[symbol].push({ tsEpoch, price });
+      if (!(symbol in snapshots)) {
+        snapshots[symbol] = {
+          price,
+          vwap: null,
+          atrRaw: null,
+          momNorm: null,
+          points: null,
+          low24h: null,
+          high24h: null,
+          spreadBps: null,
+          quality: "ok",
+        };
+      }
+      if (lastSnapshotAt === null || tsEpoch > Number(parseLogTimestampToEpoch(lastSnapshotAt) ?? 0)) {
+        lastSnapshotAt = new Date(tsEpoch * 1000).toISOString().replace("T", " ").slice(0, 19);
+      }
+    }
+    snapshotHistory[symbol].sort((left, right) => left.tsEpoch - right.tsEpoch);
+    const deduped: SnapshotPoint[] = [];
+    for (const row of snapshotHistory[symbol]) {
+      const prev = deduped[deduped.length - 1];
+      if (prev && prev.tsEpoch === row.tsEpoch && prev.price === row.price) {
+        continue;
+      }
+      deduped.push(row);
+    }
+    snapshotHistory[symbol] = deduped.slice(-50000);
   }
 
   return { snapshots, snapshotHistory, lastSnapshotAt };
@@ -1545,10 +1673,19 @@ export async function GET() {
   const runtimeDetectedRegimeMap = parseTextMap(strategy.last_detected_regime);
   const runtimeDetectedRegimeConfidenceMap = parseNumberMap(strategy.last_detected_regime_confidence);
   const runtimeDetectedRegimeConfidenceLabelMap = parseTextMap(strategy.last_detected_regime_confidence_label);
+  const runtimeDetectedRegimeStabilityMap = parseNumberMap(strategy.last_detected_regime_stability);
+  const runtimeDetectedRegimePersistenceMap = parseNumberMap(strategy.last_detected_regime_persistence);
+  const runtimeDetectedRegimeDataQualityStatusMap = parseTextMap(strategy.last_regime_data_quality_status);
+  const runtimeDetectedRegimeKeyWindowsSupportedMap = parseEnabledMap(strategy.last_regime_key_windows_supported);
+  const runtimeSuggestedRegimeV2Map = parseTextMap(strategy.last_suggested_regime_v2);
   const runtimeDetectionSourceMap = parseTextMap(strategy.last_detection_source);
   const runtimeDetectionTimestampEpochMap = parseNumberMap(strategy.last_detection_timestamp_epoch);
   const runtimeEffectiveStrategyMap = parseTextMap(strategy.last_effective_strategy);
+  const runtimeEffectiveRouteMap = parseTextMap(strategy.last_effective_route);
+  const runtimeRouteEvalTimestampEpochMap = parseNumberMap(strategy.last_route_eval_ts);
+  const runtimeRegimeEvalTimestampEpochMap = parseNumberMap(strategy.last_regime_eval_ts);
   const runtimeAutoFallbackReasonMap = parseTextMap(strategy.last_auto_fallback_reason);
+  const runtimeFallbackReasonMap = parseTextMap(strategy.last_fallback_reason);
   const allSymbols = uniqueSymbols(
     configuredSymbols,
     Object.keys(legacyMap),
@@ -1731,6 +1868,11 @@ export async function GET() {
     const runtimeDetectedRegime = runtimeDetectedRegimeMap[symbol] ?? null;
     const runtimeDetectedRegimeConfidence = runtimeDetectedRegimeConfidenceMap[symbol] ?? null;
     const runtimeDetectedRegimeConfidenceLabel = runtimeDetectedRegimeConfidenceLabelMap[symbol] ?? null;
+    const runtimeDetectedRegimeStability = runtimeDetectedRegimeStabilityMap[symbol] ?? null;
+    const runtimeDetectedRegimePersistence = runtimeDetectedRegimePersistenceMap[symbol] ?? null;
+    const runtimeDetectedRegimeDataQualityStatus = runtimeDetectedRegimeDataQualityStatusMap[symbol] ?? null;
+    const runtimeDetectedRegimeKeyWindowsSupported = runtimeDetectedRegimeKeyWindowsSupportedMap[symbol] ?? false;
+    const runtimeSuggestedRegimeV2 = runtimeSuggestedRegimeV2Map[symbol] ?? null;
     const detectedRegime = runtimeDetectedRegime ?? regimeAdvisory?.suggestedRegime ?? null;
     const detectedRegimeConfidenceScore = runtimeDetectedRegimeConfidence ?? regimeAdvisory?.confidenceScore ?? null;
     const detectedRegimeConfidenceLabel = (
@@ -1742,7 +1884,13 @@ export async function GET() {
       runtimeEffectiveStrategyMap[symbol]
       ?? deriveConfiguredEffectiveStrategy(configuredRegime, strategyMode),
     );
+    const effectiveRoute = normalizeEffectiveStrategy(
+      runtimeEffectiveRouteMap[symbol]
+      ?? runtimeEffectiveStrategyMap[symbol]
+      ?? deriveConfiguredEffectiveStrategy(configuredRegime, strategyMode),
+    );
     const autoFallbackReason = runtimeAutoFallbackReasonMap[symbol] ?? null;
+    const fallbackReason = runtimeFallbackReasonMap[symbol] ?? autoFallbackReason;
     const detectionSource = (
       runtimeDetectionSourceMap[symbol]
       ?? regimeAdvisory?.detectionSource
@@ -1757,6 +1905,8 @@ export async function GET() {
     )
       ? null
       : new Date(detectionTimestampEpoch * 1000).toISOString();
+    const routeEvalTimestampEpoch = runtimeRouteEvalTimestampEpochMap[symbol] ?? null;
+    const regimeEvalTimestampEpoch = runtimeRegimeEvalTimestampEpochMap[symbol] ?? detectionTimestampEpoch ?? null;
     const regimeComponentScores = regimeAdvisory?.componentScores ?? null;
     const symbolAllocatedUsd = symbolCostBasisUsd[symbol] ?? 0;
     const executableStatus = computeBuyExecutableStatus({
@@ -1783,8 +1933,20 @@ export async function GET() {
       detectedRegime,
       detectedRegimeConfidenceLabel,
       detectedRegimeConfidenceScore,
+      detectedRegimeStabilityScore:
+        runtimeDetectedRegimeStability ?? regimeAdvisory?.stability_score ?? regimeAdvisory?.stabilityScore ?? null,
+      detectedRegimePersistenceScore:
+        runtimeDetectedRegimePersistence
+        ?? null,
+      detectedRegimeDataQualityStatus:
+        (runtimeDetectedRegimeDataQualityStatus ?? regimeAdvisory?.data_quality?.status ?? "UNKNOWN").toUpperCase(),
+      detectedRegimeKeyWindowsSupported:
+        runtimeDetectedRegimeKeyWindowsSupported,
+      suggestedRegimeV2: runtimeSuggestedRegimeV2 ?? detectedRegime,
       detectionSource,
       detectionTimestampEpoch,
+      routeEvalTimestampEpoch,
+      regimeEvalTimestampEpoch,
       detectionTimestampAt,
       detectedRegimeExplanation: regimeAdvisory?.explanation ?? "Insufficient advisory context",
       detectedRegimeStructureBias: regimeAdvisory?.components?.structureBias ?? "UNCLEAR",
@@ -1794,9 +1956,10 @@ export async function GET() {
       detectedRegimeRangeScore: regimeComponentScores?.range_score ?? regimeComponentScores?.rangeScore ?? null,
       detectedRegimeBreakoutScore: regimeComponentScores?.breakout_score ?? regimeComponentScores?.breakoutScore ?? null,
       detectedRegimeMixedScore: regimeComponentScores?.mixed_score ?? regimeComponentScores?.mixedScore ?? null,
-      detectedRegimeStabilityScore: regimeAdvisory?.stability_score ?? regimeAdvisory?.stabilityScore ?? null,
       effectiveStrategy,
+      effectiveRoute,
       autoFallbackReason,
+      fallbackReason,
       buyEnabled,
       sellEnabled: sellMap[symbol] ?? legacyMap[symbol] ?? true,
       hasOpenPosition,
@@ -1860,6 +2023,18 @@ export async function GET() {
         volatilityOpportunity?.insufficient_reason_code ?? null,
       volatilityOpportunityInsufficientReasonMessage:
         volatilityOpportunity?.insufficient_reason_message ?? null,
+      volatilityDataQualityStatus:
+        volatilityOpportunity?.data_quality?.status
+        ?? (volatilityOpportunity?.insufficient_data ? "INSUFFICIENT" : "GOOD"),
+      volatilityDataQualityReason:
+        volatilityOpportunity?.data_quality?.reason
+        ?? (volatilityOpportunity?.insufficient_reason_code ?? "ok"),
+      regimeDataQualityStatus:
+        regimeAdvisory?.data_quality?.status
+        ?? (regimeAdvisory?.confidenceScore && regimeAdvisory.confidenceScore > 45 ? "GOOD" : "PARTIAL"),
+      regimeDataQualityReason:
+        regimeAdvisory?.data_quality?.reason
+        ?? "window_coverage",
     };
   });
   const buyEnabledSymbolsCount = symbolControls.filter(
@@ -2204,11 +2379,30 @@ export async function GET() {
         control.detectedRegimeConfidenceScore === null
           ? null
           : round(control.detectedRegimeConfidenceScore, 1),
+      detectedRegimeStabilityScore:
+        control.detectedRegimeStabilityScore === null
+          ? null
+          : round(control.detectedRegimeStabilityScore, 1),
+      detectedRegimePersistenceScore:
+        control.detectedRegimePersistenceScore === null
+          ? null
+          : round(control.detectedRegimePersistenceScore, 1),
+      detectedRegimeDataQualityStatus: control.detectedRegimeDataQualityStatus,
+      detectedRegimeKeyWindowsSupported: control.detectedRegimeKeyWindowsSupported,
+      suggestedRegimeV2: control.suggestedRegimeV2,
       detectionSource: control.detectionSource,
       detectionTimestampEpoch:
         control.detectionTimestampEpoch === null
           ? null
           : round(control.detectionTimestampEpoch, 3),
+      routeEvalTimestampEpoch:
+        control.routeEvalTimestampEpoch === null
+          ? null
+          : round(control.routeEvalTimestampEpoch, 3),
+      regimeEvalTimestampEpoch:
+        control.regimeEvalTimestampEpoch === null
+          ? null
+          : round(control.regimeEvalTimestampEpoch, 3),
       detectionTimestampAt: control.detectionTimestampAt,
       detectedRegimeExplanation: control.detectedRegimeExplanation,
       detectedRegimeStructureBias: control.detectedRegimeStructureBias,
@@ -2230,12 +2424,10 @@ export async function GET() {
         control.detectedRegimeMixedScore === null
           ? null
           : round(control.detectedRegimeMixedScore, 2),
-      detectedRegimeStabilityScore:
-        control.detectedRegimeStabilityScore === null
-          ? null
-          : round(control.detectedRegimeStabilityScore, 2),
       effectiveStrategy: control.effectiveStrategy,
+      effectiveRoute: control.effectiveRoute,
       autoFallbackReason: control.autoFallbackReason,
+      fallbackReason: control.fallbackReason,
       buyOpportunityPct:
         control.buyOpportunityPct === null
           ? null
@@ -2354,6 +2546,10 @@ export async function GET() {
         control.volatilityOpportunityInsufficientReasonCode,
       volatilityOpportunityInsufficientReasonMessage:
         control.volatilityOpportunityInsufficientReasonMessage,
+      volatilityDataQualityStatus: control.volatilityDataQualityStatus,
+      volatilityDataQualityReason: control.volatilityDataQualityReason,
+      regimeDataQualityStatus: control.regimeDataQualityStatus,
+      regimeDataQualityReason: control.regimeDataQualityReason,
     })),
     chart: {
       points: chartPoints,

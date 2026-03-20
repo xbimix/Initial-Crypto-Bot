@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from utils.token_regimes import (
@@ -19,16 +20,24 @@ STRATEGY_OBSERVE_ONLY = "observe_only"
 
 AUTO_DEFAULT_MIN_CONFIDENCE_SCORE = 68.0
 AUTO_DEFAULT_MIN_CONFIRMATIONS = 2
+AUTO_DEFAULT_MIN_STABILITY_SCORE = 58.0
+AUTO_DEFAULT_MIN_PERSISTENCE_SCORE = 58.0
+AUTO_DEFAULT_MAX_ROUTE_AGE_SECONDS = 15 * 60
 
 SUGGESTED_REGIME_MEAN_REVERSION = "MEAN_REVERSION_FRIENDLY"
 SUGGESTED_REGIME_TREND = "TREND_CONTINUATION"
 SUGGESTED_REGIME_BREAKOUT = "BREAKOUT_EXPANSION"
+SUGGESTED_REGIME_TREND_WEAKENING = "TREND_WEAKENING"
+SUGGESTED_REGIME_HIGH_RISK_UNSTABLE = "HIGH_RISK_UNSTABLE"
 SUGGESTED_REGIME_MIXED = "MIXED_OR_UNCLEAR"
 
 SUGGESTED_REGIME_TO_STRATEGY = {
     SUGGESTED_REGIME_MEAN_REVERSION: STRATEGY_MEAN_REVERSION,
     SUGGESTED_REGIME_TREND: STRATEGY_TREND_PULLBACK,
     SUGGESTED_REGIME_BREAKOUT: STRATEGY_BREAKOUT_MOMENTUM,
+    SUGGESTED_REGIME_TREND_WEAKENING: STRATEGY_MEAN_REVERSION,
+    SUGGESTED_REGIME_HIGH_RISK_UNSTABLE: STRATEGY_MEAN_REVERSION,
+    SUGGESTED_REGIME_MIXED: STRATEGY_MEAN_REVERSION,
 }
 
 RAW_REGIME_TO_SUGGESTED = {
@@ -146,6 +155,30 @@ def _auto_use_multitimeframe_advisory(cfg: dict[str, Any]) -> bool:
     return _as_bool(router.get("auto_use_multitimeframe_advisory"), False)
 
 
+def _auto_min_stability_score(cfg: dict[str, Any]) -> float:
+    router = _router_cfg(cfg)
+    configured = _normalize_confidence_score(router.get("auto_min_stability"))
+    if configured is None:
+        return AUTO_DEFAULT_MIN_STABILITY_SCORE
+    return configured
+
+
+def _auto_min_persistence_score(cfg: dict[str, Any]) -> float:
+    router = _router_cfg(cfg)
+    configured = _normalize_confidence_score(router.get("auto_min_persistence"))
+    if configured is None:
+        return AUTO_DEFAULT_MIN_PERSISTENCE_SCORE
+    return configured
+
+
+def _auto_max_route_age_seconds(cfg: dict[str, Any]) -> float:
+    router = _router_cfg(cfg)
+    age = _as_float(router.get("auto_max_route_age_seconds"))
+    if age is None or age <= 0:
+        return AUTO_DEFAULT_MAX_ROUTE_AGE_SECONDS
+    return max(age, 60.0)
+
+
 def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
     advisory = snapshot.get("regime_advisory")
     if not isinstance(advisory, dict):
@@ -204,6 +237,27 @@ def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
     if detection_timestamp_epoch is None:
         detection_timestamp_epoch = _as_float(snapshot.get("detected_regime_timestamp_epoch"))
 
+    stability_score = _normalize_confidence_score(advisory.get("stabilityScore"))
+    if stability_score is None:
+        stability_score = _normalize_confidence_score(advisory.get("stability_score"))
+    persistence_score = _normalize_confidence_score(advisory.get("persistenceScore"))
+    if persistence_score is None:
+        persistence_score = _normalize_confidence_score(advisory.get("persistence_score"))
+
+    data_quality = advisory.get("dataQuality")
+    if not isinstance(data_quality, dict):
+        data_quality = advisory.get("data_quality")
+    if not isinstance(data_quality, dict):
+        data_quality = {}
+
+    data_quality_status = data_quality.get("status")
+    if not isinstance(data_quality_status, str):
+        data_quality_status = "UNKNOWN"
+    data_quality_status = data_quality_status.strip().upper() or "UNKNOWN"
+    supported_key_windows = _as_bool(data_quality.get("supportedKeyWindows"), True)
+    if "supported_key_windows" in data_quality:
+        supported_key_windows = _as_bool(data_quality.get("supported_key_windows"), supported_key_windows)
+
     normalized_suggested = ""
     if isinstance(suggested, str):
         normalized_suggested = suggested.strip().upper()
@@ -216,6 +270,10 @@ def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
         "insufficient_reason": "snapshot_advisory_insufficient" if insufficient_data else None,
         "detection_source": detection_source.strip().lower(),
         "detection_timestamp_epoch": detection_timestamp_epoch,
+        "stability_score": stability_score,
+        "persistence_score": persistence_score,
+        "data_quality_status": data_quality_status,
+        "supported_key_windows": supported_key_windows,
     }
 
 
@@ -248,6 +306,10 @@ def _extract_shadow_advisory(
             "insufficient_reason": "missing_shadow_state",
             "detection_source": "runtime_shadow",
             "detection_timestamp_epoch": None,
+            "stability_score": None,
+            "persistence_score": None,
+            "data_quality_status": "UNKNOWN",
+            "supported_key_windows": False,
         }
 
     row = shadow_state.get(symbol_key)
@@ -260,6 +322,10 @@ def _extract_shadow_advisory(
             "insufficient_reason": "missing_shadow_state",
             "detection_source": "runtime_shadow",
             "detection_timestamp_epoch": None,
+            "stability_score": None,
+            "persistence_score": None,
+            "data_quality_status": "UNKNOWN",
+            "supported_key_windows": False,
         }
 
     confirmations = _as_float(row.get("confirmations"))
@@ -274,6 +340,10 @@ def _extract_shadow_advisory(
             "insufficient_reason": "insufficient_shadow_confirmations",
             "detection_source": "runtime_shadow",
             "detection_timestamp_epoch": _as_float(row.get("last_update_ts")),
+            "stability_score": _normalize_confidence_score(row.get("confidence")),
+            "persistence_score": _normalize_confidence_score(row.get("confidence")),
+            "data_quality_status": "PARTIAL",
+            "supported_key_windows": True,
         }
 
     stable = str(
@@ -293,6 +363,10 @@ def _extract_shadow_advisory(
         "insufficient_reason": None,
         "detection_source": "runtime_shadow",
         "detection_timestamp_epoch": _as_float(row.get("last_update_ts")),
+        "stability_score": confidence_score,
+        "persistence_score": confidence_score,
+        "data_quality_status": "PARTIAL",
+        "supported_key_windows": True,
     }
 
 
@@ -318,44 +392,54 @@ def resolve_entry_route(
     shadow_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     configured_regime = _configured_regime(cfg, symbol)
-    normalized_default = _normalize_default_strategy(default_strategy)
 
     result = {
         "configured_regime": configured_regime,
         "detected_regime": None,
+        "suggested_regime_v2": None,
         "detected_regime_confidence": None,
         "detected_regime_confidence_label": None,
+        "detected_regime_stability": None,
+        "detected_regime_persistence": None,
+        "regime_data_quality_status": "UNKNOWN",
+        "regime_key_windows_supported": False,
         "detection_source": "configured_manual",
         "detection_timestamp_epoch": None,
-        "effective_strategy": normalized_default,
+        # AUTO and unclear cases must degrade to frozen mean reversion by default.
+        "effective_strategy": STRATEGY_MEAN_REVERSION,
+        "effective_route": STRATEGY_MEAN_REVERSION,
+        "route_eval_ts": _as_float(snapshot.get("router_eval_ts")) or time.time(),
+        "regime_eval_ts": _as_float(snapshot.get("regime_eval_ts")),
         "auto_fallback_reason": None,
+        "fallback_reason": None,
     }
 
     if configured_regime == TOKEN_REGIME_OBSERVE_ONLY:
         result["effective_strategy"] = STRATEGY_OBSERVE_ONLY
+        result["effective_route"] = STRATEGY_OBSERVE_ONLY
         return result
 
     if configured_regime == TOKEN_REGIME_TREND_PULLBACK:
         result["effective_strategy"] = STRATEGY_TREND_PULLBACK
+        result["effective_route"] = STRATEGY_TREND_PULLBACK
         return result
 
     if configured_regime == TOKEN_REGIME_BREAKOUT_MOMENTUM:
         result["effective_strategy"] = STRATEGY_BREAKOUT_MOMENTUM
+        result["effective_route"] = STRATEGY_BREAKOUT_MOMENTUM
         return result
 
     # Preserve default behavior for explicit manual mean-reversion mode.
     if configured_regime == TOKEN_REGIME_MEAN_REVERSION:
         result["effective_strategy"] = STRATEGY_MEAN_REVERSION
-        return result
-
-    # Conservative AUTO routing. Keep legacy scalper as-is unless explicitly overridden.
-    if normalized_default == STRATEGY_VOLATILITY_SCALPER:
-        result["effective_strategy"] = normalized_default
-        result["auto_fallback_reason"] = "legacy_scalper_mode"
+        result["effective_route"] = STRATEGY_MEAN_REVERSION
         return result
 
     min_confidence_score = _auto_min_confidence_score(cfg)
+    min_stability_score = _auto_min_stability_score(cfg)
+    min_persistence_score = _auto_min_persistence_score(cfg)
     min_confirmations = _auto_min_confirmations(cfg)
+    max_route_age_seconds = _auto_max_route_age_seconds(cfg)
     use_multitimeframe_advisory = _auto_use_multitimeframe_advisory(cfg)
     advisory = {
         "suggested_regime": None,
@@ -365,6 +449,10 @@ def resolve_entry_route(
         "insufficient_reason": "missing_shadow_state",
         "detection_source": "runtime_shadow",
         "detection_timestamp_epoch": None,
+        "stability_score": None,
+        "persistence_score": None,
+        "data_quality_status": "UNKNOWN",
+        "supported_key_windows": False,
     }
     if use_multitimeframe_advisory:
         advisory = _extract_regime_advisory(snapshot)
@@ -382,10 +470,17 @@ def resolve_entry_route(
         )
 
     result["detected_regime"] = advisory["suggested_regime"]
+    result["suggested_regime_v2"] = advisory["suggested_regime"]
     result["detected_regime_confidence"] = advisory["confidence_score"]
     result["detected_regime_confidence_label"] = advisory["confidence_label"]
+    result["detected_regime_stability"] = advisory.get("stability_score")
+    result["detected_regime_persistence"] = advisory.get("persistence_score")
+    result["regime_data_quality_status"] = str(advisory.get("data_quality_status") or "UNKNOWN").upper()
+    result["regime_key_windows_supported"] = _as_bool(advisory.get("supported_key_windows"), False)
     result["detection_source"] = str(advisory.get("detection_source") or "runtime_shadow")
     result["detection_timestamp_epoch"] = _as_float(advisory.get("detection_timestamp_epoch"))
+    if result["regime_eval_ts"] is None:
+        result["regime_eval_ts"] = result["detection_timestamp_epoch"]
 
     if not advisory["suggested_regime"]:
         if advisory.get("insufficient_reason") == "insufficient_shadow_confirmations":
@@ -394,6 +489,7 @@ def resolve_entry_route(
             result["auto_fallback_reason"] = "insufficient_shadow_state"
         else:
             result["auto_fallback_reason"] = "advisory_unavailable"
+        result["fallback_reason"] = result["auto_fallback_reason"]
         return result
 
     if advisory["insufficient_data"]:
@@ -404,17 +500,62 @@ def resolve_entry_route(
             result["auto_fallback_reason"] = "insufficient_shadow_state"
         else:
             result["auto_fallback_reason"] = "insufficient_advisory_data"
+        result["fallback_reason"] = result["auto_fallback_reason"]
         return result
 
     confidence_score = _normalize_confidence_score(advisory["confidence_score"])
     if confidence_score is None or confidence_score < min_confidence_score:
         result["auto_fallback_reason"] = "low_confidence"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+        return result
+
+    stability_score = _normalize_confidence_score(advisory.get("stability_score"))
+    if stability_score is None or stability_score < min_stability_score:
+        result["auto_fallback_reason"] = "low_stability"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+        return result
+
+    persistence_score = _normalize_confidence_score(advisory.get("persistence_score"))
+    if persistence_score is None or persistence_score < min_persistence_score:
+        result["auto_fallback_reason"] = "low_persistence"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+        return result
+
+    if not _as_bool(advisory.get("supported_key_windows"), False):
+        result["auto_fallback_reason"] = "unsupported_key_windows"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+        return result
+
+    data_quality_status = str(advisory.get("data_quality_status") or "UNKNOWN").upper()
+    if data_quality_status in {"STALE", "INSUFFICIENT", "UNSUPPORTED_WINDOW"}:
+        result["auto_fallback_reason"] = "data_quality_not_acceptable"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+        return result
+
+    detection_timestamp = _as_float(advisory.get("detection_timestamp_epoch"))
+    route_eval_ts = _as_float(result.get("route_eval_ts")) or time.time()
+    if detection_timestamp is not None and (route_eval_ts - detection_timestamp) > max_route_age_seconds:
+        result["auto_fallback_reason"] = "route_timestamp_stale"
+        result["fallback_reason"] = result["auto_fallback_reason"]
         return result
 
     mapped_strategy = SUGGESTED_REGIME_TO_STRATEGY.get(str(advisory["suggested_regime"]))
     if mapped_strategy is None:
         result["auto_fallback_reason"] = "mixed_or_unclear_regime"
+        result["fallback_reason"] = result["auto_fallback_reason"]
         return result
 
+    suggested_regime = str(advisory["suggested_regime"])
+    if suggested_regime == SUGGESTED_REGIME_MIXED:
+        result["auto_fallback_reason"] = "mixed_or_unclear_regime"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+    elif suggested_regime == SUGGESTED_REGIME_HIGH_RISK_UNSTABLE:
+        result["auto_fallback_reason"] = "high_risk_unstable"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+    elif suggested_regime == SUGGESTED_REGIME_TREND_WEAKENING:
+        result["auto_fallback_reason"] = "trend_weakening"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+
     result["effective_strategy"] = mapped_strategy
+    result["effective_route"] = mapped_strategy
     return result

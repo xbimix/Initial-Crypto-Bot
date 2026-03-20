@@ -5,6 +5,8 @@ from datetime import datetime
 
 from api.revolut_order_book import get_order_book
 from api.revolut_trades import get_last_trades
+from data.market_data_service import get_candle_meta, get_candles
+from data.revolut_incremental_sync import sync_new_candles
 from utils.logger import setup_logger
 
 try:
@@ -24,8 +26,13 @@ DEFAULT_MIN_HISTORY_POINTS = 8
 DEFAULT_MAX_SPREAD_BPS = 150.0
 DEFAULT_MAX_BOOK_TRADE_GAP_PCT = 0.02
 DEFAULT_TRADE_CONFIRMATION_LIMIT = 100
+DEFAULT_CANDLE_TIMEFRAME = "1m"
+DEFAULT_CANDLE_HISTORY_LIMIT = 6_000
+DEFAULT_CANDLE_SYNC_ENABLED = False
+DEFAULT_CANDLE_SYNC_INTERVAL_SECONDS = 20
 
 _PRICE_HISTORY = defaultdict(deque)
+_LAST_CANDLE_SYNC_AT: dict[str, float] = {}
 
 
 def _parse_ts(payload) -> float | None:
@@ -271,6 +278,41 @@ def _record_mark_price(
     return list(history)
 
 
+def _load_candle_history(symbol: str, timeframe: str, limit: int) -> tuple[list[float], list[float], dict]:
+    rows = get_candles(symbol=symbol, timeframe=timeframe, limit=limit)
+    meta = get_candle_meta(symbol=symbol, timeframe=timeframe)
+    prices: list[float] = []
+    weights: list[float] = []
+    for row in rows:
+        try:
+            close_px = float(row.get("close"))
+        except (TypeError, ValueError):
+            continue
+        if close_px <= 0:
+            continue
+        volume_raw = row.get("volume")
+        try:
+            volume = float(volume_raw) if volume_raw is not None else 1.0
+        except (TypeError, ValueError):
+            volume = 1.0
+        prices.append(close_px)
+        weights.append(max(volume, 1.0))
+    return prices, weights, meta if isinstance(meta, dict) else {}
+
+
+def _maybe_sync_candles(symbol: str, timeframe: str, sync_interval_seconds: int) -> None:
+    now = time.time()
+    key = f"{symbol}:{timeframe}"
+    last_run = _LAST_CANDLE_SYNC_AT.get(key, 0.0)
+    if now - last_run < max(int(sync_interval_seconds), 1):
+        return
+    _LAST_CANDLE_SYNC_AT[key] = now
+    try:
+        sync_new_candles(symbol=symbol, timeframe=timeframe, include_partial=False)
+    except Exception as exc:
+        logger.debug(f"Candle sync skipped for {symbol} {timeframe}: {exc}")
+
+
 def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
     try:
         lookback = cfg.get("lookback", 200)
@@ -300,6 +342,25 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             )
         )
         trade_confirmation_limit = max(0, min(trade_confirmation_limit, max(1, min(lookback, 100))))
+        candle_timeframe = str(
+            market_data_cfg.get("decision_candle_timeframe", DEFAULT_CANDLE_TIMEFRAME)
+        ).strip().lower() or DEFAULT_CANDLE_TIMEFRAME
+        candle_history_limit = max(
+            min(int(market_data_cfg.get("decision_candle_limit", DEFAULT_CANDLE_HISTORY_LIMIT)), 50_000),
+            50,
+        )
+        candle_sync_enabled = bool(
+            market_data_cfg.get("decision_candle_sync_enabled", DEFAULT_CANDLE_SYNC_ENABLED)
+        )
+        candle_sync_interval_seconds = max(
+            int(
+                market_data_cfg.get(
+                    "decision_candle_sync_interval_seconds",
+                    DEFAULT_CANDLE_SYNC_INTERVAL_SECONDS,
+                )
+            ),
+            1,
+        )
 
         # High-frequency healthy event; keep available at DEBUG to reduce log churn.
         logger.debug(f"Fetching market snapshot for {symbol}")
@@ -307,6 +368,13 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
         book = _extract_order_book_snapshot(order_book, symbol)
         if book is None:
             return None
+
+        if candle_sync_enabled:
+            _maybe_sync_candles(
+                symbol=symbol,
+                timeframe=candle_timeframe,
+                sync_interval_seconds=candle_sync_interval_seconds,
+            )
 
         history = _record_mark_price(
             symbol,
@@ -316,8 +384,27 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             history_seconds,
         )
 
-        prices = [sample["price"] for sample in history]
-        weights = [sample["weight"] for sample in history]
+        stream_prices = [sample["price"] for sample in history]
+        stream_weights = [sample["weight"] for sample in history]
+        prices = list(stream_prices)
+        weights = list(stream_weights)
+        history_source = "order_book_stream"
+        candle_meta = {}
+        try:
+            candle_prices, candle_weights, candle_meta = _load_candle_history(
+                symbol=symbol,
+                timeframe=candle_timeframe,
+                limit=candle_history_limit,
+            )
+            if len(candle_prices) >= min_history_points:
+                prices = candle_prices
+                weights = candle_weights
+                history_source = "sqlite_candles"
+        except Exception as exc:
+            logger.debug(f"Candle history unavailable for {symbol}: {exc}")
+
+        if not prices:
+            return None
         first_price = prices[0]
         last_price = book["mid_price"]
 
@@ -325,8 +412,13 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
         if book["spread_bps"] > max_spread_bps:
             quality_reasons.append("spread_too_wide")
 
-        if len(history) < min_history_points:
+        if len(prices) < min_history_points:
             quality_reasons.append("warming_up_history")
+        if history_source == "sqlite_candles":
+            if candle_meta.get("stale") is True:
+                quality_reasons.append("candle_history_stale")
+            if candle_meta.get("supported") is False:
+                quality_reasons.append("candle_timeframe_unsupported")
 
         filtered_trades = []
         latest_trade_price = None
@@ -383,6 +475,15 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
         low_24h = min(prices)
         data_quality_ok = not quality_reasons
         data_quality_reason = ",".join(quality_reasons) if quality_reasons else "ok"
+        data_quality_status = "GOOD"
+        if len(prices) <= 0:
+            data_quality_status = "INSUFFICIENT"
+        elif "candle_timeframe_unsupported" in quality_reasons:
+            data_quality_status = "UNSUPPORTED_WINDOW"
+        elif "candle_history_stale" in quality_reasons:
+            data_quality_status = "STALE"
+        elif quality_reasons:
+            data_quality_status = "PARTIAL"
 
         snapshot = {
             "symbol": symbol,
@@ -396,6 +497,7 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             "book_imbalance": book["book_imbalance"],
             "latest_trade_price": latest_trade_price,
             "price_source": "order_book_mid",
+            "history_source": history_source,
             "momentum_raw": raw_momentum,
             "momentum_norm": norm_momentum,
             "rsi": rsi,
@@ -411,8 +513,15 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             "trade_count": len(prices) if data_quality_ok else 0,
             "history_points": len(prices),
             "recent_prices": prices[-60:],
+            "snapshot_ts_epoch": float(book["timestamp"]),
+            "sampling_minutes": 1.0 if history_source == "sqlite_candles" else max(
+                1.0,
+                float(history_seconds) / max(float(len(prices)), 1.0) / 60.0,
+            ),
+            "candle_timeframe": candle_timeframe,
             "data_quality_ok": data_quality_ok,
             "data_quality_reason": data_quality_reason,
+            "data_quality_status": data_quality_status,
 
             "ema_50": ema_50,
             "ema_200": ema_200,

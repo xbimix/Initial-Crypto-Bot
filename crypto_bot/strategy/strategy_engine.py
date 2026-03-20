@@ -3,6 +3,7 @@ from pathlib import Path
 
 from strategy.breakout_momentum import evaluate_breakout_momentum_entry
 from strategy.regime_engine import normalize_shadow_state, update_regime_shadow_state
+from strategy.regime_engine_v2 import evaluate_regime_v2
 from strategy.regime_router import resolve_entry_route
 from strategy.regime import detect_regime
 from strategy.scoring import score_indicators
@@ -40,10 +41,19 @@ _last_configured_regime = {}
 _last_detected_regime = {}
 _last_detected_regime_confidence = {}
 _last_detected_regime_confidence_label = {}
+_last_detected_regime_stability = {}
+_last_detected_regime_persistence = {}
+_last_regime_data_quality_status = {}
+_last_regime_key_windows_supported = {}
+_last_suggested_regime_v2 = {}
 _last_detection_source = {}
 _last_detection_timestamp_epoch = {}
 _last_effective_strategy = {}
+_last_effective_route = {}
+_last_route_eval_ts = {}
+_last_regime_eval_ts = {}
 _last_auto_fallback_reason = {}
+_last_fallback_reason = {}
 _shadow_regime_state = {}
 _synced = False
 _last_paper_state_mtime = None
@@ -124,10 +134,19 @@ def _sync_with_broker_state():
             _last_detected_regime,
             _last_detected_regime_confidence,
             _last_detected_regime_confidence_label,
+            _last_detected_regime_stability,
+            _last_detected_regime_persistence,
+            _last_regime_data_quality_status,
+            _last_regime_key_windows_supported,
+            _last_suggested_regime_v2,
             _last_detection_source,
             _last_detection_timestamp_epoch,
             _last_effective_strategy,
+            _last_effective_route,
+            _last_route_eval_ts,
+            _last_regime_eval_ts,
             _last_auto_fallback_reason,
+            _last_fallback_reason,
         ):
             for symbol in list(mapping.keys()):
                 if symbol in broker_symbols:
@@ -395,35 +414,48 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
     scalper_cfg = _resolve_scalper_config(cfg)
     strategy_mode = _strategy_for_symbol(cfg, symbol, scalper_cfg=scalper_cfg)
     configured_regime = _configured_regime_for_symbol(cfg, symbol)
-    route_snapshot = snapshot
+    route_snapshot = dict(snapshot)
+    route_eval_ts = time.time()
+    route_snapshot["router_eval_ts"] = route_eval_ts
     shadow_updated_pre_route = False
     pre_route_candidate_regime = None
-    if (
-        _router_flag(cfg, "auto_use_current_cycle_shadow", False)
-        and configured_regime == TOKEN_REGIME_AUTO
-    ):
-        pre_route_candidate_regime = detect_regime(snapshot, regime_cfg)
-        _record_shadow_regime_metrics(
-            symbol=symbol,
-            snapshot=snapshot,
-            candidate_regime=pre_route_candidate_regime,
-            cfg=cfg,
-        )
-        shadow_updated_pre_route = True
 
-    if (
-        _router_flag(cfg, "auto_use_multitimeframe_advisory", False)
-        and configured_regime == TOKEN_REGIME_AUTO
-    ):
-        route_snapshot = dict(snapshot)
+    if configured_regime == TOKEN_REGIME_AUTO:
         existing_advisory = route_snapshot.get("regime_advisory")
-        if not isinstance(existing_advisory, dict) or not existing_advisory:
-            runtime_advisory = _build_runtime_multitimeframe_advisory(
-                snapshot=snapshot,
-                now_epoch=time.time(),
+        existing_advisory_valid = isinstance(existing_advisory, dict) and bool(existing_advisory)
+
+        if existing_advisory_valid:
+            route_snapshot["regime_eval_ts"] = (
+                _parse_numeric(existing_advisory.get("analysisAnchorEpoch"), fallback=None)
+                or _parse_numeric(existing_advisory.get("analysis_anchor_epoch"), fallback=None)
+                or _parse_numeric(existing_advisory.get("detectionTimestampEpoch"), fallback=None)
+                or _parse_numeric(existing_advisory.get("detection_timestamp_epoch"), fallback=None)
+                or route_eval_ts
             )
-            if isinstance(runtime_advisory, dict):
-                route_snapshot["regime_advisory"] = runtime_advisory
+        else:
+            runtime_advisory_v2 = evaluate_regime_v2(
+                snapshot=route_snapshot,
+                now_epoch=route_eval_ts,
+                cfg=cfg,
+            )
+            if isinstance(runtime_advisory_v2, dict):
+                route_snapshot["regime_advisory"] = runtime_advisory_v2
+                route_snapshot["regime_eval_ts"] = _parse_numeric(
+                    runtime_advisory_v2.get("analysisAnchorEpoch"),
+                    fallback=route_eval_ts,
+                ) or route_eval_ts
+            else:
+                route_snapshot["regime_eval_ts"] = route_eval_ts
+
+        if _router_flag(cfg, "auto_use_current_cycle_shadow", False):
+            pre_route_candidate_regime = detect_regime(snapshot, regime_cfg)
+            _record_shadow_regime_metrics(
+                symbol=symbol,
+                snapshot=snapshot,
+                candidate_regime=pre_route_candidate_regime,
+                cfg=cfg,
+            )
+            shadow_updated_pre_route = True
 
     entry_route = resolve_entry_route(
         cfg=cfg,
@@ -630,13 +662,22 @@ def _record_route_metadata(symbol: str, route: dict):
         fallback=None,
     )
     detected_confidence_label = route.get("detected_regime_confidence_label")
+    detected_stability = _parse_numeric(route.get("detected_regime_stability"), fallback=None)
+    detected_persistence = _parse_numeric(route.get("detected_regime_persistence"), fallback=None)
+    regime_data_quality_status = route.get("regime_data_quality_status")
+    regime_key_windows_supported = route.get("regime_key_windows_supported")
+    suggested_regime_v2 = route.get("suggested_regime_v2")
     detection_source = route.get("detection_source")
     detection_timestamp_epoch = _parse_numeric(
         route.get("detection_timestamp_epoch"),
         fallback=None,
     )
     effective = route.get("effective_strategy")
+    effective_route = route.get("effective_route")
+    route_eval_ts = _parse_numeric(route.get("route_eval_ts"), fallback=None)
+    regime_eval_ts = _parse_numeric(route.get("regime_eval_ts"), fallback=None)
     fallback_reason = route.get("auto_fallback_reason")
+    fallback_reason_v2 = route.get("fallback_reason")
     changed = False
 
     if isinstance(configured, str) and configured:
@@ -670,6 +711,51 @@ def _record_route_metadata(symbol: str, route: dict):
             _last_detected_regime_confidence_label.pop(symbol, None)
             changed = True
 
+    if detected_stability is None:
+        if symbol in _last_detected_regime_stability:
+            _last_detected_regime_stability.pop(symbol, None)
+            changed = True
+    else:
+        if _last_detected_regime_stability.get(symbol) != detected_stability:
+            _last_detected_regime_stability[symbol] = detected_stability
+            changed = True
+
+    if detected_persistence is None:
+        if symbol in _last_detected_regime_persistence:
+            _last_detected_regime_persistence.pop(symbol, None)
+            changed = True
+    else:
+        if _last_detected_regime_persistence.get(symbol) != detected_persistence:
+            _last_detected_regime_persistence[symbol] = detected_persistence
+            changed = True
+
+    if isinstance(regime_data_quality_status, str) and regime_data_quality_status:
+        if _last_regime_data_quality_status.get(symbol) != regime_data_quality_status:
+            _last_regime_data_quality_status[symbol] = regime_data_quality_status
+            changed = True
+    else:
+        if symbol in _last_regime_data_quality_status:
+            _last_regime_data_quality_status.pop(symbol, None)
+            changed = True
+
+    if isinstance(regime_key_windows_supported, bool):
+        if _last_regime_key_windows_supported.get(symbol) != regime_key_windows_supported:
+            _last_regime_key_windows_supported[symbol] = regime_key_windows_supported
+            changed = True
+    else:
+        if symbol in _last_regime_key_windows_supported:
+            _last_regime_key_windows_supported.pop(symbol, None)
+            changed = True
+
+    if isinstance(suggested_regime_v2, str) and suggested_regime_v2:
+        if _last_suggested_regime_v2.get(symbol) != suggested_regime_v2:
+            _last_suggested_regime_v2[symbol] = suggested_regime_v2
+            changed = True
+    else:
+        if symbol in _last_suggested_regime_v2:
+            _last_suggested_regime_v2.pop(symbol, None)
+            changed = True
+
     if isinstance(detection_source, str) and detection_source:
         if _last_detection_source.get(symbol) != detection_source:
             _last_detection_source[symbol] = detection_source
@@ -697,6 +783,37 @@ def _record_route_metadata(symbol: str, route: dict):
             _last_effective_strategy.pop(symbol, None)
             changed = True
 
+    if isinstance(effective_route, str) and effective_route:
+        if _last_effective_route.get(symbol) != effective_route:
+            _last_effective_route[symbol] = effective_route
+            changed = True
+    elif isinstance(effective, str) and effective:
+        if _last_effective_route.get(symbol) != effective:
+            _last_effective_route[symbol] = effective
+            changed = True
+    else:
+        if symbol in _last_effective_route:
+            _last_effective_route.pop(symbol, None)
+            changed = True
+
+    if route_eval_ts is None:
+        if symbol in _last_route_eval_ts:
+            _last_route_eval_ts.pop(symbol, None)
+            changed = True
+    else:
+        if _last_route_eval_ts.get(symbol) != route_eval_ts:
+            _last_route_eval_ts[symbol] = route_eval_ts
+            changed = True
+
+    if regime_eval_ts is None:
+        if symbol in _last_regime_eval_ts:
+            _last_regime_eval_ts.pop(symbol, None)
+            changed = True
+    else:
+        if _last_regime_eval_ts.get(symbol) != regime_eval_ts:
+            _last_regime_eval_ts[symbol] = regime_eval_ts
+            changed = True
+
     if isinstance(fallback_reason, str) and fallback_reason:
         if _last_auto_fallback_reason.get(symbol) != fallback_reason:
             _last_auto_fallback_reason[symbol] = fallback_reason
@@ -704,6 +821,19 @@ def _record_route_metadata(symbol: str, route: dict):
     else:
         if symbol in _last_auto_fallback_reason:
             _last_auto_fallback_reason.pop(symbol, None)
+            changed = True
+
+    if isinstance(fallback_reason_v2, str) and fallback_reason_v2:
+        if _last_fallback_reason.get(symbol) != fallback_reason_v2:
+            _last_fallback_reason[symbol] = fallback_reason_v2
+            changed = True
+    elif isinstance(fallback_reason, str) and fallback_reason:
+        if _last_fallback_reason.get(symbol) != fallback_reason:
+            _last_fallback_reason[symbol] = fallback_reason
+            changed = True
+    else:
+        if symbol in _last_fallback_reason:
+            _last_fallback_reason.pop(symbol, None)
             changed = True
 
     if changed:
@@ -1121,10 +1251,19 @@ def _save_strategy_state():
         "last_detected_regime": _last_detected_regime,
         "last_detected_regime_confidence": _last_detected_regime_confidence,
         "last_detected_regime_confidence_label": _last_detected_regime_confidence_label,
+        "last_detected_regime_stability": _last_detected_regime_stability,
+        "last_detected_regime_persistence": _last_detected_regime_persistence,
+        "last_regime_data_quality_status": _last_regime_data_quality_status,
+        "last_regime_key_windows_supported": _last_regime_key_windows_supported,
+        "last_suggested_regime_v2": _last_suggested_regime_v2,
         "last_detection_source": _last_detection_source,
         "last_detection_timestamp_epoch": _last_detection_timestamp_epoch,
         "last_effective_strategy": _last_effective_strategy,
+        "last_effective_route": _last_effective_route,
+        "last_route_eval_ts": _last_route_eval_ts,
+        "last_regime_eval_ts": _last_regime_eval_ts,
         "last_auto_fallback_reason": _last_auto_fallback_reason,
+        "last_fallback_reason": _last_fallback_reason,
         "shadow_regime_state": _shadow_regime_state,
     }
 
@@ -1155,10 +1294,19 @@ def _load_strategy_state():
         _last_detected_regime.update(state.get("last_detected_regime", {}))
         _last_detected_regime_confidence.update(state.get("last_detected_regime_confidence", {}))
         _last_detected_regime_confidence_label.update(state.get("last_detected_regime_confidence_label", {}))
+        _last_detected_regime_stability.update(state.get("last_detected_regime_stability", {}))
+        _last_detected_regime_persistence.update(state.get("last_detected_regime_persistence", {}))
+        _last_regime_data_quality_status.update(state.get("last_regime_data_quality_status", {}))
+        _last_regime_key_windows_supported.update(state.get("last_regime_key_windows_supported", {}))
+        _last_suggested_regime_v2.update(state.get("last_suggested_regime_v2", {}))
         _last_detection_source.update(state.get("last_detection_source", {}))
         _last_detection_timestamp_epoch.update(state.get("last_detection_timestamp_epoch", {}))
         _last_effective_strategy.update(state.get("last_effective_strategy", {}))
+        _last_effective_route.update(state.get("last_effective_route", {}))
+        _last_route_eval_ts.update(state.get("last_route_eval_ts", {}))
+        _last_regime_eval_ts.update(state.get("last_regime_eval_ts", {}))
         _last_auto_fallback_reason.update(state.get("last_auto_fallback_reason", {}))
+        _last_fallback_reason.update(state.get("last_fallback_reason", {}))
         _shadow_regime_state.update(
             normalize_shadow_state(state.get("shadow_regime_state", {}))
         )
@@ -1201,10 +1349,19 @@ def _cleanup(symbol, price):
     _last_detected_regime.pop(symbol, None)
     _last_detected_regime_confidence.pop(symbol, None)
     _last_detected_regime_confidence_label.pop(symbol, None)
+    _last_detected_regime_stability.pop(symbol, None)
+    _last_detected_regime_persistence.pop(symbol, None)
+    _last_regime_data_quality_status.pop(symbol, None)
+    _last_regime_key_windows_supported.pop(symbol, None)
+    _last_suggested_regime_v2.pop(symbol, None)
     _last_detection_source.pop(symbol, None)
     _last_detection_timestamp_epoch.pop(symbol, None)
     _last_effective_strategy.pop(symbol, None)
+    _last_effective_route.pop(symbol, None)
+    _last_route_eval_ts.pop(symbol, None)
+    _last_regime_eval_ts.pop(symbol, None)
     _last_auto_fallback_reason.pop(symbol, None)
+    _last_fallback_reason.pop(symbol, None)
 
 
 def _decision(symbol, action, price, momentum, reason):
@@ -1230,14 +1387,32 @@ def _decision(symbol, action, price, momentum, reason):
         payload["detected_regime_confidence"] = _last_detected_regime_confidence[symbol]
     if symbol in _last_detected_regime_confidence_label:
         payload["detected_regime_confidence_label"] = _last_detected_regime_confidence_label[symbol]
+    if symbol in _last_detected_regime_stability:
+        payload["detected_regime_stability"] = _last_detected_regime_stability[symbol]
+    if symbol in _last_detected_regime_persistence:
+        payload["detected_regime_persistence"] = _last_detected_regime_persistence[symbol]
+    if symbol in _last_regime_data_quality_status:
+        payload["regime_data_quality_status"] = _last_regime_data_quality_status[symbol]
+    if symbol in _last_regime_key_windows_supported:
+        payload["regime_key_windows_supported"] = _last_regime_key_windows_supported[symbol]
+    if symbol in _last_suggested_regime_v2:
+        payload["suggested_regime_v2"] = _last_suggested_regime_v2[symbol]
     if symbol in _last_detection_source:
         payload["detection_source"] = _last_detection_source[symbol]
     if symbol in _last_detection_timestamp_epoch:
         payload["detection_timestamp_epoch"] = _last_detection_timestamp_epoch[symbol]
     if symbol in _last_effective_strategy:
         payload["effective_strategy"] = _last_effective_strategy[symbol]
+    if symbol in _last_effective_route:
+        payload["effective_route"] = _last_effective_route[symbol]
+    if symbol in _last_route_eval_ts:
+        payload["route_eval_ts"] = _last_route_eval_ts[symbol]
+    if symbol in _last_regime_eval_ts:
+        payload["regime_eval_ts"] = _last_regime_eval_ts[symbol]
     if symbol in _last_auto_fallback_reason:
         payload["auto_fallback_reason"] = _last_auto_fallback_reason[symbol]
+    if symbol in _last_fallback_reason:
+        payload["fallback_reason"] = _last_fallback_reason[symbol]
     return payload
 
 

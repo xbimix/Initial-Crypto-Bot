@@ -80,10 +80,17 @@ type DashboardPayload = {
     symbol: string;
     configuredRegime: string;
     detectedRegime: string | null;
+    suggestedRegimeV2?: string | null;
     detectedRegimeConfidenceLabel: string;
     detectedRegimeConfidenceScore: number | null;
+    detectedRegimeStabilityScore: number | null;
+    detectedRegimePersistenceScore?: number | null;
+    detectedRegimeDataQualityStatus?: string;
+    detectedRegimeKeyWindowsSupported?: boolean;
     detectionSource: string;
     detectionTimestampEpoch: number | null;
+    routeEvalTimestampEpoch?: number | null;
+    regimeEvalTimestampEpoch?: number | null;
     detectionTimestampAt: string | null;
     detectedRegimeExplanation: string;
     detectedRegimeStructureBias: string;
@@ -93,9 +100,10 @@ type DashboardPayload = {
     detectedRegimeRangeScore: number | null;
     detectedRegimeBreakoutScore: number | null;
     detectedRegimeMixedScore: number | null;
-    detectedRegimeStabilityScore: number | null;
     effectiveStrategy: string;
+    effectiveRoute?: string;
     autoFallbackReason: string | null;
+    fallbackReason?: string | null;
     buyEnabled: boolean;
     sellEnabled: boolean;
     hasOpenPosition: boolean;
@@ -141,6 +149,10 @@ type DashboardPayload = {
     volatilityOpportunityInsufficientData: boolean;
     volatilityOpportunityInsufficientReasonCode: string | null;
     volatilityOpportunityInsufficientReasonMessage: string | null;
+    volatilityDataQualityStatus: string;
+    volatilityDataQualityReason: string;
+    regimeDataQualityStatus: string;
+    regimeDataQualityReason: string;
   }>;
   chart: {
     points: number[];
@@ -256,6 +268,24 @@ type PositionSortKey =
   | "worstDip"
   | "bounce";
 
+type ManualStoplossType = "pct" | "price";
+
+type ManualStoplossRule = {
+  enabled: boolean;
+  type: ManualStoplossType;
+  value: number | null;
+  updated_at?: number | null;
+  trigger_price?: number | null;
+  last_trigger_at?: number | null;
+  last_trigger_price?: number | null;
+};
+
+type ManualStoplossDraft = {
+  enabled: boolean;
+  type: ManualStoplossType;
+  valueText: string;
+};
+
 const COIN_NAME_BY_BASE: Record<string, string> = {
   ADA: "Cardano",
   ACH: "Alchemy Pay",
@@ -332,6 +362,40 @@ function formatCompactCurrency(value: number) {
 function formatPercent(value: number) {
   const sign = value > 0 ? "+" : "";
   return `${sign}${percentFormatter.format(value)}%`;
+}
+
+function normalizeStoplossType(value: unknown): ManualStoplossType {
+  return String(value ?? "").trim().toLowerCase() === "price" ? "price" : "pct";
+}
+
+function toManualStoplossRule(value: unknown): ManualStoplossRule | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  const numericValue = Number(record.value);
+  const valueNumber = Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null;
+  return {
+    enabled: record.enabled === true && valueNumber !== null,
+    type: normalizeStoplossType(record.type),
+    value: valueNumber,
+    updated_at: Number.isFinite(Number(record.updated_at)) ? Number(record.updated_at) : null,
+    trigger_price: Number.isFinite(Number(record.trigger_price)) ? Number(record.trigger_price) : null,
+    last_trigger_at: Number.isFinite(Number(record.last_trigger_at))
+      ? Number(record.last_trigger_at)
+      : null,
+    last_trigger_price: Number.isFinite(Number(record.last_trigger_price))
+      ? Number(record.last_trigger_price)
+      : null,
+  };
+}
+
+function buildManualStoplossDraft(rule: ManualStoplossRule | null | undefined): ManualStoplossDraft {
+  return {
+    enabled: rule?.enabled === true,
+    type: rule?.type ?? "pct",
+    valueText: rule?.value !== null && rule?.value !== undefined ? String(rule.value) : "",
+  };
 }
 
 function formatUnits(value: number) {
@@ -623,6 +687,76 @@ function confidenceLabel(label: string | null) {
   return "N/A";
 }
 
+function confidenceScoreFromLabel(label: string | null) {
+  if (label === "HIGH") {
+    return 3;
+  }
+  if (label === "MEDIUM") {
+    return 2;
+  }
+  if (label === "LOW") {
+    return 1;
+  }
+  return 0;
+}
+
+function dataQualityRank(status: string | null | undefined) {
+  const value = String(status ?? "").toUpperCase();
+  if (value === "GOOD") {
+    return 5;
+  }
+  if (value === "PARTIAL") {
+    return 4;
+  }
+  if (value === "STALE") {
+    return 3;
+  }
+  if (value === "INSUFFICIENT") {
+    return 2;
+  }
+  if (value === "UNSUPPORTED_WINDOW") {
+    return 1;
+  }
+  return 0;
+}
+
+function dataQualityStyle(status: string | null | undefined) {
+  const value = String(status ?? "").toUpperCase();
+  if (value === "GOOD") {
+    return {
+      backgroundColor: "#16a34a",
+      borderColor: "#16a34a",
+      color: "#ffffff",
+    };
+  }
+  if (value === "PARTIAL") {
+    return {
+      backgroundColor: "#0284c7",
+      borderColor: "#0284c7",
+      color: "#ffffff",
+    };
+  }
+  if (value === "STALE") {
+    return {
+      backgroundColor: "#d97706",
+      borderColor: "#d97706",
+      color: "#ffffff",
+    };
+  }
+  if (value === "INSUFFICIENT" || value === "UNSUPPORTED_WINDOW") {
+    return {
+      backgroundColor: "#dc2626",
+      borderColor: "#dc2626",
+      color: "#ffffff",
+    };
+  }
+  return {
+    backgroundColor: "rgba(148, 163, 184, 0.14)",
+    borderColor: "rgba(148, 163, 184, 0.35)",
+    color: "#cbd5e1",
+  };
+}
+
 function formatHours(value: number | null) {
   if (value === null || !Number.isFinite(value) || value < 0) {
     return "N/A";
@@ -728,12 +862,22 @@ export default function RevbotDashboard() {
   const [busyScalper, setBusyScalper] = useState<string | null>(null);
   const [busyRegime, setBusyRegime] = useState<string | null>(null);
   const [busyManualSell, setBusyManualSell] = useState<string | null>(null);
+  const [busyManualStoploss, setBusyManualStoploss] = useState<string | null>(null);
   const [busyCloseAll, setBusyCloseAll] = useState(false);
   const [busyCooldown, setBusyCooldown] = useState(false);
+  const [manualStoplossRules, setManualStoplossRules] = useState<Record<string, ManualStoplossRule>>({});
+  const [manualStoplossDrafts, setManualStoplossDrafts] = useState<Record<string, ManualStoplossDraft>>({});
   const [riskDraft, setRiskDraft] = useState<RiskDraft | null>(null);
   const [volatilitySortKey, setVolatilitySortKey] = useState<
     "score" | "stretch" | "volatility" | "bounce"
   >("score");
+  const [controlSort, setControlSort] = useState<{
+    key: "symbol" | "regime" | "confidence" | "volatility" | "buyOpportunity" | "dataQuality";
+    direction: "asc" | "desc";
+  }>({
+    key: "symbol",
+    direction: "asc",
+  });
   const [positionSort, setPositionSort] = useState<{
     key: PositionSortKey;
     direction: "asc" | "desc";
@@ -748,18 +892,76 @@ export default function RevbotDashboard() {
   const [riskDirty, setRiskDirty] = useState(false);
   const [savingRisk, setSavingRisk] = useState(false);
 
+  const syncManualStoplossDrafts = useCallback(
+    (
+      positions: DashboardPayload["positions"],
+      rules: Record<string, ManualStoplossRule>,
+      forceServerValues = false,
+    ) => {
+      setManualStoplossDrafts((previous) => {
+        const next: Record<string, ManualStoplossDraft> = {};
+        for (const position of positions) {
+          const symbol = position.symbol;
+          if (!forceServerValues && previous[symbol]) {
+            next[symbol] = previous[symbol];
+            continue;
+          }
+          next[symbol] = buildManualStoplossDraft(rules[symbol]);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
   const loadDashboard = useCallback(async () => {
     try {
+      try {
+        await fetch("/api/manual-stoploss", {
+          method: "POST",
+          headers: buildMutatingAuthHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ action: "check" }),
+        });
+      } catch {
+        // best-effort only; dashboard fetch still proceeds
+      }
+
       const response = await fetch("/api/dashboard", { cache: "no-store" });
       if (!response.ok) {
         throw new Error(`Dashboard request failed (${response.status})`);
       }
 
       const payload = (await response.json()) as DashboardPayload;
+      let stoplossRules: Record<string, ManualStoplossRule> = {};
+      try {
+        const stoplossResponse = await fetch("/api/manual-stoploss", { cache: "no-store" });
+        if (stoplossResponse.ok) {
+          const rawPayload = (await stoplossResponse.json()) as {
+            rules?: Record<string, unknown>;
+          };
+          const rawRules = rawPayload.rules ?? {};
+          if (rawRules && typeof rawRules === "object" && !Array.isArray(rawRules)) {
+            const nextRules: Record<string, ManualStoplossRule> = {};
+            for (const [symbol, rawRule] of Object.entries(rawRules)) {
+              const parsed = toManualStoplossRule(rawRule);
+              if (!parsed) {
+                continue;
+              }
+              nextRules[symbol] = parsed;
+            }
+            stoplossRules = nextRules;
+          }
+        }
+      } catch {
+        // fallback for stoploss state is optional at render time
+      }
+
       startTransition(() => {
         setData(payload);
         setError(null);
       });
+      setManualStoplossRules(stoplossRules);
+      syncManualStoplossDrafts(payload.positions, stoplossRules);
 
       if (!riskDirty) {
         setRiskDraft({
@@ -799,7 +1001,7 @@ export default function RevbotDashboard() {
           : "Unable to load dashboard";
       setError(message);
     }
-  }, [riskDirty]);
+  }, [riskDirty, syncManualStoplossDrafts]);
 
   function applyRiskDraft(changes: Partial<RiskDraft>) {
     if (!data) {
@@ -1176,6 +1378,75 @@ export default function RevbotDashboard() {
     }
   }
 
+  function updateManualStoplossDraft(
+    symbol: string,
+    changes: Partial<ManualStoplossDraft>,
+  ) {
+    setManualStoplossDrafts((previous) => {
+      const current = previous[symbol] ?? buildManualStoplossDraft(manualStoplossRules[symbol]);
+      return {
+        ...previous,
+        [symbol]: {
+          ...current,
+          ...changes,
+        },
+      };
+    });
+  }
+
+  async function saveManualStoploss(symbol: string) {
+    const draft = manualStoplossDrafts[symbol] ?? buildManualStoplossDraft(manualStoplossRules[symbol]);
+    const numericValue = Number(draft.valueText);
+    const value = Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null;
+
+    if (draft.enabled && value === null) {
+      setError("Stoploss value must be a positive number.");
+      return;
+    }
+
+    setBusyManualStoploss(symbol);
+    try {
+      const response = await fetch("/api/manual-stoploss", {
+        method: "POST",
+        headers: buildMutatingAuthHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({
+          symbol,
+          enabled: draft.enabled,
+          type: draft.type,
+          value,
+        }),
+      });
+      if (!response.ok) {
+        const details = await response.text();
+        throw new Error(
+          `Manual stoploss update failed (${response.status})${details ? `: ${details}` : ""}`,
+        );
+      }
+
+      const payload = (await response.json()) as { rule?: unknown };
+      const parsedRule = toManualStoplossRule(payload.rule);
+      if (parsedRule) {
+        setManualStoplossRules((previous) => ({ ...previous, [symbol]: parsedRule }));
+        syncManualStoplossDrafts(
+          data?.positions ?? [],
+          { ...manualStoplossRules, [symbol]: parsedRule },
+          true,
+        );
+      }
+
+      setError(null);
+      await loadDashboard();
+    } catch (requestError) {
+      const message =
+        requestError instanceof Error
+          ? requestError.message
+          : "Manual stoploss update failed";
+      setError(message);
+    } finally {
+      setBusyManualStoploss(null);
+    }
+  }
+
   function setPositionSortKey(key: PositionSortKey) {
     setPositionSort((previous) => {
       if (previous.key === key) {
@@ -1215,8 +1486,8 @@ export default function RevbotDashboard() {
 
   if (!data) {
     return (
-      <main className="rb-page min-h-screen px-4 py-8 sm:px-6 lg:px-8">
-        <div className="rb-shell mx-auto flex w-full max-w-[1360px] justify-center">
+      <main className="rb-page min-h-screen px-3 py-8 sm:px-4 lg:px-6">
+        <div className="rb-shell mx-auto flex w-full max-w-[1720px] justify-center">
           <div className="hidden w-20 shrink-0 rounded-md border border-white/8 bg-black/40 lg:block" />
           <div className="flex-1 space-y-8">
             <div className="h-[420px] animate-pulse rounded-md border border-white/8 bg-white/[0.04]" />
@@ -1260,15 +1531,31 @@ export default function RevbotDashboard() {
       .sort((left, right) => right.unrealizedValue - left.unrealizedValue)[0]
       ?.symbol ?? null;
   const sortedSymbolControls = [...data.symbolControls].sort((left, right) => {
-    if (left.hasOpenPosition !== right.hasOpenPosition) {
-      return left.hasOpenPosition ? -1 : 1;
-    }
-    if (left.hasOpenPosition && right.hasOpenPosition) {
-      const leftRank = left.capitalWasteRank ?? Number.MAX_SAFE_INTEGER;
-      const rightRank = right.capitalWasteRank ?? Number.MAX_SAFE_INTEGER;
-      if (leftRank !== rightRank) {
-        return leftRank - rightRank;
+    const keyOf = (row: DashboardPayload["symbolControls"][number]) => {
+      if (controlSort.key === "regime") {
+        return formatDetectedRegime(row.detectedRegime).toLowerCase();
       }
+      if (controlSort.key === "confidence") {
+        return Number(row.detectedRegimeConfidenceScore ?? confidenceScoreFromLabel(row.detectedRegimeConfidenceLabel));
+      }
+      if (controlSort.key === "volatility") {
+        return String(row.detectedRegimeVolatilityState ?? "unknown").toLowerCase();
+      }
+      if (controlSort.key === "buyOpportunity") {
+        return Number(row.buyOpportunityPct ?? -1);
+      }
+      if (controlSort.key === "dataQuality") {
+        const regimeQuality = dataQualityRank(row.regimeDataQualityStatus);
+        const volatilityQuality = dataQualityRank(row.volatilityDataQualityStatus);
+        return Math.min(regimeQuality, volatilityQuality);
+      }
+      return row.symbol.toLowerCase();
+    };
+    const leftKey = keyOf(left);
+    const rightKey = keyOf(right);
+    const delta = leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+    if (delta !== 0) {
+      return controlSort.direction === "asc" ? delta : -delta;
     }
     return left.symbol.localeCompare(right.symbol);
   });
@@ -1599,8 +1886,8 @@ export default function RevbotDashboard() {
     },
   ];
   return (
-    <main className="rb-page min-h-screen px-4 py-8 sm:px-6 lg:px-8">
-      <div className="rb-shell mx-auto flex w-full max-w-[1360px] justify-center">
+    <main className="rb-page min-h-screen px-3 py-8 sm:px-4 lg:px-6">
+      <div className="rb-shell mx-auto flex w-full max-w-[1720px] justify-center">
         <aside className="hidden">
           <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-[linear-gradient(135deg,#f8fafc,#93c5fd_45%,#f59e0b)] text-lg font-bold text-slate-950">
             R
@@ -1733,15 +2020,107 @@ export default function RevbotDashboard() {
               </div>
             </div>
 
-            <div className="rb-table-wrap mt-4 overflow-x-auto">
-              <table className="min-w-[1320px] w-full">
-                <thead>
+            <div className="rb-table-wrap mt-4 max-h-[560px] overflow-y-auto overflow-x-auto">
+              <table className="min-w-[1480px] w-full">
+                <thead className="sticky top-0 z-10 bg-[#0b1220]">
                   <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.12em] text-slate-400">
-                    <th className="px-3 py-2">Token</th>
+                    <th className="px-3 py-2">
+                      <button
+                        className="text-left"
+                        onClick={() =>
+                          setControlSort((previous) => ({
+                            key: "symbol",
+                            direction:
+                              previous.key === "symbol" && previous.direction === "asc"
+                                ? "desc"
+                                : "asc",
+                          }))
+                        }
+                      >
+                        Token
+                      </button>
+                    </th>
                     <th className="px-3 py-2">Mode</th>
-                    <th className="px-3 py-2">Regime</th>
-                    <th className="px-3 py-2">Detected</th>
-                    <th className="px-3 py-2 text-center">Buy Opportunity</th>
+                    <th className="px-3 py-2">Configured Regime</th>
+                    <th className="px-3 py-2">
+                      <button
+                        className="text-left"
+                        onClick={() =>
+                          setControlSort((previous) => ({
+                            key: "regime",
+                            direction:
+                              previous.key === "regime" && previous.direction === "asc"
+                                ? "desc"
+                                : "asc",
+                          }))
+                        }
+                      >
+                        Regime Suggestion
+                      </button>
+                    </th>
+                    <th className="px-3 py-2">
+                      <button
+                        className="text-left"
+                        onClick={() =>
+                          setControlSort((previous) => ({
+                            key: "confidence",
+                            direction:
+                              previous.key === "confidence" && previous.direction === "desc"
+                                ? "asc"
+                                : "desc",
+                          }))
+                        }
+                      >
+                        Confidence
+                      </button>
+                    </th>
+                    <th className="px-3 py-2">
+                      <button
+                        className="text-left"
+                        onClick={() =>
+                          setControlSort((previous) => ({
+                            key: "volatility",
+                            direction:
+                              previous.key === "volatility" && previous.direction === "asc"
+                                ? "desc"
+                                : "asc",
+                          }))
+                        }
+                      >
+                        Volatility State
+                      </button>
+                    </th>
+                    <th className="px-3 py-2">
+                      <button
+                        className="text-left"
+                        onClick={() =>
+                          setControlSort((previous) => ({
+                            key: "dataQuality",
+                            direction:
+                              previous.key === "dataQuality" && previous.direction === "desc"
+                                ? "asc"
+                                : "desc",
+                          }))
+                        }
+                      >
+                        Data Quality
+                      </button>
+                    </th>
+                    <th className="px-3 py-2 text-center">
+                      <button
+                        onClick={() =>
+                          setControlSort((previous) => ({
+                            key: "buyOpportunity",
+                            direction:
+                              previous.key === "buyOpportunity" && previous.direction === "desc"
+                                ? "asc"
+                                : "desc",
+                          }))
+                        }
+                      >
+                        Buy Opportunity
+                      </button>
+                    </th>
                     <th className="px-3 py-2 text-center">Buy Executable</th>
                     <th className="px-3 py-2 text-center">Scalper</th>
                     <th className="px-3 py-2 text-center">BUY</th>
@@ -1817,26 +2196,83 @@ export default function RevbotDashboard() {
                             >
                               {formatDetectedRegime(control.detectedRegime)}
                             </span>
-                            <span className="text-[10px] uppercase tracking-[0.12em] text-slate-400">
-                              {control.detectedRegimeConfidenceLabel}
-                              {control.detectedRegimeConfidenceScore === null
-                                ? ""
-                                : ` ${control.detectedRegimeConfidenceScore.toFixed(1)}`}
-                            </span>
-                            <span className="text-[10px] uppercase tracking-[0.12em] text-slate-500">
-                              Live {control.regime ?? "unknown"}
+                            <span
+                              className="text-[10px] uppercase tracking-[0.12em] text-slate-500"
+                              title={(control.fallbackReason ?? control.autoFallbackReason) ?? undefined}
+                            >
+                              Route {(control.effectiveRoute ?? control.effectiveStrategy).replace(/_/g, " ")}
                             </span>
                             <span
                               className="text-[10px] uppercase tracking-[0.12em] text-slate-500"
-                              title={control.autoFallbackReason ?? undefined}
+                              title={control.detectedRegimeExplanation}
                             >
-                              Route {control.effectiveStrategy.replace(/_/g, " ")}
+                              V2 {formatDetectedRegime(control.suggestedRegimeV2 ?? control.detectedRegime)}
                             </span>
                             <span
                               className="text-[10px] uppercase tracking-[0.12em] text-slate-500"
                               title={control.detectionTimestampAt ?? undefined}
                             >
                               Source {control.detectionSource.replace(/_/g, " ")}
+                            </span>
+                            {(control.fallbackReason ?? control.autoFallbackReason) ? (
+                              <span className="text-[10px] uppercase tracking-[0.12em] text-amber-300">
+                                Fallback {(control.fallbackReason ?? control.autoFallbackReason ?? "").replace(/_/g, " ")}
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="inline-flex min-w-[98px] justify-center rounded-md border border-white/15 bg-white/[0.04] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-200">
+                              {control.detectedRegimeConfidenceLabel}
+                              {control.detectedRegimeConfidenceScore === null
+                                ? ""
+                                : ` ${control.detectedRegimeConfidenceScore.toFixed(1)}`}
+                            </span>
+                            <div className="h-2 w-20 overflow-hidden rounded-full bg-white/10">
+                              <div
+                                className="h-full rounded-full bg-sky-400"
+                                style={{
+                                  width: `${Math.max(
+                                    0,
+                                    Math.min(100, Number(control.detectedRegimeConfidenceScore ?? 0)),
+                                  )}%`,
+                                }}
+                              />
+                            </div>
+                          </div>
+                          <div className="mt-1 flex flex-wrap gap-1 text-[10px] uppercase tracking-[0.11em] text-slate-400">
+                            <span>
+                              Stability {control.detectedRegimeStabilityScore === null || control.detectedRegimeStabilityScore === undefined ? "n/a" : control.detectedRegimeStabilityScore.toFixed(1)}
+                            </span>
+                            <span>
+                              Persistence {control.detectedRegimePersistenceScore === null || control.detectedRegimePersistenceScore === undefined ? "n/a" : control.detectedRegimePersistenceScore.toFixed(1)}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span
+                            className="inline-flex min-w-[110px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                            style={regimeStyle(control.detectedRegimeVolatilityState)}
+                          >
+                            {formatDetectedRegime(control.detectedRegimeVolatilityState)}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex flex-col gap-1">
+                            <span
+                              className="inline-flex min-w-[110px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                              style={dataQualityStyle(control.regimeDataQualityStatus)}
+                              title={control.regimeDataQualityReason}
+                            >
+                              Regime {control.regimeDataQualityStatus}
+                            </span>
+                            <span
+                              className="inline-flex min-w-[110px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                              style={dataQualityStyle(control.volatilityDataQualityStatus)}
+                              title={control.volatilityDataQualityReason}
+                            >
+                              Volatility {control.volatilityDataQualityStatus}
                             </span>
                           </div>
                         </td>
@@ -2040,9 +2476,9 @@ export default function RevbotDashboard() {
                 {sortedAttentionItems.length} active items
               </span>
             </div>
-            <div className="mt-4 overflow-x-auto rounded-lg border border-white/10 bg-black/25">
+            <div className="rb-table-wrap mt-4 max-h-[560px] overflow-y-auto overflow-x-auto rounded-lg border border-white/10 bg-black/25">
               <table className="min-w-[760px] w-full">
-                <thead>
+                <thead className="sticky top-0 z-10 bg-[#0b1220]">
                   <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.12em] text-slate-400">
                     <th className="px-3 py-2">Token</th>
                     <th className="px-3 py-2">Issue</th>
@@ -2123,9 +2559,9 @@ export default function RevbotDashboard() {
               </div>
             </div>
 
-            <div className="rb-table-wrap mt-5 overflow-x-auto">
+            <div className="rb-table-wrap mt-5 max-h-[560px] overflow-y-auto overflow-x-auto">
               <table className="min-w-[1400px] w-full">
-                <thead>
+                <thead className="sticky top-0 z-10 bg-[#0b1220]">
                   <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.12em] text-slate-400">
                     <th className="px-3 py-2">
                       <button className="text-left" onClick={() => setPositionSortKey("attention")}>
@@ -2247,23 +2683,89 @@ export default function RevbotDashboard() {
                           </div>
                         </td>
                         <td className="px-3 py-2.5 text-center">
-                          <button
-                            onClick={() => manualSell(position)}
-                            disabled={
-                              busyAction !== null ||
-                              busyManualSell !== null ||
-                              busySymbol !== null ||
-                              busyScalper !== null ||
-                              savingRisk
-                            }
-                            className="rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white transition disabled:cursor-not-allowed disabled:opacity-60"
-                            style={{
-                              backgroundColor: manualSellOnProfit ? "#16a34a" : "#dc2626",
-                              borderColor: manualSellOnProfit ? "#16a34a" : "#dc2626",
-                            }}
-                          >
-                            {busyManualSell === position.symbol ? "Selling..." : "Sell"}
-                          </button>
+                          <div className="mx-auto flex w-full max-w-[320px] flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-2">
+                            <button
+                              onClick={() => manualSell(position)}
+                              disabled={
+                                busyAction !== null ||
+                                busyManualSell !== null ||
+                                busySymbol !== null ||
+                                busyScalper !== null ||
+                                savingRisk
+                              }
+                              className="rounded-md border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white transition disabled:cursor-not-allowed disabled:opacity-60"
+                              style={{
+                                backgroundColor: manualSellOnProfit ? "#16a34a" : "#dc2626",
+                                borderColor: manualSellOnProfit ? "#16a34a" : "#dc2626",
+                              }}
+                            >
+                              {busyManualSell === position.symbol ? "Selling..." : "Manual Sell"}
+                            </button>
+                            <div className="space-y-1.5 rounded-md border border-white/10 bg-slate-950/35 p-2 text-[10px]">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-semibold uppercase tracking-[0.12em] text-slate-300">
+                                  Stop Loss
+                                </span>
+                                <label className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-1.5 py-1 text-slate-200">
+                                  <input
+                                    type="checkbox"
+                                    checked={manualStoplossDrafts[position.symbol]?.enabled ?? false}
+                                    onChange={(event) =>
+                                      updateManualStoplossDraft(position.symbol, {
+                                        enabled: event.target.checked,
+                                      })
+                                    }
+                                    disabled={busyManualStoploss !== null}
+                                    className="h-3.5 w-3.5 accent-emerald-500"
+                                  />
+                                  <span>{(manualStoplossDrafts[position.symbol]?.enabled ?? false) ? "On" : "Off"}</span>
+                                </label>
+                              </div>
+                              <div className="grid grid-cols-[86px_1fr_auto] items-center gap-1.5">
+                                <select
+                                  value={manualStoplossDrafts[position.symbol]?.type ?? "pct"}
+                                  onChange={(event) =>
+                                    updateManualStoplossDraft(position.symbol, {
+                                      type: normalizeStoplossType(event.target.value),
+                                    })
+                                  }
+                                  disabled={
+                                    busyManualStoploss !== null ||
+                                    !(manualStoplossDrafts[position.symbol]?.enabled ?? false)
+                                  }
+                                  className="rounded-md border border-white/10 bg-slate-950/70 px-2 py-1 text-[10px] text-slate-200"
+                                >
+                                  <option value="pct">Percent</option>
+                                  <option value="price">Price</option>
+                                </select>
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  step="any"
+                                  min="0"
+                                  value={manualStoplossDrafts[position.symbol]?.valueText ?? ""}
+                                  onChange={(event) =>
+                                    updateManualStoplossDraft(position.symbol, {
+                                      valueText: event.target.value,
+                                    })
+                                  }
+                                  disabled={
+                                    busyManualStoploss !== null ||
+                                    !(manualStoplossDrafts[position.symbol]?.enabled ?? false)
+                                  }
+                                  placeholder={manualStoplossDrafts[position.symbol]?.type === "price" ? "Trigger price" : "Trigger %"}
+                                  className="min-w-0 rounded-md border border-white/10 bg-slate-950/70 px-2 py-1 text-[10px] text-slate-100 placeholder:text-slate-500"
+                                />
+                                <button
+                                  onClick={() => saveManualStoploss(position.symbol)}
+                                  disabled={busyManualStoploss !== null}
+                                  className="rounded-md border border-sky-400/40 bg-sky-500/20 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {busyManualStoploss === position.symbol ? "Saving..." : "Save"}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -2340,9 +2842,9 @@ export default function RevbotDashboard() {
                     </button>
                   </div>
                 </div>
-                <div className="mt-3 overflow-x-auto">
+                <div className="rb-table-wrap mt-3 max-h-[440px] overflow-y-auto overflow-x-auto">
                   <table className="min-w-[760px] w-full">
-                    <thead>
+                    <thead className="sticky top-0 z-10 bg-[#0b1220]">
                       <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.11em] text-slate-400">
                         <th className="px-2 py-2">Symbol</th>
                         <th className="px-2 py-2 text-right">Score</th>
@@ -2406,9 +2908,9 @@ export default function RevbotDashboard() {
                 <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
                   Rolling Symbol Rotation
                 </h3>
-                <div className="mt-3 overflow-x-auto">
+                <div className="rb-table-wrap mt-3 max-h-[440px] overflow-y-auto overflow-x-auto">
                   <table className="min-w-[720px] w-full">
-                    <thead>
+                    <thead className="sticky top-0 z-10 bg-[#0b1220]">
                       <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.11em] text-slate-400">
                         <th className="px-2 py-2">Symbol</th>
                         <th className="px-2 py-2">Status</th>
@@ -2833,9 +3335,9 @@ export default function RevbotDashboard() {
               </span>
             </div>
 
-            <div className="rb-table-wrap mt-4 overflow-x-auto">
+            <div className="rb-table-wrap mt-4 max-h-[560px] overflow-y-auto overflow-x-auto">
               <table className="min-w-[1480px] w-full">
-                <thead>
+                <thead className="sticky top-0 z-10 bg-[#0b1220]">
                   <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.14em] text-slate-400">
                     <th className="px-3 py-2">Symbol</th>
                     <th className="px-3 py-2">Status</th>
@@ -2976,9 +3478,9 @@ export default function RevbotDashboard() {
               </button>
             </div>
 
-            <div className="rb-table-wrap mt-4 overflow-x-auto">
+            <div className="rb-table-wrap mt-4 max-h-[560px] overflow-y-auto overflow-x-auto">
               <table className="min-w-[1320px] w-full">
-                <thead>
+                <thead className="sticky top-0 z-10 bg-[#0b1220]">
                   <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.14em] text-slate-400">
                     <th className="px-3 py-2">Symbol</th>
                     <th className="px-3 py-2 text-right">Score</th>
@@ -3096,9 +3598,9 @@ export default function RevbotDashboard() {
 
                 <MiniChart points={visiblePoints} min={chartMin} max={chartMax} />
 
-                <div className="overflow-x-auto rb-table-wrap">
+                <div className="rb-table-wrap max-h-[420px] overflow-y-auto overflow-x-auto">
                   <table className="min-w-full table-fixed border-collapse">
-                    <thead>
+                    <thead className="sticky top-0 z-10 bg-[#0b1220]">
                       <tr className="border-b border-white/8 bg-white/[0.05] text-left">
                         <th className="w-1/3 px-4 py-3.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-300">
                           Cash reserve
@@ -3180,9 +3682,9 @@ export default function RevbotDashboard() {
                     </div>
                   </div>
 
-                  <div className="rb-table-wrap mt-5 overflow-x-auto">
+                  <div className="rb-table-wrap mt-5 max-h-[420px] overflow-y-auto overflow-x-auto">
                     <table className="min-w-full table-fixed border-collapse">
-                      <thead>
+                      <thead className="sticky top-0 z-10 bg-[#0b1220]">
                         <tr className="border-b border-white/8 bg-white/[0.05] text-left">
                           <th className="w-[16%] px-4 py-3.5 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
                             Metric
@@ -3279,38 +3781,38 @@ export default function RevbotDashboard() {
               </div>
             </div>
 
-            <div className="mt-6 overflow-x-auto rb-table-wrap">
-              <table className="min-w-full table-fixed border-collapse">
-                <thead>
+            <div className="rb-table-wrap mt-6 max-h-[620px] overflow-y-auto overflow-x-auto">
+              <table className="w-full min-w-[1540px] border-collapse">
+                <thead className="sticky top-0 z-10 bg-[#0b1220]">
                   <tr className="border-b border-white/8 bg-white/[0.05] text-left">
-                    <th className="w-[22%] px-4 py-3.5 text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
+                    <th className="w-[20%] px-4 py-3.5 text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
                       Asset
                     </th>
-                    <th className="w-[11%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
+                    <th className="w-[8%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
                       Units
                     </th>
-                    <th className="w-[11%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
+                    <th className="w-[8%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
                       Entry
                     </th>
-                    <th className="w-[11%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-sky-300">
+                    <th className="w-[8%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-sky-300">
                       Spot
                     </th>
-                    <th className="w-[12%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-white">
+                    <th className="w-[10%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-white">
                       Value v
                     </th>
-                    <th className="w-[9%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-sky-300">
+                    <th className="w-[7%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-sky-300">
                       Alloc
                     </th>
-                    <th className="w-[14%] px-4 py-3.5 text-left text-sm font-semibold uppercase tracking-[0.18em] text-amber-200">
+                    <th className="w-[12%] px-4 py-3.5 text-left text-sm font-semibold uppercase tracking-[0.18em] text-amber-200">
                       Lock
                     </th>
-                    <th className="w-[8%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-sky-300">
+                    <th className="w-[7%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-sky-300">
                       Peak
                     </th>
-                    <th className="w-[12%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-emerald-300">
+                    <th className="w-[10%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-emerald-300">
                       P&L
                     </th>
-                    <th className="w-[10%] px-4 py-3.5 text-center text-sm font-semibold uppercase tracking-[0.18em] text-rose-300">
+                    <th className="w-[18%] px-4 py-3.5 text-center text-sm font-semibold uppercase tracking-[0.18em] text-rose-300">
                       Manual
                     </th>
                   </tr>
@@ -3451,24 +3953,90 @@ export default function RevbotDashboard() {
                         </p>
                       </td>
                         <td className="px-4 py-3 text-center">
-                        <button
-                          onClick={() => manualSell(position)}
-                          disabled={
-                            busyAction !== null ||
-                            busyManualSell !== null ||
-                            busySymbol !== null ||
-                            busyScalper !== null ||
-                            savingRisk
-                          }
-                          className="rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition disabled:cursor-not-allowed"
-                          style={{
-                            backgroundColor: manualSellOnProfit ? "#16a34a" : "#dc2626",
-                            borderColor: manualSellOnProfit ? "#16a34a" : "#dc2626",
-                            color: "#ffffff",
-                          }}
-                        >
-                          {busyManualSell === position.symbol ? "Selling..." : "Sell"}
-                        </button>
+                          <div className="mx-auto flex w-full max-w-[340px] flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-2">
+                            <button
+                              onClick={() => manualSell(position)}
+                              disabled={
+                                busyAction !== null ||
+                                busyManualSell !== null ||
+                                busySymbol !== null ||
+                                busyScalper !== null ||
+                                savingRisk
+                              }
+                              className="rounded-md border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition disabled:cursor-not-allowed"
+                              style={{
+                                backgroundColor: manualSellOnProfit ? "#16a34a" : "#dc2626",
+                                borderColor: manualSellOnProfit ? "#16a34a" : "#dc2626",
+                                color: "#ffffff",
+                              }}
+                            >
+                              {busyManualSell === position.symbol ? "Selling..." : "Manual Sell"}
+                            </button>
+                            <div className="space-y-1.5 rounded-md border border-white/10 bg-slate-950/35 p-2 text-[10px]">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-semibold uppercase tracking-[0.12em] text-slate-300">
+                                  Stop Loss
+                                </span>
+                                <label className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.03] px-1.5 py-1 text-slate-200">
+                                  <input
+                                    type="checkbox"
+                                    checked={manualStoplossDrafts[position.symbol]?.enabled ?? false}
+                                    onChange={(event) =>
+                                      updateManualStoplossDraft(position.symbol, {
+                                        enabled: event.target.checked,
+                                      })
+                                    }
+                                    disabled={busyManualStoploss !== null}
+                                    className="h-3.5 w-3.5 accent-emerald-500"
+                                  />
+                                  <span>{(manualStoplossDrafts[position.symbol]?.enabled ?? false) ? "On" : "Off"}</span>
+                                </label>
+                              </div>
+                              <div className="grid grid-cols-[86px_1fr_auto] items-center gap-1.5">
+                                <select
+                                  value={manualStoplossDrafts[position.symbol]?.type ?? "pct"}
+                                  onChange={(event) =>
+                                    updateManualStoplossDraft(position.symbol, {
+                                      type: normalizeStoplossType(event.target.value),
+                                    })
+                                  }
+                                  disabled={
+                                    busyManualStoploss !== null ||
+                                    !(manualStoplossDrafts[position.symbol]?.enabled ?? false)
+                                  }
+                                  className="rounded-md border border-white/10 bg-slate-950/70 px-2 py-1 text-[10px] text-slate-200"
+                                >
+                                  <option value="pct">Percent</option>
+                                  <option value="price">Price</option>
+                                </select>
+                                <input
+                                  type="number"
+                                  inputMode="decimal"
+                                  step="any"
+                                  min="0"
+                                  value={manualStoplossDrafts[position.symbol]?.valueText ?? ""}
+                                  onChange={(event) =>
+                                    updateManualStoplossDraft(position.symbol, {
+                                      valueText: event.target.value,
+                                    })
+                                  }
+                                  disabled={
+                                    busyManualStoploss !== null ||
+                                    !(manualStoplossDrafts[position.symbol]?.enabled ?? false)
+                                  }
+                                  placeholder={manualStoplossDrafts[position.symbol]?.type === "price" ? "Trigger price" : "Trigger %"}
+                                  className="min-w-0 rounded-md border border-white/10 bg-slate-950/70 px-2 py-1 text-[10px] text-slate-100 placeholder:text-slate-500"
+                                />
+                                <button
+                                  onClick={() => saveManualStoploss(position.symbol)}
+                                  disabled={busyManualStoploss !== null}
+                                  className="rounded-md border border-sky-400/40 bg-sky-500/20 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {busyManualStoploss === position.symbol ? "Saving..." : "Save"}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
                         </td>
                       </tr>
                     );

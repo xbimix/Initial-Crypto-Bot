@@ -83,6 +83,15 @@ function buildInsufficient({
   observedHistorySpanMinutes,
   observedPointCount,
 }) {
+  const dataQuality = {
+    status: reasonCode === "stale_snapshot_history" ? "STALE" : "INSUFFICIENT",
+    reason: reasonCode,
+    sample_counts: {
+      observed_points: observedPointCount,
+      required_points: 10,
+    },
+    last_update_ts: null,
+  };
   return {
     score: null,
     label: null,
@@ -102,7 +111,33 @@ function buildInsufficient({
       windows_with_metrics: 0,
       keys_with_metrics: [],
     },
+    volatility_state: "LOW",
+    volatility_score: null,
+    components: {
+      stretch_score: null,
+      volatility_spike_score: null,
+      bounce_context_score: null,
+      liquidity_quality_score: null,
+    },
+    confidence_score: 0,
+    data_quality: dataQuality,
   };
+}
+
+function mapVolatilityState(score) {
+  if (!Number.isFinite(score)) {
+    return "LOW";
+  }
+  if (score >= 80) {
+    return "EXTREME";
+  }
+  if (score >= 60) {
+    return "EXPANDING";
+  }
+  if (score >= 35) {
+    return "NORMAL";
+  }
+  return "LOW";
 }
 
 function computeStretchScore(rows, currentPrice) {
@@ -448,6 +483,14 @@ function analyzeVolatilityOpportunity({
         bounceContextScore,
         liquidityQualityScore,
       });
+  const confidenceScore = confidence === "HIGH" ? 85 : confidence === "MEDIUM" ? 62 : 35;
+  const dataQualityStatus = (
+    latestSnapshotAgeMinutes !== null && latestSnapshotAgeMinutes > (staleSnapshotThresholdSeconds / 60)
+      ? "STALE"
+      : windowsWithMetrics.length >= 3
+        ? "GOOD"
+        : "PARTIAL"
+  );
 
   return {
     symbol,
@@ -471,6 +514,29 @@ function analyzeVolatilityOpportunity({
       total_windows: RADAR_WINDOWS.length,
       windows_with_metrics: windowsWithMetrics.length,
       keys_with_metrics: windowsWithMetrics.map((row) => row.key),
+    },
+    volatility_state: mapVolatilityState(score),
+    volatility_score: score === null ? null : Number(score.toFixed(3)),
+    components: {
+      stretch_score: stretchScore === null ? null : Number(stretchScore.toFixed(3)),
+      volatility_spike_score:
+        volatilitySpikeScore === null ? null : Number(volatilitySpikeScore.toFixed(3)),
+      bounce_context_score:
+        bounceContextScore === null ? null : Number(bounceContextScore.toFixed(3)),
+      liquidity_quality_score:
+        liquidityQualityScore === null ? null : Number(liquidityQualityScore.toFixed(3)),
+    },
+    confidence_score: confidenceScore,
+    data_quality: {
+      status: dataQualityStatus,
+      reason: dataQualityStatus === "GOOD" ? "ok" : "partial_window_coverage",
+      sample_counts: {
+        observed_points: pointCount,
+        required_points: 10,
+        windows_with_metrics: windowsWithMetrics.length,
+        total_windows: RADAR_WINDOWS.length,
+      },
+      last_update_ts: latest?.tsEpoch ? new Date(latest.tsEpoch * 1000).toISOString() : null,
     },
   };
 }

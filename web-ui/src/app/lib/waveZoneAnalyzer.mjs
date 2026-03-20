@@ -354,6 +354,11 @@ function buildInsufficientResult({
   candleCount,
   spanMinutes,
 }) {
+  const qualityStatus = reasonCode === "stale_snapshot_history"
+    ? "STALE"
+    : reasonCode === "insufficient_history_span"
+      ? "PARTIAL"
+      : "INSUFFICIENT";
   return {
     strongest_low_zone: null,
     most_touched_low_zone: null,
@@ -369,6 +374,15 @@ function buildInsufficientResult({
     sample_count: sampleCount,
     candle_count: candleCount,
     data_note: "Insufficient data",
+    data_quality: {
+      status: qualityStatus,
+      reason: reasonCode,
+      sample_counts: {
+        sample_count: sampleCount,
+        candle_count: candleCount,
+      },
+      last_update_ts: null,
+    },
   };
 }
 
@@ -504,6 +518,15 @@ function analyzeSingleTimeframe(points, currentPrice, nowEpoch, timeframe, optio
     candle_count: candles.length,
     zone_width_pct: Number(zoneWidthPct.toFixed(6)),
     lookahead_candles: lookaheadCandles,
+    data_quality: {
+      status: "GOOD",
+      reason: "ok",
+      sample_counts: {
+        sample_count: rows.length,
+        candle_count: candles.length,
+      },
+      last_update_ts: rows.length > 0 ? new Date(rows[rows.length - 1].tsEpoch * 1000).toISOString() : null,
+    },
   };
 }
 
@@ -625,6 +648,18 @@ function analyzeWaveZones({
         ? null
         : Number(latestSnapshotAgeMinutes.toFixed(3)),
       history_point_count: rows.length,
+      data_quality: {
+        status: usedWeight > 0.65 ? "GOOD" : usedWeight > 0 ? "PARTIAL" : "INSUFFICIENT",
+        reason: usedWeight > 0 ? "window_coverage" : "no_valid_windows",
+        sample_counts: {
+          history_point_count: rows.length,
+          weighted_window_coverage: Number((usedWeight * 100).toFixed(3)),
+          total_windows: TIMEFRAME_CONFIG.length,
+        },
+        last_update_ts: latestSnapshotTs === null
+          ? null
+          : new Date(latestSnapshotTs * 1000).toISOString(),
+      },
       data_quality_note: (
         "Derived from observed snapshot history available to the UI. Advisory-only likelihood estimates, not execution logic or guarantees."
       ),

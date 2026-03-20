@@ -10,6 +10,14 @@ type ManualSellBody = {
   action_id?: unknown;
 };
 
+type ManualStoplossBody = {
+  symbol?: unknown;
+  enabled?: unknown;
+  type?: unknown;
+  value?: unknown;
+  action?: unknown;
+};
+
 type RiskBody = {
   maxConcurrentTrades?: unknown;
   maxConcurrentTradesPerToken?: unknown;
@@ -63,6 +71,7 @@ const CONFIG_PATH = path.join(STATE_DIR, "config.json");
 const PAPER_STATE_PATH = path.join(STATE_DIR, "paper_state.json");
 const STRATEGY_STATE_PATH = path.join(STATE_DIR, "strategy_state.json");
 const TRADES_PATH = path.join(STATE_DIR, "trades.json");
+const MANUAL_STOPLOSS_PATH = path.join(STATE_DIR, "manual_stoploss.json");
 const REVOLUT_ACCOUNT_SNAPSHOT_PATH = path.join(STATE_DIR, "revolut_account_snapshot.json");
 const REVOLUT_UNIVERSE_SNAPSHOT_PATH = path.join(STATE_DIR, "revolut_universe_snapshot.json");
 const AUDIT_LOG_PATH = path.join(STATE_DIR, "audit_actions.jsonl");
@@ -295,6 +304,43 @@ function toObject(value: unknown): JsonMap {
 function asFiniteNumber(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeStoplossType(value: unknown): "pct" | "price" {
+  const raw = String(value ?? "").trim().toLowerCase();
+  return raw === "price" ? "price" : "pct";
+}
+
+function sanitizeManualStoplossMap(value: unknown): Record<string, JsonMap> {
+  const map = toObject(value);
+  const output: Record<string, JsonMap> = {};
+  for (const [rawSymbol, rawRule] of Object.entries(map)) {
+    const symbol = normalizeSymbol(rawSymbol);
+    const rule = toObject(rawRule);
+    if (!symbol || Object.keys(rule).length === 0) {
+      continue;
+    }
+    const enabled = rule.enabled === true;
+    const type = normalizeStoplossType(rule.type);
+    const numericValue = asFiniteNumber(rule.value);
+    const valueNumber = (
+      numericValue !== null
+      && Number.isFinite(numericValue)
+      && numericValue > 0
+    )
+      ? numericValue
+      : null;
+    output[symbol] = {
+      enabled: enabled && valueNumber !== null,
+      type,
+      value: valueNumber,
+      updated_at: asFiniteNumber(rule.updated_at) ?? Date.now() / 1000,
+      trigger_price: asFiniteNumber(rule.trigger_price),
+      last_trigger_at: asFiniteNumber(rule.last_trigger_at),
+      last_trigger_price: asFiniteNumber(rule.last_trigger_price),
+    };
+  }
+  return output;
 }
 
 function normalizeActionId(value: unknown): string {
@@ -1220,5 +1266,247 @@ export async function manualSellLocal(body: ManualSellBody) {
       result: payload,
     });
     return payload;
+  });
+}
+
+export async function readManualStoplossLocal() {
+  const raw = await readJson<JsonMap>(MANUAL_STOPLOSS_PATH, {});
+  const rules = sanitizeManualStoplossMap(raw);
+  const activeCount = Object.values(rules).filter((rule) => rule.enabled === true).length;
+  return {
+    status: "ok",
+    rules,
+    activeCount,
+    updatedAt: Date.now() / 1000,
+    fallback: true,
+  };
+}
+
+export async function updateManualStoplossLocal(body: ManualStoplossBody) {
+  const symbol = normalizeSymbol(body.symbol);
+  if (!symbol) {
+    throw new RouteError(400, "Missing symbol");
+  }
+
+  const enabled = body.enabled === true;
+  const type = normalizeStoplossType(body.type);
+  const numericValue = asFiniteNumber(body.value);
+  const value = enabled && numericValue !== null && numericValue > 0
+    ? numericValue
+    : null;
+
+  if (enabled && value === null) {
+    throw new RouteError(400, "value must be a positive number when enabled");
+  }
+
+  return withStateTransaction(async () => {
+    const stoplossMap = sanitizeManualStoplossMap(
+      await readJson<JsonMap>(MANUAL_STOPLOSS_PATH, {}),
+    );
+    const previous = toObject(stoplossMap[symbol]);
+
+    const paperState = toObject(await readJson<JsonMap>(PAPER_STATE_PATH, {}));
+    const positions = toObject(paperState.positions);
+    const position = toObject(positions[symbol]);
+    const entryPrice = asFiniteNumber(position.price);
+
+    let triggerPrice: number | null = null;
+    if (enabled && value !== null) {
+      if (type === "price") {
+        triggerPrice = value;
+      } else if (entryPrice !== null && entryPrice > 0) {
+        triggerPrice = entryPrice * (1 - value / 100);
+      }
+    }
+
+    stoplossMap[symbol] = {
+      enabled,
+      type,
+      value,
+      updated_at: Date.now() / 1000,
+      trigger_price: triggerPrice,
+      last_trigger_at: asFiniteNumber(previous.last_trigger_at),
+      last_trigger_price: asFiniteNumber(previous.last_trigger_price),
+    };
+
+    await writeJsonAtomic(MANUAL_STOPLOSS_PATH, stoplossMap);
+    await appendAuditEvent("manual_stoploss_update_fallback", {
+      old: previous,
+      new: {
+        symbol,
+        enabled,
+        type,
+        value,
+      },
+      result: {
+        trigger_price: triggerPrice,
+      },
+    });
+
+    return {
+      status: "ok",
+      symbol,
+      rule: stoplossMap[symbol],
+      fallback: true,
+    };
+  });
+}
+
+export async function runManualStoplossCheckLocal() {
+  return withStateTransaction(async () => {
+    const stoplossMap = sanitizeManualStoplossMap(
+      await readJson<JsonMap>(MANUAL_STOPLOSS_PATH, {}),
+    );
+    const triggered: JsonMap[] = [];
+    const skipped: JsonMap[] = [];
+
+    if (Object.keys(stoplossMap).length === 0) {
+      return {
+        status: "ok",
+        triggered,
+        skipped,
+        checkedAt: Date.now() / 1000,
+        fallback: true,
+      };
+    }
+
+    const paperState = toObject(await readJson<JsonMap>(PAPER_STATE_PATH, {}));
+    const strategyState = toObject(await readJson<JsonMap>(STRATEGY_STATE_PATH, {}));
+    const tradesRaw = await readJson<unknown>(TRADES_PATH, []);
+    const trades = Array.isArray(tradesRaw) ? tradesRaw.slice() : [];
+
+    const positions = toObject(paperState.positions);
+    let balance = asFiniteNumber(paperState.balance) ?? 0;
+    const nowTs = Date.now() / 1000;
+
+    for (const [symbol, rawRule] of Object.entries(stoplossMap)) {
+      const rule = toObject(rawRule);
+      if (rule.enabled !== true) {
+        continue;
+      }
+
+      const position = toObject(positions[symbol]);
+      if (Object.keys(position).length === 0) {
+        skipped.push({ symbol, reason: "no_open_position" });
+        continue;
+      }
+
+      const entryPrice = asFiniteNumber(position.price);
+      const size = asFiniteNumber(position.size);
+      if (
+        entryPrice === null
+        || entryPrice <= 0
+        || size === null
+        || size <= 0
+      ) {
+        skipped.push({ symbol, reason: "invalid_position" });
+        continue;
+      }
+
+      const type = normalizeStoplossType(rule.type);
+      const value = asFiniteNumber(rule.value);
+      if (value === null || value <= 0) {
+        skipped.push({ symbol, reason: "invalid_rule" });
+        continue;
+      }
+
+      const triggerPrice = type === "price"
+        ? value
+        : entryPrice * (1 - value / 100);
+      if (!(triggerPrice > 0)) {
+        skipped.push({ symbol, reason: "invalid_trigger_price" });
+        continue;
+      }
+
+      const marketPrice = await readLatestSnapshotPrice(symbol);
+      if (marketPrice === null || marketPrice <= 0) {
+        skipped.push({ symbol, reason: "price_unavailable" });
+        continue;
+      }
+
+      if (marketPrice > triggerPrice) {
+        continue;
+      }
+
+      const pnl = (marketPrice - entryPrice) * size;
+      const proceeds = marketPrice * size;
+      balance += proceeds;
+
+      delete positions[symbol];
+      for (const key of [
+        "entry_price",
+        "entry_time",
+        "profit_lock",
+        "peak_pnl",
+        "last_signal",
+        "last_momentum",
+        "last_regime",
+        "last_score",
+        "last_volatility",
+        "last_configured_regime",
+        "last_detected_regime",
+        "last_detected_regime_confidence",
+        "last_detected_regime_confidence_label",
+        "last_effective_strategy",
+        "last_auto_fallback_reason",
+      ]) {
+        const section = toObject(strategyState[key]);
+        delete section[symbol];
+        strategyState[key] = section;
+      }
+
+      trades.push({
+        time: nowTs,
+        symbol,
+        side: "SELL",
+        price: marketPrice,
+        size,
+        pnl,
+        balance,
+        reason: `manual_user_stoploss_${type}`,
+      });
+
+      stoplossMap[symbol] = {
+        ...rule,
+        enabled: false,
+        type,
+        value,
+        trigger_price: triggerPrice,
+        last_trigger_at: nowTs,
+        last_trigger_price: marketPrice,
+        updated_at: nowTs,
+      };
+
+      triggered.push({
+        symbol,
+        triggerType: type,
+        triggerValue: value,
+        triggerPrice,
+        sellPrice: marketPrice,
+        pnl,
+      });
+    }
+
+    paperState.positions = positions;
+    paperState.balance = balance;
+    await writeJsonAtomic(PAPER_STATE_PATH, paperState);
+    await writeJsonAtomic(STRATEGY_STATE_PATH, strategyState);
+    await writeJsonAtomic(TRADES_PATH, trades);
+    await writeJsonAtomic(MANUAL_STOPLOSS_PATH, stoplossMap);
+
+    if (triggered.length > 0) {
+      await appendAuditEvent("manual_stoploss_trigger_fallback", {
+        new: { triggered },
+        result: { triggeredCount: triggered.length },
+      });
+    }
+
+    return {
+      status: "ok",
+      triggered,
+      skipped,
+      checkedAt: nowTs,
+      fallback: true,
+    };
   });
 }

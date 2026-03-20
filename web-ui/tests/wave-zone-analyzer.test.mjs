@@ -111,6 +111,8 @@ run("analyzer returns strongest zones + advisory likelihood shape on clean bounc
   assert.ok(result.summary.weighted_high_revisit_likelihood_pct >= 0);
   assert.ok(result.summary.weighted_high_revisit_likelihood_pct <= 100);
   assert.ok(typeof result.timeframes["24h"].insufficient_data === "boolean");
+  assert.ok(typeof result.summary.data_quality?.status === "string");
+  assert.ok(typeof result.timeframes["24h"].data_quality?.status === "string");
 });
 
 run("analyzer handles insufficient data across all configured windows", () => {
@@ -133,6 +135,7 @@ run("analyzer handles insufficient data across all configured windows", () => {
     assert.ok(typeof result.timeframes[timeframe.key].insufficient_reason_message === "string");
     assert.ok(Number.isFinite(result.timeframes[timeframe.key].observed_history_span_minutes));
     assert.ok(Number.isFinite(result.timeframes[timeframe.key].observed_candle_count));
+    assert.ok(typeof result.timeframes[timeframe.key].data_quality?.status === "string");
   }
 });
 

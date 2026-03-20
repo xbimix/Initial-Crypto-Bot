@@ -65,10 +65,19 @@ def reset_strategy_globals(monkeypatch, tmp_path: Path):
         "_last_detected_regime",
         "_last_detected_regime_confidence",
         "_last_detected_regime_confidence_label",
+        "_last_detected_regime_stability",
+        "_last_detected_regime_persistence",
+        "_last_regime_data_quality_status",
+        "_last_regime_key_windows_supported",
+        "_last_suggested_regime_v2",
         "_last_detection_source",
         "_last_detection_timestamp_epoch",
         "_last_effective_strategy",
+        "_last_effective_route",
+        "_last_route_eval_ts",
+        "_last_regime_eval_ts",
         "_last_auto_fallback_reason",
+        "_last_fallback_reason",
         "_shadow_regime_state",
     ):
         getattr(se, mapping_name).clear()
@@ -138,7 +147,7 @@ def test_profit_lock_exit_regression():
     assert str(sell_decision["reason"]).startswith("profit_lock_exit_")
 
 
-def test_volatility_scalper_buy_regression():
+def test_auto_with_scalper_override_falls_back_to_mean_reversion_until_confident():
     cfg = _base_cfg()
     cfg["symbol_strategies"] = {"GST-USD": "volatility_scalper"}
     cfg["volatility_scalper"] = {"symbols": ["GST-USD"]}
@@ -160,8 +169,9 @@ def test_volatility_scalper_buy_regression():
         cfg,
     )
 
-    assert decision["action"] == "BUY"
-    assert decision["reason"] == "volatility_scalper_entry"
+    assert decision["action"] == "HOLD"
+    assert decision["effective_strategy"] == "mean_reversion"
+    assert decision.get("auto_fallback_reason") == "insufficient_shadow_state"
 
 
 def test_shadow_regime_telemetry_is_additive_only():

@@ -119,6 +119,8 @@ run("output shape has stable ranges when sufficient", () => {
   assert.equal(typeof result.reason, "string");
   assert.ok(result.observed_history_span_minutes > 0);
   assert.ok(result.window_coverage.total_windows === RADAR_WINDOWS.length);
+  assert.ok(typeof result.volatility_state === "string");
+  assert.ok(typeof result.data_quality?.status === "string");
   if (!result.insufficient_data) {
     assert.ok(Number(result.score) >= 0);
     assert.ok(Number(result.score) <= 100);
@@ -128,5 +130,6 @@ run("output shape has stable ranges when sufficient", () => {
     assert.ok(Number(result.volatility_spike_score) <= 100);
     assert.ok(Number(result.bounce_context_score) >= 0);
     assert.ok(Number(result.bounce_context_score) <= 100);
+    assert.ok(["GOOD", "PARTIAL", "STALE", "INSUFFICIENT"].includes(result.data_quality.status));
   }
 });

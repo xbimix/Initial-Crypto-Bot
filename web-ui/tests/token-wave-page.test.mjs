@@ -33,10 +33,20 @@ await run("token detail page renders Wave Zone Analyzer section and timeframe la
   assert.match(pageSource, /latest_snapshot_age_minutes|Latest snapshot age/);
   assert.match(pageSource, /Rolling Symbol Rotation Monitor/);
   assert.match(pageSource, /Volatility Opportunity/);
+  assert.match(pageSource, /Indicator Engine/);
+  assert.match(pageSource, /Why No Trade/);
   assert.match(pageSource, /volatilityOpportunity|volatility opportunity/i);
   assert.match(pageSource, /Sort Score|LOW MAGNET|HIGH MAGNET/);
   assert.match(pageSource, /Capital Trap Risk/);
   assert.match(pageSource, /"1h", "4h", "8h", "16h", "24h", "3d", "7d"/);
+  assert.match(pageSource, /Window/);
+  assert.match(pageSource, /Structure/);
+  assert.match(pageSource, /Amplitude/);
+  assert.match(pageSource, /Slope/);
+  assert.match(pageSource, /Median High/);
+  assert.match(pageSource, /Median Low/);
+  assert.match(pageSource, /Sample/);
+  assert.match(pageSource, /Data Quality/);
 });
 
 await run("token API payload includes waveZoneAnalyzer advisory block", async () => {
@@ -53,6 +63,7 @@ await run("token API payload includes waveZoneAnalyzer advisory block", async ()
   assert.match(routeSource, /wallClockEpoch/);
   assert.match(routeSource, /rotationMonitor/);
   assert.match(routeSource, /volatilityOpportunity:\s*\{/);
+  assert.match(routeSource, /buildIndicatorBundle|indicators:/);
   assert.match(routeSource, /volatilityOpportunityScorePct/);
   assert.match(routeSource, /rotationShortTermScore|rotationMediumTermScore/);
   assert.match(analyzerSource, /data_quality_note|data quality note/i);
@@ -62,4 +73,9 @@ await run("token API payload includes waveZoneAnalyzer advisory block", async ()
   assert.match(dashboardRouteSource, /volatilityOpportunityScore|highOpportunitySymbolCount|topVolatilityOpportunitySymbols/);
   assert.match(dashboardPageSource, /Rolling Symbol Rotation|rotationStatusStyle|Trap Risk/);
   assert.match(dashboardPageSource, /Volatility Opportunity Radar|Sort Volatility|volatilityOpportunityScore/);
+  assert.match(dashboardPageSource, /Regime Suggestion/);
+  assert.match(dashboardPageSource, /Volatility State/);
+  assert.match(dashboardPageSource, /Data Quality/);
+  assert.match(dashboardPageSource, /setControlSort/);
+  assert.match(dashboardPageSource, /sticky top-0/);
 });

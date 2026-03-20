@@ -323,6 +323,14 @@ function buildInsufficientResult({
   observedPointCount,
   observedHistorySpanMinutes,
 }) {
+  const dataQuality = {
+    status: reasonCode === "unsupported_timeframe" ? "UNSUPPORTED_WINDOW" : "INSUFFICIENT",
+    reason: reasonCode,
+    sample_counts: {
+      observed_points: observedPointCount,
+      required_points: 10,
+    },
+  };
   return {
     insufficientData: true,
     insufficientReasonCode: reasonCode,
@@ -359,6 +367,7 @@ function buildInsufficientResult({
     stability_score: 0,
     confidenceScore: 0,
     confidenceLabel: "LOW",
+    data_quality: dataQuality,
   };
 }
 
@@ -609,7 +618,26 @@ function analyzeRegimeGovernor({
       nowEpoch: anchorNow,
       latestSnapshot,
     });
-    timeframeSummary[timeframe.key] = row;
+    timeframeSummary[timeframe.key] = {
+      ...row,
+      data_quality: row.insufficientData
+        ? {
+            status: "INSUFFICIENT",
+            reason: row.insufficientReasonCode ?? "insufficient_window_data",
+            sample_counts: {
+              observed_points: row.observedPointCount ?? 0,
+              required_points: 10,
+            },
+          }
+        : {
+            status: "GOOD",
+            reason: "ok",
+            sample_counts: {
+              observed_points: row.observedPointCount ?? 0,
+              required_points: 10,
+            },
+          },
+    };
     if (row.insufficientData) {
       continue;
     }
@@ -704,6 +732,15 @@ function analyzeRegimeGovernor({
       participationState,
     },
     timeframeSummary,
+    data_quality: {
+      status: totalWeight > 0.45 ? "GOOD" : totalWeight > 0.2 ? "PARTIAL" : "INSUFFICIENT",
+      reason: totalWeight > 0 ? "window_coverage" : "no_supported_windows",
+      sample_counts: {
+        windows_with_signal: structureVotes.length,
+        total_windows: REGIME_GOVERNOR_TIMEFRAMES.length,
+      },
+      last_update_ts: analysisAnchorAt,
+    },
     dataQualityNote: (
       "Advisory-only regime inference from observed snapshot history. "
       + "Not execution logic or guaranteed prediction."

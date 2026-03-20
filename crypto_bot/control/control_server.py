@@ -12,6 +12,7 @@ from werkzeug.exceptions import HTTPException
 
 from api.revolut_account_sync import read_account_snapshot, sync_account_snapshot
 from api.revolut_universe import get_universe_snapshot
+from data import market_data_service
 from utils.config_loader import load_config, update_config
 from utils.logger import setup_logger
 from utils.runtime_events import append_runtime_event
@@ -40,6 +41,7 @@ PAPER_STATE_PATH = STATE_DIR / "paper_state.json"
 STRATEGY_STATE_PATH = STATE_DIR / "strategy_state.json"
 TRADES_PATH = STATE_DIR / "trades.json"
 MANUAL_ACTION_CACHE_PATH = STATE_DIR / "manual_action_cache.json"
+MANUAL_STOPLOSS_PATH = STATE_DIR / "manual_stoploss.json"
 LOG_PATH = STATE_DIR / "bot.log"
 LOG_TAIL_BYTES = 256 * 1024
 CONTROL_HOST = os.getenv("REVBOT_CONTROL_HOST", "127.0.0.1").strip() or "127.0.0.1"
@@ -73,6 +75,8 @@ MUTATING_ENDPOINTS = {
     "/cooldown",
     "/close-all",
     "/manual-sell",
+    "/manual-stoploss",
+    "/manual-stoploss/check",
     "/universe-track",
 }
 LOCAL_LOOPBACKS = {"127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost"}
@@ -515,6 +519,13 @@ def _to_float(value, fallback=None):
         return fallback
 
 
+def _to_int(value, fallback=None):
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return fallback
+
+
 def _normalized_action_id(value):
     if not isinstance(value, str):
         return ""
@@ -624,6 +635,59 @@ def _read_latest_snapshot_price(symbol):
     except Exception as exc:
         logger.warning(f"Manual sell price lookup failed for {symbol}: {exc}")
         return None
+
+
+def _normalize_stoploss_type(value):
+    kind = str(value or "").strip().lower()
+    if kind in {"pct", "price"}:
+        return kind
+    return "pct"
+
+
+def _sanitize_manual_stoploss_rule(raw_symbol, raw_rule):
+    symbol = _normalize_symbol(raw_symbol)
+    if not symbol or not isinstance(raw_rule, dict):
+        return None, None
+
+    enabled = bool(raw_rule.get("enabled", False))
+    rule_type = _normalize_stoploss_type(raw_rule.get("type"))
+    value = _to_float(raw_rule.get("value"), fallback=None)
+    if value is not None and value <= 0:
+        value = None
+    updated_at = _to_float(raw_rule.get("updated_at"), fallback=time.time()) or time.time()
+    trigger_price = _to_float(raw_rule.get("trigger_price"), fallback=None)
+    last_trigger_at = _to_float(raw_rule.get("last_trigger_at"), fallback=None)
+    last_trigger_price = _to_float(raw_rule.get("last_trigger_price"), fallback=None)
+
+    return symbol, {
+        "enabled": enabled and value is not None,
+        "type": rule_type,
+        "value": value,
+        "updated_at": updated_at,
+        "trigger_price": trigger_price,
+        "last_trigger_at": last_trigger_at,
+        "last_trigger_price": last_trigger_price,
+    }
+
+
+def _read_manual_stoploss_map():
+    stored = STORAGE.read(MANUAL_STOPLOSS_PATH, default={})
+    if not isinstance(stored, dict):
+        return {}
+
+    normalized = {}
+    for raw_symbol, raw_rule in stored.items():
+        symbol, rule = _sanitize_manual_stoploss_rule(raw_symbol, raw_rule)
+        if not symbol or not rule:
+            continue
+        normalized[symbol] = rule
+    return normalized
+
+
+def _write_manual_stoploss_map(stoploss_map):
+    if not isinstance(stoploss_map, dict):
+        stoploss_map = {}
+    STORAGE.write(MANUAL_STOPLOSS_PATH, stoploss_map)
 
 
 def _apply_control_action(action, reason=None):
@@ -757,6 +821,119 @@ def revolut_universe():
     force = str(request.args.get("force", "0")).strip().lower() in {"1", "true", "yes", "on"}
     snapshot = get_universe_snapshot(cfg, force_refresh=force)
     return jsonify(snapshot)
+
+
+@app.route("/market-data/candles", methods=["GET"])
+def market_data_candles():
+    symbol = _normalize_symbol(request.args.get("symbol"))
+    if not symbol:
+        return _json_error("symbol is required", code="invalid_symbol")
+
+    timeframe = str(request.args.get("timeframe", "1m")).strip().lower() or "1m"
+    limit = _to_int(request.args.get("limit"), fallback=2000)
+    if limit is None:
+        limit = 2000
+    limit = max(1, min(limit, 50_000))
+
+    try:
+        rows = market_data_service.get_candles(symbol=symbol, timeframe=timeframe, limit=limit)
+        meta = market_data_service.get_candle_meta(symbol=symbol, timeframe=timeframe)
+    except Exception as exc:
+        logger.exception(f"market-data candles failed for {symbol} {timeframe}: {exc}")
+        return _json_error("failed to load candles", status=500, code="market_data_error")
+
+    points = []
+    for row in rows:
+        try:
+            ts_epoch = int(row.get("open_time")) / 1000.0
+            close = float(row.get("close"))
+        except (TypeError, ValueError):
+            continue
+        if ts_epoch <= 0 or close <= 0:
+            continue
+        points.append({"tsEpoch": ts_epoch, "price": close})
+
+    return jsonify(
+        {
+            "status": "ok",
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "limit": limit,
+            "rows": rows,
+            "points": points,
+            "meta": meta,
+        }
+    )
+
+
+@app.route("/market-data/candles-batch", methods=["GET"])
+def market_data_candles_batch():
+    raw_symbols = str(request.args.get("symbols", "") or "")
+    symbols = _normalize_symbols([part for part in raw_symbols.split(",") if part.strip()])
+    if not symbols:
+        return _json_error("symbols is required", code="invalid_symbols")
+
+    timeframe = str(request.args.get("timeframe", "1m")).strip().lower() or "1m"
+    limit = _to_int(request.args.get("limit"), fallback=4000)
+    if limit is None:
+        limit = 4000
+    limit = max(1, min(limit, 50_000))
+
+    payload = {}
+    for symbol in symbols[:80]:
+        try:
+            rows = market_data_service.get_candles(symbol=symbol, timeframe=timeframe, limit=limit)
+            meta = market_data_service.get_candle_meta(symbol=symbol, timeframe=timeframe)
+        except Exception as exc:
+            logger.exception(f"market-data candle batch failed for {symbol} {timeframe}: {exc}")
+            payload[symbol] = {
+                "status": "error",
+                "points": [],
+                "meta": {"supported": False, "stale": True, "reason": "backend_exception"},
+            }
+            continue
+
+        points = []
+        for row in rows:
+            try:
+                ts_epoch = int(row.get("open_time")) / 1000.0
+                close = float(row.get("close"))
+            except (TypeError, ValueError):
+                continue
+            if ts_epoch <= 0 or close <= 0:
+                continue
+            points.append({"tsEpoch": ts_epoch, "price": close})
+
+        latest = points[-1] if points else None
+        payload[symbol] = {
+            "status": "ok",
+            "points": points,
+            "latest": latest,
+            "meta": meta,
+        }
+
+    return jsonify(
+        {
+            "status": "ok",
+            "timeframe": timeframe,
+            "limit": limit,
+            "symbols": payload,
+        }
+    )
+
+
+@app.route("/market-data/orderbook-top5", methods=["GET"])
+def market_data_orderbook_top5():
+    symbol = _normalize_symbol(request.args.get("symbol"))
+    if not symbol:
+        return _json_error("symbol is required", code="invalid_symbol")
+    try:
+        payload = market_data_service.get_orderbook_top5(symbol=symbol)
+    except Exception as exc:
+        logger.exception(f"market-data orderbook failed for {symbol}: {exc}")
+        return _json_error("failed to load orderbook", status=500, code="market_data_error")
+
+    return jsonify({"status": "ok", "symbol": symbol, "orderbook": payload})
 
 
 @app.route("/ready", methods=["GET"])
@@ -1680,6 +1857,218 @@ def manual_sell():
     )
 
     return jsonify(payload)
+
+
+@app.route("/manual-stoploss", methods=["GET"])
+def get_manual_stoploss():
+    stoploss_map = _read_manual_stoploss_map()
+    active_count = sum(
+        1
+        for rule in stoploss_map.values()
+        if isinstance(rule, dict) and rule.get("enabled") is True
+    )
+    return jsonify(
+        {
+            "status": "ok",
+            "rules": stoploss_map,
+            "activeCount": active_count,
+            "updatedAt": time.time(),
+        }
+    )
+
+
+@app.route("/manual-stoploss", methods=["POST"])
+def set_manual_stoploss():
+    body = request.get_json(silent=True) or {}
+    symbol = _normalize_symbol(body.get("symbol"))
+    enabled = bool(body.get("enabled", False))
+    rule_type = _normalize_stoploss_type(body.get("type"))
+    value = _to_float(body.get("value"), fallback=None)
+
+    if not symbol:
+        return _json_error("Missing symbol")
+
+    if enabled:
+        if value is None or value <= 0:
+            return _json_error("value must be a positive number when enabled")
+    else:
+        value = None
+
+    with STORAGE.transaction(STATE_DIR, timeout=12.0):
+        stoploss_map = _read_manual_stoploss_map()
+        previous = stoploss_map.get(symbol) if isinstance(stoploss_map.get(symbol), dict) else {}
+
+        entry = {
+            "enabled": enabled,
+            "type": rule_type,
+            "value": value,
+            "updated_at": time.time(),
+            "trigger_price": previous.get("trigger_price"),
+            "last_trigger_at": previous.get("last_trigger_at"),
+            "last_trigger_price": previous.get("last_trigger_price"),
+        }
+
+        if enabled and value is not None:
+            positions_state = STORAGE.read(PAPER_STATE_PATH, default={})
+            positions = positions_state.get("positions", {}) if isinstance(positions_state, dict) else {}
+            position = positions.get(symbol) if isinstance(positions, dict) else None
+            entry_price = _to_float(position.get("price"), fallback=None) if isinstance(position, dict) else None
+
+            if rule_type == "pct":
+                if entry_price is not None and entry_price > 0:
+                    entry["trigger_price"] = entry_price * (1.0 - (value / 100.0))
+                else:
+                    entry["trigger_price"] = None
+            else:
+                entry["trigger_price"] = value
+        else:
+            entry["trigger_price"] = None
+
+        stoploss_map[symbol] = entry
+        _write_manual_stoploss_map(stoploss_map)
+
+    payload = {
+        "status": "ok",
+        "symbol": symbol,
+        "rule": entry,
+    }
+    _write_audit_event(
+        "manual_stoploss_update",
+        old={"symbol": symbol, "rule": previous},
+        new={"symbol": symbol, "enabled": enabled, "type": rule_type, "value": value},
+        result={"enabled": entry.get("enabled"), "trigger_price": entry.get("trigger_price")},
+    )
+    return jsonify(payload)
+
+
+@app.route("/manual-stoploss/check", methods=["POST"])
+def run_manual_stoploss_check():
+    triggered = []
+    skipped = []
+
+    with STORAGE.transaction(STATE_DIR, timeout=12.0):
+        stoploss_map = _read_manual_stoploss_map()
+        if not stoploss_map:
+            return jsonify({"status": "ok", "triggered": triggered, "skipped": skipped})
+
+        paper_state = STORAGE.read(PAPER_STATE_PATH, default={})
+        strategy_state = STORAGE.read(STRATEGY_STATE_PATH, default={})
+        trades = STORAGE.read(TRADES_PATH, default=[])
+
+        if not isinstance(paper_state, dict):
+            paper_state = {}
+        if not isinstance(strategy_state, dict):
+            strategy_state = {}
+        if not isinstance(trades, list):
+            trades = []
+
+        positions = paper_state.get("positions", {})
+        if not isinstance(positions, dict):
+            positions = {}
+
+        balance = _to_float(paper_state.get("balance"), fallback=0.0) or 0.0
+        now_ts = time.time()
+
+        for symbol, rule in stoploss_map.items():
+            if not isinstance(rule, dict):
+                continue
+            if rule.get("enabled") is not True:
+                continue
+
+            position = positions.get(symbol)
+            if not isinstance(position, dict):
+                skipped.append({"symbol": symbol, "reason": "no_open_position"})
+                continue
+
+            entry_price = _to_float(position.get("price"), fallback=None)
+            size = _to_float(position.get("size"), fallback=None)
+            if entry_price is None or size is None or entry_price <= 0 or size <= 0:
+                skipped.append({"symbol": symbol, "reason": "invalid_position"})
+                continue
+
+            rule_type = _normalize_stoploss_type(rule.get("type"))
+            rule_value = _to_float(rule.get("value"), fallback=None)
+            if rule_value is None or rule_value <= 0:
+                skipped.append({"symbol": symbol, "reason": "invalid_rule"})
+                continue
+
+            trigger_price = (
+                entry_price * (1.0 - (rule_value / 100.0))
+                if rule_type == "pct"
+                else rule_value
+            )
+            if trigger_price <= 0:
+                skipped.append({"symbol": symbol, "reason": "invalid_trigger_price"})
+                continue
+
+            market_price = _read_latest_snapshot_price(symbol)
+            if market_price is None or market_price <= 0:
+                skipped.append({"symbol": symbol, "reason": "price_unavailable"})
+                continue
+
+            if market_price > trigger_price:
+                continue
+
+            pnl = (market_price - entry_price) * size
+            proceeds = market_price * size
+            balance += proceeds
+
+            positions.pop(symbol, None)
+            strategy_state = _remove_strategy_symbol(strategy_state, symbol)
+
+            trade_entry = {
+                "time": now_ts,
+                "symbol": symbol,
+                "side": "SELL",
+                "price": market_price,
+                "size": size,
+                "pnl": pnl,
+                "balance": balance,
+                "reason": f"manual_user_stoploss_{rule_type}",
+            }
+            trades.append(trade_entry)
+
+            rule["enabled"] = False
+            rule["trigger_price"] = trigger_price
+            rule["last_trigger_at"] = now_ts
+            rule["last_trigger_price"] = market_price
+            rule["updated_at"] = now_ts
+            stoploss_map[symbol] = rule
+
+            triggered.append(
+                {
+                    "symbol": symbol,
+                    "triggerType": rule_type,
+                    "triggerValue": rule_value,
+                    "triggerPrice": trigger_price,
+                    "sellPrice": market_price,
+                    "pnl": pnl,
+                }
+            )
+
+        paper_state["positions"] = positions
+        paper_state["balance"] = balance
+        STORAGE.write(PAPER_STATE_PATH, paper_state)
+        STORAGE.write(STRATEGY_STATE_PATH, strategy_state)
+        STORAGE.write(TRADES_PATH, trades)
+        _write_manual_stoploss_map(stoploss_map)
+
+    if triggered:
+        _write_audit_event(
+            "manual_stoploss_trigger",
+            new={"triggered": triggered},
+            result={"triggeredCount": len(triggered)},
+        )
+        logger.warning(f"Manual stoploss triggered for {len(triggered)} position(s)")
+
+    return jsonify(
+        {
+            "status": "ok",
+            "triggered": triggered,
+            "skipped": skipped,
+            "checkedAt": time.time(),
+        }
+    )
 
 
 def run():

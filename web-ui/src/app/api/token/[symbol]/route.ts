@@ -3,6 +3,7 @@ import path from "path";
 import { NextResponse } from "next/server";
 import { analyzeWaveZones } from "../../../lib/waveZoneAnalyzer.mjs";
 import { analyzeRegimeGovernor } from "../../../lib/regimeGovernorAnalyzer.mjs";
+import { buildIndicatorBundle } from "../../../lib/indicatorEngine.mjs";
 
 type DashboardSummary = {
   staleLosingReviewThresholdAgeHours?: number;
@@ -43,8 +44,16 @@ type DashboardSymbolControl = {
   detectedRegimeBreakoutScore?: number | null;
   detectedRegimeMixedScore?: number | null;
   detectedRegimeStabilityScore?: number | null;
+  detectedRegimePersistenceScore?: number | null;
+  detectedRegimeDataQualityStatus?: string;
+  detectedRegimeKeyWindowsSupported?: boolean;
+  suggestedRegimeV2?: string | null;
   effectiveStrategy?: string | null;
+  effectiveRoute?: string | null;
   autoFallbackReason?: string | null;
+  fallbackReason?: string | null;
+  routeEvalTimestampEpoch?: number | null;
+  regimeEvalTimestampEpoch?: number | null;
   regime: string | null;
   volatilityPct: number | null;
   strategyScorePct: number | null;
@@ -82,6 +91,10 @@ type DashboardSymbolControl = {
   volatilityOpportunityInsufficientData?: boolean;
   volatilityOpportunityInsufficientReasonCode?: string | null;
   volatilityOpportunityInsufficientReasonMessage?: string | null;
+  volatilityDataQualityStatus?: string;
+  volatilityDataQualityReason?: string;
+  regimeDataQualityStatus?: string;
+  regimeDataQualityReason?: string;
 };
 
 type DashboardPayload = {
@@ -109,8 +122,10 @@ type SnapshotPoint = {
 };
 
 const STATE_DIR = path.resolve(process.cwd(), "..", "crypto_bot", "state");
+const BACKEND = "http://127.0.0.1:8001";
 const TRADES_PATH = path.join(STATE_DIR, "trades.json");
 const LOG_PATH = path.join(STATE_DIR, "bot.log");
+const PRICE_HISTORY_PATH = path.join(STATE_DIR, "revolut_universe_price_history.json");
 const LOG_TAIL_BYTES = 256 * 1024;
 const STALE_SNAPSHOT_THRESHOLD_SECONDS = 20 * 60;
 const MAX_SNAPSHOT_POINTS = 25000;
@@ -252,6 +267,36 @@ async function readSnapshotHistory(symbol: string): Promise<{
   rows: SnapshotPoint[];
   source: string;
 }> {
+  try {
+    const response = await fetch(
+      `${BACKEND}/market-data/candles?timeframe=1m&limit=6000&symbol=${encodeURIComponent(symbol)}`,
+      { cache: "no-store" },
+    );
+    if (response.ok) {
+      const payload = await response.json() as {
+        status?: string;
+        points?: Array<{ tsEpoch?: number; price?: number }>;
+      };
+      if (payload?.status === "ok" && Array.isArray(payload.points) && payload.points.length > 0) {
+        const rows = dedupeAndClampSnapshotRows(
+          payload.points
+            .map((point) => ({
+              tsEpoch: Number(point?.tsEpoch ?? 0),
+              price: Number(point?.price ?? 0),
+              spreadBps: null,
+              quality: "ok",
+            }))
+            .filter((row) => Number.isFinite(row.tsEpoch) && row.tsEpoch > 0 && Number.isFinite(row.price) && row.price > 0),
+        );
+        if (rows.length > 0) {
+          return { rows, source: "market_data_candles" };
+        }
+      }
+    }
+  } catch {
+    // Keep legacy fallback path below.
+  }
+
   const rows: SnapshotPoint[] = [];
   const logPaths = await listSnapshotLogPaths();
 
@@ -272,9 +317,25 @@ async function readSnapshotHistory(symbol: string): Promise<{
   }
 
   const tail = await readLogTail(LOG_PATH, LOG_TAIL_BYTES);
+  const fallbackRows = dedupeAndClampSnapshotRows(parseSnapshotHistory(symbol, tail));
+
+  const priceHistory = await readJson<Record<string, Array<{ ts?: number; tsEpoch?: number; price?: number }>>>(
+    PRICE_HISTORY_PATH,
+    {},
+  );
+  const historyRows = Array.isArray(priceHistory[symbol]) ? priceHistory[symbol] : [];
+  const fromHistory: SnapshotPoint[] = historyRows
+    .map((row) => ({
+      tsEpoch: Number(row?.tsEpoch ?? row?.ts ?? 0),
+      price: Number(row?.price ?? 0),
+      spreadBps: null,
+      quality: null,
+    }))
+    .filter((row) => Number.isFinite(row.tsEpoch) && row.tsEpoch > 0 && Number.isFinite(row.price) && row.price > 0);
+  const merged = dedupeAndClampSnapshotRows([...fallbackRows, ...fromHistory]);
   return {
-    rows: dedupeAndClampSnapshotRows(parseSnapshotHistory(symbol, tail)),
-    source: "bot_log_tail_fallback",
+    rows: merged,
+    source: merged.length > fallbackRows.length ? "bot_log_tail_fallback+price_history" : "bot_log_tail_fallback",
   };
 }
 
@@ -352,6 +413,11 @@ export async function GET(
     latestSnapshot,
     nowEpoch: analysisAnchorEpoch,
   });
+  const indicatorBundle = buildIndicatorBundle({
+    symbol,
+    pricePoints: snapshotHistory,
+    wallClockEpoch,
+  });
 
   return NextResponse.json({
     generatedAt: new Date().toISOString(),
@@ -402,6 +468,12 @@ export async function GET(
           control?.volatilityOpportunityInsufficientReasonCode ?? null,
         insufficientReasonMessage:
           control?.volatilityOpportunityInsufficientReasonMessage ?? null,
+        dataQuality: {
+          status: control?.volatilityDataQualityStatus
+            ?? (control?.volatilityOpportunityInsufficientData ? "INSUFFICIENT" : "GOOD"),
+          reason: control?.volatilityDataQualityReason
+            ?? (control?.volatilityOpportunityInsufficientReasonCode ?? "ok"),
+        },
       },
       configuredRegime: control?.configuredRegime ?? "MEAN_REVERSION",
       detectedRegime: control?.detectedRegime ?? regimeAdvisory.suggestedRegime,
@@ -448,8 +520,23 @@ export async function GET(
         ?? regimeAdvisory.stability_score
         ?? regimeAdvisory.stabilityScore
         ?? null,
+      detectedRegimePersistenceScore:
+        control?.detectedRegimePersistenceScore
+        ?? null,
+      detectedRegimeDataQualityStatus:
+        control?.detectedRegimeDataQualityStatus
+        ?? regimeAdvisory?.data_quality?.status
+        ?? "UNKNOWN",
+      detectedRegimeKeyWindowsSupported:
+        control?.detectedRegimeKeyWindowsSupported
+        ?? false,
+      suggestedRegimeV2: control?.suggestedRegimeV2 ?? control?.detectedRegime ?? regimeAdvisory.suggestedRegime,
       effectiveStrategy: control?.effectiveStrategy ?? "mean_reversion",
+      effectiveRoute: control?.effectiveRoute ?? control?.effectiveStrategy ?? "mean_reversion",
       autoFallbackReason: control?.autoFallbackReason ?? null,
+      fallbackReason: control?.fallbackReason ?? control?.autoFallbackReason ?? null,
+      routeEvalTimestampEpoch: control?.routeEvalTimestampEpoch ?? null,
+      regimeEvalTimestampEpoch: control?.regimeEvalTimestampEpoch ?? control?.detectionTimestampEpoch ?? null,
       regime: control?.regime ?? null,
       strategyScorePct: control?.strategyScorePct ?? null,
       volatilityPct: control?.volatilityPct ?? null,
@@ -457,6 +544,20 @@ export async function GET(
       buyExecutableReason: control?.buyExecutableReason ?? null,
       capitalEfficiencyScore: control?.capitalEfficiencyScore ?? null,
       capitalWasteRank: control?.capitalWasteRank ?? null,
+      dataQuality: {
+        volatility: {
+          status: control?.volatilityDataQualityStatus
+            ?? (control?.volatilityOpportunityInsufficientData ? "INSUFFICIENT" : "GOOD"),
+          reason: control?.volatilityDataQualityReason
+            ?? (control?.volatilityOpportunityInsufficientReasonCode ?? "ok"),
+        },
+        regime: {
+          status: control?.regimeDataQualityStatus
+            ?? (regimeAdvisory?.data_quality?.status ?? "PARTIAL"),
+          reason: control?.regimeDataQualityReason
+            ?? (regimeAdvisory?.data_quality?.reason ?? "window_coverage"),
+        },
+      },
       rotationMonitor: {
         shortTermScore: control?.rotationShortTermScore ?? null,
         mediumTermScore: control?.rotationMediumTermScore ?? null,
@@ -507,6 +608,7 @@ export async function GET(
         price: Number(trade.price ?? 0),
       })),
     },
+    indicators: indicatorBundle,
     waveZoneAnalyzer,
   });
 }

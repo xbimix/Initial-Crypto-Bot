@@ -58,6 +58,8 @@ run("regime analyzer outputs advisory shape with confidence fields", () => {
   assert.equal(result.detectionSource, "advisory_multitimeframe");
   assert.ok(Number.isFinite(result.analysisAnchorEpoch));
   assert.ok(typeof result.timeframeSummary?.["1h"] === "object");
+  assert.ok(typeof result.data_quality?.status === "string");
+  assert.ok(typeof result.timeframeSummary?.["1h"]?.data_quality?.status === "string");
 });
 
 run("regime analyzer degrades gracefully with thin history", () => {

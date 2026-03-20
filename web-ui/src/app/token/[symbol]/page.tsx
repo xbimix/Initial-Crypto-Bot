@@ -43,6 +43,10 @@ type TokenDetailPayload = {
       insufficientData: boolean;
       insufficientReasonCode: string | null;
       insufficientReasonMessage: string | null;
+      dataQuality?: {
+        status: string;
+        reason: string;
+      };
     };
     configuredRegime: string;
     detectedRegime: string;
@@ -60,8 +64,16 @@ type TokenDetailPayload = {
     detectedRegimeBreakoutScore?: number | null;
     detectedRegimeMixedScore?: number | null;
     detectedRegimeStabilityScore?: number | null;
+    detectedRegimePersistenceScore?: number | null;
+    detectedRegimeDataQualityStatus?: string;
+    detectedRegimeKeyWindowsSupported?: boolean;
+    suggestedRegimeV2?: string | null;
     effectiveStrategy?: string | null;
+    effectiveRoute?: string | null;
     autoFallbackReason?: string | null;
+    fallbackReason?: string | null;
+    routeEvalTimestampEpoch?: number | null;
+    regimeEvalTimestampEpoch?: number | null;
     regime: string | null;
     strategyScorePct: number | null;
     volatilityPct: number | null;
@@ -69,6 +81,16 @@ type TokenDetailPayload = {
     buyExecutableReason: string | null;
     capitalEfficiencyScore: number | null;
     capitalWasteRank: number | null;
+    dataQuality?: {
+      volatility?: {
+        status: string;
+        reason: string;
+      };
+      regime?: {
+        status: string;
+        reason: string;
+      };
+    };
     rotationMonitor: {
       shortTermScore: number | null;
       mediumTermScore: number | null;
@@ -124,6 +146,10 @@ type TokenDetailPayload = {
       latest_snapshot_age_minutes?: number | null;
       history_point_count?: number;
       data_quality_note: string;
+      data_quality?: {
+        status: string;
+        reason: string;
+      };
     };
     timeframes: Record<string, {
       strongest_low_zone: {
@@ -169,6 +195,10 @@ type TokenDetailPayload = {
       insufficient_reason_message: string | null;
       observed_history_span_minutes: number;
       observed_candle_count: number;
+      data_quality?: {
+        status: string;
+        reason: string;
+      };
     }>;
   };
   regimeAdvisory?: {
@@ -189,8 +219,50 @@ type TokenDetailPayload = {
       structureClass?: string;
       volatilityState?: string;
       participationState?: string;
+      observedPointCount?: number;
+      wave?: {
+        waveSlopePct?: number;
+        waveAmplitudePct?: number;
+      };
+      medianHighZone?: {
+        center?: number;
+        min?: number;
+        max?: number;
+      } | null;
+      medianLowZone?: {
+        center?: number;
+        min?: number;
+        max?: number;
+      } | null;
+      data_quality?: {
+        status: string;
+        reason: string;
+      };
     }>;
+    data_quality?: {
+      status: string;
+      reason: string;
+    };
     dataQualityNote?: string;
+  };
+  indicators?: {
+    atr: number | null;
+    rsi: number | null;
+    returnVolatility: number | null;
+    candleRangePct: number | null;
+    momentum: number | null;
+    recentHigh: number | null;
+    recentLow: number | null;
+    compressionScore: number | null;
+    expansionScore: number | null;
+    vwap: number | null;
+    observedPointCount: number;
+    observedHistorySpanMinutes: number;
+    dataQuality: {
+      status: string;
+      reason: string;
+      lastUpdateTs: string | null;
+    };
   };
 };
 
@@ -319,6 +391,23 @@ function confidenceLabelText(label: string | null) {
   return "N/A";
 }
 
+function volatilityStateText(value: string | null | undefined) {
+  const raw = String(value ?? "").toUpperCase();
+  if (raw === "LOW") {
+    return "Low Volatility";
+  }
+  if (raw === "NORMAL") {
+    return "Normal Volatility";
+  }
+  if (raw === "EXPANDING" || raw === "HIGH_VOL") {
+    return "Expanding";
+  }
+  if (raw === "EXTREME") {
+    return "Extreme";
+  }
+  return friendlyRegime(value);
+}
+
 function friendlyRegime(value: string | null | undefined) {
   if (!value) {
     return "N/A";
@@ -368,6 +457,23 @@ function biasBadgeStyle(
     return "border-rose-400/35 bg-rose-500/18 text-rose-100";
   }
   return "border-sky-400/35 bg-sky-500/18 text-sky-100";
+}
+
+function dataQualityClass(status: string | null | undefined) {
+  const norm = String(status ?? "").toUpperCase();
+  if (norm === "GOOD") {
+    return "border-emerald-400/35 bg-emerald-500/18 text-emerald-100";
+  }
+  if (norm === "PARTIAL") {
+    return "border-amber-400/35 bg-amber-500/18 text-amber-100";
+  }
+  if (norm === "STALE") {
+    return "border-orange-400/35 bg-orange-500/18 text-orange-100";
+  }
+  if (norm === "UNSUPPORTED_WINDOW") {
+    return "border-rose-400/35 bg-rose-500/18 text-rose-100";
+  }
+  return "border-white/12 bg-white/[0.04] text-slate-200";
 }
 
 function PriceSparkline({
@@ -422,6 +528,10 @@ export default function TokenDetailPage() {
   const [data, setData] = useState<TokenDetailPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [waveSortKey, setWaveSortKey] = useState<"window" | "low_revisit" | "high_revisit" | "quality">("window");
+  const [waveSortDirection, setWaveSortDirection] = useState<"asc" | "desc">("asc");
+  const [regimeSortKey, setRegimeSortKey] = useState<"window" | "amplitude" | "slope" | "quality">("window");
+  const [regimeSortDirection, setRegimeSortDirection] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
     if (!symbol) {
@@ -499,6 +609,7 @@ export default function TokenDetailPage() {
   const wave = data.waveZoneAnalyzer;
   const regimeAdvisory = data.regimeAdvisory ?? null;
   const volatilityOpportunity = advisory.volatilityOpportunity;
+  const indicators = data.indicators ?? null;
   const timeframeOrder = ["1h", "4h", "8h", "16h", "24h", "3d", "7d"];
   const inPosition = summary.hasOpenPosition && summary.openUnits > 0;
   const allWaveInsufficient = timeframeOrder.every((timeframeKey) => {
@@ -516,6 +627,59 @@ export default function TokenDetailPage() {
     (left, right) => right.time - left.time,
   );
   const currentDrawdownPct = summary.unrealizedPnlPct < 0 ? summary.unrealizedPnlPct : 0;
+  const sortedWaveRows = [...timeframeOrder].sort((left, right) => {
+    const a = wave.timeframes[left];
+    const b = wave.timeframes[right];
+    let lhs = 0;
+    let rhs = 0;
+    if (waveSortKey === "low_revisit") {
+      lhs = Number(a?.low_revisit_likelihood_pct ?? -1);
+      rhs = Number(b?.low_revisit_likelihood_pct ?? -1);
+    } else if (waveSortKey === "high_revisit") {
+      lhs = Number(a?.high_revisit_likelihood_pct ?? -1);
+      rhs = Number(b?.high_revisit_likelihood_pct ?? -1);
+    } else if (waveSortKey === "quality") {
+      const qualityOrder: Record<string, number> = {
+        GOOD: 4,
+        PARTIAL: 3,
+        STALE: 2,
+        INSUFFICIENT: 1,
+        UNSUPPORTED_WINDOW: 0,
+      };
+      lhs = qualityOrder[String(a?.data_quality?.status ?? "INSUFFICIENT").toUpperCase()] ?? 0;
+      rhs = qualityOrder[String(b?.data_quality?.status ?? "INSUFFICIENT").toUpperCase()] ?? 0;
+    } else {
+      lhs = timeframeOrder.indexOf(left);
+      rhs = timeframeOrder.indexOf(right);
+    }
+    return waveSortDirection === "asc" ? lhs - rhs : rhs - lhs;
+  });
+  const regimeRows = Object.entries(regimeAdvisory?.timeframeSummary ?? {});
+  const sortedRegimeRows = [...regimeRows].sort(([leftKey, left], [rightKey, right]) => {
+    let lhs = 0;
+    let rhs = 0;
+    if (regimeSortKey === "amplitude") {
+      lhs = Number(left?.wave?.waveAmplitudePct ?? -1);
+      rhs = Number(right?.wave?.waveAmplitudePct ?? -1);
+    } else if (regimeSortKey === "slope") {
+      lhs = Number(left?.wave?.waveSlopePct ?? -999);
+      rhs = Number(right?.wave?.waveSlopePct ?? -999);
+    } else if (regimeSortKey === "quality") {
+      const qualityOrder: Record<string, number> = {
+        GOOD: 4,
+        PARTIAL: 3,
+        STALE: 2,
+        INSUFFICIENT: 1,
+        UNSUPPORTED_WINDOW: 0,
+      };
+      lhs = qualityOrder[String(left?.data_quality?.status ?? "INSUFFICIENT").toUpperCase()] ?? 0;
+      rhs = qualityOrder[String(right?.data_quality?.status ?? "INSUFFICIENT").toUpperCase()] ?? 0;
+    } else {
+      lhs = timeframeOrder.indexOf(leftKey);
+      rhs = timeframeOrder.indexOf(rightKey);
+    }
+    return regimeSortDirection === "asc" ? lhs - rhs : rhs - lhs;
+  });
 
   return (
     <main className="rb-page min-h-screen px-4 py-8 text-slate-200 sm:px-6 lg:px-8">
@@ -719,7 +883,7 @@ export default function TokenDetailPage() {
             </span>
           </div>
 
-          <div className="mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-4 grid gap-4 lg:grid-cols-2 xl:grid-cols-5">
             <article className="rb-content-card p-4">
               <div className="flex items-center justify-between gap-2">
                 <p className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
@@ -731,7 +895,20 @@ export default function TokenDetailPage() {
               </div>
               <p className="mt-3 text-2xl font-semibold text-emerald-200">{formatPercent(volatilityOpportunity.score)}</p>
               <p className="mt-1 text-xs text-sky-200">{confidenceLabelText(volatilityOpportunity.confidenceLabel)}</p>
+              <p className="mt-2">
+                <span className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${dataQualityClass(advisory.dataQuality?.volatility?.status ?? volatilityOpportunity.dataQuality?.status)}`}>
+                  Data Quality {advisory.dataQuality?.volatility?.status ?? volatilityOpportunity.dataQuality?.status ?? "N/A"}
+                </span>
+              </p>
               <p className="mt-3 text-sm text-slate-300">{volatilityOpportunity.reason}</p>
+              <p className="mt-1 text-xs text-slate-400">
+                Why No Trade: {volatilityOpportunity.insufficientData
+                  ? friendlyInsufficientReason(
+                    volatilityOpportunity.insufficientReasonCode,
+                    volatilityOpportunity.insufficientReasonMessage,
+                  )
+                  : "Signal quality and market context are advisory-only; execution remains unchanged."}
+              </p>
               <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
                 <div className="rb-summary-card px-2 py-1.5 text-center">
                   Stretch {formatPercent(volatilityOpportunity.stretchScore)}
@@ -777,6 +954,11 @@ export default function TokenDetailPage() {
                   High Revisit {formatPercent(wave.summary.weighted_high_revisit_likelihood_pct)}
                 </div>
               </div>
+              <p className="mt-2">
+                <span className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${dataQualityClass(wave.summary.data_quality?.status)}`}>
+                  Data Quality {wave.summary.data_quality?.status ?? "N/A"}
+                </span>
+              </p>
               {allWaveInsufficient ? (
                 <p className="mt-3 text-xs text-amber-200">Insufficient data for all wave windows.</p>
               ) : null}
@@ -824,22 +1006,53 @@ export default function TokenDetailPage() {
                 Source: {friendlyRegime(advisory.detectionSource ?? "advisory_multitimeframe")} | Time: {advisory.detectionTimestampAt ? new Date(advisory.detectionTimestampAt).toLocaleString() : "N/A"}
               </p>
               <p className="mt-3 text-sm text-slate-300">{advisory.detectedRegimeExplanation}</p>
+              <p className="mt-2">
+                <span className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${dataQualityClass(advisory.dataQuality?.regime?.status ?? regimeAdvisory?.data_quality?.status)}`}>
+                  Data Quality {advisory.dataQuality?.regime?.status ?? regimeAdvisory?.data_quality?.status ?? "N/A"}
+                </span>
+              </p>
               <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
                 <div className="rb-summary-card px-2 py-1.5 text-center">
                   Structure {friendlyRegime(advisory.detectedRegimeStructureBias)}
                 </div>
                 <div className="rb-summary-card px-2 py-1.5 text-center">
-                  Volatility {friendlyRegime(advisory.detectedRegimeVolatilityState)}
+                  Volatility {volatilityStateText(advisory.detectedRegimeVolatilityState)}
                 </div>
                 <div className="rb-summary-card px-2 py-1.5 text-center">
                   Participation {friendlyRegime(advisory.detectedRegimeParticipationState)}
                 </div>
               </div>
+              <p className="mt-2 text-xs text-slate-400">
+                Why No Trade: {advisory.buyExecutable === false
+                  ? (advisory.buyExecutableReason ?? "Execution guardrails currently block new buy entries.")
+                  : "Regime and volatility are advisory signals only; trading path is unchanged."}
+              </p>
               {allRegimeWindowsInsufficient ? (
                 <p className="mt-3 text-xs text-amber-200">
                   Not enough recent data for robust regime window coverage.
                 </p>
               ) : null}
+            </article>
+            <article className="rb-content-card p-4">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-300">
+                  Indicator Engine
+                </p>
+                <span className={`rounded-md border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${dataQualityClass(indicators?.dataQuality?.status)}`}>
+                  {indicators?.dataQuality?.status ?? "N/A"}
+                </span>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
+                <div className="rb-summary-card px-2 py-1.5">ATR {indicators?.atr === null || indicators?.atr === undefined ? "N/A" : indicators.atr.toFixed(4)}</div>
+                <div className="rb-summary-card px-2 py-1.5">RSI {indicators?.rsi === null || indicators?.rsi === undefined ? "N/A" : indicators.rsi.toFixed(1)}</div>
+                <div className="rb-summary-card px-2 py-1.5">Vol {indicators?.returnVolatility === null || indicators?.returnVolatility === undefined ? "N/A" : `${(indicators.returnVolatility * 100).toFixed(3)}%`}</div>
+                <div className="rb-summary-card px-2 py-1.5">Range {indicators?.candleRangePct === null || indicators?.candleRangePct === undefined ? "N/A" : `${(indicators.candleRangePct * 100).toFixed(3)}%`}</div>
+                <div className="rb-summary-card px-2 py-1.5">Momentum {indicators?.momentum === null || indicators?.momentum === undefined ? "N/A" : `${(indicators.momentum * 100).toFixed(3)}%`}</div>
+                <div className="rb-summary-card px-2 py-1.5">VWAP {formatPrice(indicators?.vwap ?? null)}</div>
+              </div>
+              <p className="mt-3 text-xs text-slate-400">
+                Samples {indicators?.observedPointCount ?? 0} | Span {indicators?.observedHistorySpanMinutes?.toFixed?.(1) ?? "0.0"}m
+              </p>
             </article>
           </div>
         </section>
@@ -931,10 +1144,14 @@ export default function TokenDetailPage() {
               <p className="mt-2">Regime: {advisory.regime ?? "N/A"}</p>
               <p>Configured Regime: {advisory.configuredRegime}</p>
               <p>Detected Regime: {friendlyRegime(advisory.detectedRegime)}</p>
+              <p>Suggested Regime V2: {friendlyRegime(advisory.suggestedRegimeV2 ?? advisory.detectedRegime)}</p>
               <p>Detection Source: {friendlyRegime(advisory.detectionSource ?? "advisory_multitimeframe")}</p>
               <p>Detection Time: {advisory.detectionTimestampAt ? new Date(advisory.detectionTimestampAt).toLocaleString() : "N/A"}</p>
               <p>Effective Strategy: {friendlyRegime(advisory.effectiveStrategy)}</p>
-              <p>Auto Fallback Reason: {advisory.autoFallbackReason ?? "N/A"}</p>
+              <p>Effective Route: {friendlyRegime(advisory.effectiveRoute ?? advisory.effectiveStrategy ?? "mean_reversion")}</p>
+              <p>Fallback Reason: {advisory.fallbackReason ?? advisory.autoFallbackReason ?? "N/A"}</p>
+              <p>Route Eval Time: {advisory.routeEvalTimestampEpoch ? new Date(advisory.routeEvalTimestampEpoch * 1000).toLocaleString() : "N/A"}</p>
+              <p>Regime Eval Time: {advisory.regimeEvalTimestampEpoch ? new Date(advisory.regimeEvalTimestampEpoch * 1000).toLocaleString() : "N/A"}</p>
               <p>
                 Regime Component Scores:
                 {" "}trend {advisory.detectedRegimeTrendScore === null || advisory.detectedRegimeTrendScore === undefined ? "N/A" : advisory.detectedRegimeTrendScore.toFixed(1)}
@@ -943,6 +1160,9 @@ export default function TokenDetailPage() {
                 {" "}mixed {advisory.detectedRegimeMixedScore === null || advisory.detectedRegimeMixedScore === undefined ? "N/A" : advisory.detectedRegimeMixedScore.toFixed(1)}
               </p>
               <p>Regime Stability: {advisory.detectedRegimeStabilityScore === null || advisory.detectedRegimeStabilityScore === undefined ? "N/A" : advisory.detectedRegimeStabilityScore.toFixed(1)}</p>
+              <p>Regime Persistence: {advisory.detectedRegimePersistenceScore === null || advisory.detectedRegimePersistenceScore === undefined ? "N/A" : advisory.detectedRegimePersistenceScore.toFixed(1)}</p>
+              <p>Regime Data Quality: {advisory.detectedRegimeDataQualityStatus ?? "N/A"}</p>
+              <p>Key Windows Supported: {advisory.detectedRegimeKeyWindowsSupported ? "Yes" : "No"}</p>
               <p>Strategy Score: {formatPercent(advisory.strategyScorePct)}</p>
               <p>Volatility: {advisory.volatilityPct === null ? "N/A" : `${advisory.volatilityPct.toFixed(3)}%`}</p>
               <p>Buy Executable: {advisory.buyExecutable === null ? "N/A" : advisory.buyExecutable ? "Ready" : "Blocked"}</p>
@@ -953,6 +1173,130 @@ export default function TokenDetailPage() {
           </div>
           <details className="mt-4 rb-content-card p-3">
             <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">
+              Regime Timeframe Summary
+            </summary>
+            <div className="mt-3 overflow-y-auto rounded-md border border-white/8" style={{ maxHeight: "280px" }}>
+              <table className="min-w-full text-sm">
+                <thead className="sticky top-0 z-10 bg-[#0b1220]">
+                  <tr className="border-b border-white/8 text-left text-[11px] uppercase tracking-[0.14em] text-slate-400">
+                    <th className="px-3 py-2">
+                      <button
+                        className="hover:text-white"
+                        onClick={() => {
+                          if (regimeSortKey === "window") {
+                            setRegimeSortDirection(regimeSortDirection === "asc" ? "desc" : "asc");
+                          } else {
+                            setRegimeSortKey("window");
+                            setRegimeSortDirection("asc");
+                          }
+                        }}
+                      >
+                        Window
+                      </button>
+                    </th>
+                    <th className="px-3 py-2">Structure</th>
+                    <th className="px-3 py-2">Volatility</th>
+                    <th className="px-3 py-2 text-right">
+                      <button
+                        className="hover:text-white"
+                        onClick={() => {
+                          if (regimeSortKey === "amplitude") {
+                            setRegimeSortDirection(regimeSortDirection === "asc" ? "desc" : "asc");
+                          } else {
+                            setRegimeSortKey("amplitude");
+                            setRegimeSortDirection("desc");
+                          }
+                        }}
+                      >
+                        Amplitude
+                      </button>
+                    </th>
+                    <th className="px-3 py-2 text-right">
+                      <button
+                        className="hover:text-white"
+                        onClick={() => {
+                          if (regimeSortKey === "slope") {
+                            setRegimeSortDirection(regimeSortDirection === "asc" ? "desc" : "asc");
+                          } else {
+                            setRegimeSortKey("slope");
+                            setRegimeSortDirection("desc");
+                          }
+                        }}
+                      >
+                        Slope
+                      </button>
+                    </th>
+                    <th className="px-3 py-2 text-right">Median High</th>
+                    <th className="px-3 py-2 text-right">Median Low</th>
+                    <th className="px-3 py-2 text-right">Sample</th>
+                    <th className="px-3 py-2">
+                      <button
+                        className="hover:text-white"
+                        onClick={() => {
+                          if (regimeSortKey === "quality") {
+                            setRegimeSortDirection(regimeSortDirection === "asc" ? "desc" : "asc");
+                          } else {
+                            setRegimeSortKey("quality");
+                            setRegimeSortDirection("desc");
+                          }
+                        }}
+                      >
+                        Data Quality
+                      </button>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/6">
+                  {sortedRegimeRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-3 py-4 text-center text-slate-400">
+                        No regime timeframe summary available.
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedRegimeRows.map(([windowKey, row]) => (
+                      <tr key={windowKey} className="text-slate-200">
+                        <td className="px-3 py-2 font-semibold uppercase">{windowKey}</td>
+                      <td className="px-3 py-2">{friendlyRegime(row?.structureClass ?? "unclear")}</td>
+                      <td className="px-3 py-2 text-right">
+                        {row?.wave?.waveAmplitudePct === undefined || row?.wave?.waveAmplitudePct === null
+                          ? "N/A"
+                          : `${row.wave.waveAmplitudePct.toFixed(3)}%`}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {row?.wave?.waveSlopePct === undefined || row?.wave?.waveSlopePct === null
+                          ? "N/A"
+                          : `${row.wave.waveSlopePct.toFixed(3)}%`}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {row?.medianHighZone?.center === undefined || row?.medianHighZone?.center === null
+                          ? "N/A"
+                          : formatPrice(row.medianHighZone.center)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {row?.medianLowZone?.center === undefined || row?.medianLowZone?.center === null
+                          ? "N/A"
+                          : formatPrice(row.medianLowZone.center)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {row?.observedPointCount === undefined || row?.observedPointCount === null
+                          ? "N/A"
+                          : row.observedPointCount}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${dataQualityClass(row?.data_quality?.status)}`}>
+                            {row?.data_quality?.status ?? "N/A"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </details>
+          <details className="mt-4 rb-content-card p-3">
+            <summary className="cursor-pointer text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">
               Wave Zone Analyzer Breakdown
             </summary>
             <p className="mt-3 text-xs text-slate-400">{wave.summary.data_quality_note}</p>
@@ -961,31 +1305,88 @@ export default function TokenDetailPage() {
               {" | "}Latest snapshot age: {wave.summary.latest_snapshot_age_minutes === null || wave.summary.latest_snapshot_age_minutes === undefined ? "N/A" : `${wave.summary.latest_snapshot_age_minutes.toFixed(1)}m`}
               {" | "}Points: {wave.summary.history_point_count ?? 0}
             </p>
-            <div className="mt-3 rb-table-wrap overflow-x-auto">
-              <table className="min-w-[1200px] w-full text-sm">
-                <thead>
+            <div className="mt-3 overflow-y-auto rounded-md border border-white/8" style={{ maxHeight: "320px" }}>
+              <table className="min-w-[1000px] w-full text-sm">
+                <thead className="sticky top-0 z-10 bg-[#0b1220]">
                   <tr className="border-b border-white/8 text-left text-[11px] uppercase tracking-[0.14em] text-slate-400">
-                    <th className="px-3 py-2">Window</th>
+                    <th className="px-3 py-2">
+                      <button
+                        className="hover:text-white"
+                        onClick={() => {
+                          if (waveSortKey === "window") {
+                            setWaveSortDirection(waveSortDirection === "asc" ? "desc" : "asc");
+                          } else {
+                            setWaveSortKey("window");
+                            setWaveSortDirection("asc");
+                          }
+                        }}
+                      >
+                        Window
+                      </button>
+                    </th>
                     <th className="px-3 py-2">Strongest Low Zone</th>
                     <th className="px-3 py-2 text-right">Low Touches</th>
                     <th className="px-3 py-2 text-right">Low Age</th>
                     <th className="px-3 py-2 text-right">Low Score</th>
-                    <th className="px-3 py-2 text-right">Low Revisit</th>
+                    <th className="px-3 py-2 text-right">
+                      <button
+                        className="hover:text-white"
+                        onClick={() => {
+                          if (waveSortKey === "low_revisit") {
+                            setWaveSortDirection(waveSortDirection === "asc" ? "desc" : "asc");
+                          } else {
+                            setWaveSortKey("low_revisit");
+                            setWaveSortDirection("desc");
+                          }
+                        }}
+                      >
+                        Low Revisit
+                      </button>
+                    </th>
                     <th className="px-3 py-2">Strongest High Zone</th>
                     <th className="px-3 py-2 text-right">High Touches</th>
                     <th className="px-3 py-2 text-right">High Age</th>
                     <th className="px-3 py-2 text-right">High Score</th>
-                    <th className="px-3 py-2 text-right">High Revisit</th>
+                    <th className="px-3 py-2 text-right">
+                      <button
+                        className="hover:text-white"
+                        onClick={() => {
+                          if (waveSortKey === "high_revisit") {
+                            setWaveSortDirection(waveSortDirection === "asc" ? "desc" : "asc");
+                          } else {
+                            setWaveSortKey("high_revisit");
+                            setWaveSortDirection("desc");
+                          }
+                        }}
+                      >
+                        High Revisit
+                      </button>
+                    </th>
+                    <th className="px-3 py-2">
+                      <button
+                        className="hover:text-white"
+                        onClick={() => {
+                          if (waveSortKey === "quality") {
+                            setWaveSortDirection(waveSortDirection === "asc" ? "desc" : "asc");
+                          } else {
+                            setWaveSortKey("quality");
+                            setWaveSortDirection("desc");
+                          }
+                        }}
+                      >
+                        Data Quality
+                      </button>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/6">
-                  {timeframeOrder.map((timeframeKey) => {
+                  {sortedWaveRows.map((timeframeKey) => {
                     const row = wave.timeframes[timeframeKey];
                     if (!row) {
                       return (
                         <tr key={timeframeKey} className="text-slate-300">
                           <td className="px-3 py-2 font-semibold uppercase">{timeframeKey}</td>
-                          <td className="px-3 py-2 text-slate-400" colSpan={10}>Insufficient data payload</td>
+                          <td className="px-3 py-2 text-slate-400" colSpan={11}>Insufficient data payload</td>
                         </tr>
                       );
                     }
@@ -993,7 +1394,7 @@ export default function TokenDetailPage() {
                       return (
                         <tr key={timeframeKey} className="text-slate-300">
                           <td className="px-3 py-2 font-semibold uppercase">{timeframeKey}</td>
-                          <td className="px-3 py-2 text-slate-400" colSpan={10}>
+                          <td className="px-3 py-2 text-slate-400" colSpan={11}>
                             <div className="text-xs">{friendlyInsufficientReason(row.insufficient_reason_code, row.insufficient_reason_message)}</div>
                             <div className="mt-1 text-[10px] uppercase tracking-[0.1em] text-slate-500">
                               Code: {row.insufficient_reason_code ?? "unknown"} | Span: {row.observed_history_span_minutes.toFixed(1)}m | Candles: {row.observed_candle_count}
@@ -1015,6 +1416,11 @@ export default function TokenDetailPage() {
                         <td className="px-3 py-2 text-right">{formatAgeHours(row.strongest_high_zone?.last_touch_age_hours ?? null)}</td>
                         <td className="px-3 py-2 text-right">{row.strongest_high_zone?.score.toFixed(1) ?? "N/A"}</td>
                         <td className="px-3 py-2 text-right text-rose-200">{formatPercent(row.high_revisit_likelihood_pct)}</td>
+                        <td className="px-3 py-2">
+                          <span className={`rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${dataQualityClass(row.data_quality?.status)}`}>
+                            {row.data_quality?.status ?? "N/A"}
+                          </span>
+                        </td>
                       </tr>
                     );
                   })}

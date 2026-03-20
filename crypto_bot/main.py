@@ -6,6 +6,7 @@ from pathlib import Path
 
 from api.revolut_account_sync import sync_account_snapshot
 from api.revolut_universe import build_universe_snapshot
+from data.live_sync_scheduler import run_incremental_sync_tick
 from data.market_data import fetch_market_snapshot
 from strategy.strategy_engine import evaluate_symbol
 from trading.executor import Executor
@@ -333,6 +334,18 @@ def main():
                     logger.info("No symbols configured - waiting")
                     time.sleep(max(int(cfg.get("loop_sleep", 10)), 1))
                     continue
+
+                sync_summary = run_incremental_sync_tick(cfg=cfg, symbols=symbols, now_epoch=now)
+                if sync_summary.get("enabled") and (
+                    int(sync_summary.get("requests", 0) or 0) > 0
+                    or int(sync_summary.get("errors", 0) or 0) > 0
+                ):
+                    logger.info(
+                        "Candle incremental sync: "
+                        f"requests={sync_summary.get('requests', 0)} "
+                        f"inserted={sync_summary.get('inserted', 0)} "
+                        f"errors={sync_summary.get('errors', 0)}"
+                    )
 
                 for symbol in symbols:
                     market = fetch_market_snapshot(symbol, cfg)
