@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import time
 from collections import deque
 from functools import lru_cache
@@ -17,8 +18,16 @@ from utils.logger import setup_logger
 logger = setup_logger("revolut_api")
 
 BASE_URL = "https://revx.revolut.com/api/1.0"
-PUBLIC_WINDOW_SECONDS = 10.0
-PUBLIC_MAX_REQUESTS = 18
+try:
+    _PUBLIC_WINDOW_SECONDS_RAW = float(os.getenv("REVBOT_PUBLIC_WINDOW_SECONDS", "10"))
+except (TypeError, ValueError):
+    _PUBLIC_WINDOW_SECONDS_RAW = 10.0
+PUBLIC_WINDOW_SECONDS = max(_PUBLIC_WINDOW_SECONDS_RAW, 1.0)
+try:
+    _PUBLIC_MAX_REQUESTS_RAW = int(float(os.getenv("REVBOT_PUBLIC_MAX_REQUESTS", "12")))
+except (TypeError, ValueError):
+    _PUBLIC_MAX_REQUESTS_RAW = 12
+PUBLIC_MAX_REQUESTS = max(_PUBLIC_MAX_REQUESTS_RAW, 1)
 PUBLIC_THROTTLE_PADDING = 0.05
 RETRYABLE_STATUS_CODES = {429}
 MAX_RETRIES = 1
@@ -27,6 +36,19 @@ USER_AGENT = "RevBot/1.0 (+local)"
 _PUBLIC_REQUEST_TIMES = deque()
 _MISSING_AUTH_WARNED = False
 _MISSING_SIGNING_WARNED = False
+_HTTP_SESSION = requests.Session()
+_HTTP_SESSION.trust_env = False
+
+
+def _parse_float_env(name: str, default: float, *, minimum: float = 0.0) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return max(value, minimum)
 
 
 @lru_cache(maxsize=1)
@@ -73,14 +95,14 @@ def _build_signed_headers(
 
     query = urlencode(params or {}, doseq=True)
     request_path = f"/api/1.0{path}"
-    if query:
-        request_path = f"{request_path}?{query}"
 
     body = ""
     if payload is not None:
         body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
 
-    message = f"{timestamp}{method_upper}{request_path}{body}".encode("utf-8")
+    # Revolut X signature contract concatenates query string without '?' separator:
+    # timestamp + METHOD + /api/... + query + body
+    message = f"{timestamp}{method_upper}{request_path}{query}{body}".encode("utf-8")
 
     try:
         private_key, key_source = _load_signing_key()
@@ -144,7 +166,7 @@ def _get(path: str, params: dict | None = None, auth: bool = False) -> dict:
         if is_public:
             _throttle_public_request()
 
-        response = requests.get(
+        response = _HTTP_SESSION.get(
             url,
             headers=(
                 _build_signed_headers(method="GET", path=path, params=params)
@@ -157,6 +179,7 @@ def _get(path: str, params: dict | None = None, auth: bool = False) -> dict:
             params=params,
             timeout=REQUEST_TIMEOUT_SECONDS,
             allow_redirects=False,
+            proxies={},
         )
         last_response = response
 
@@ -173,7 +196,20 @@ def _get(path: str, params: dict | None = None, auth: bool = False) -> dict:
         except (TypeError, ValueError):
             wait_seconds = PUBLIC_WINDOW_SECONDS / 2
 
+        if path.startswith("/public/order-book/"):
+            max_wait = _parse_float_env(
+                "REVBOT_PUBLIC_ORDERBOOK_RETRY_MAX_WAIT_SECONDS",
+                1.0,
+                minimum=0.5,
+            )
+        else:
+            max_wait = _parse_float_env(
+                "REVBOT_PUBLIC_RETRY_MAX_WAIT_SECONDS",
+                2.0,
+                minimum=0.5,
+            )
         wait_seconds = max(wait_seconds, 1.0)
+        wait_seconds = min(wait_seconds, max_wait)
         logger.warning(
             f"Public API rate limited on {path}, retrying in {wait_seconds:.2f}s"
         )
@@ -188,7 +224,7 @@ def _post(path: str, payload: dict, auth: bool = True) -> dict:
     url = f"{BASE_URL}{path}"
     logger.debug(f"POST {url}")
 
-    response = requests.post(
+    response = _HTTP_SESSION.post(
         url,
         headers=(
             _build_signed_headers(method="POST", path=path, payload=payload)
@@ -201,6 +237,7 @@ def _post(path: str, payload: dict, auth: bool = True) -> dict:
         json=payload,
         timeout=REQUEST_TIMEOUT_SECONDS,
         allow_redirects=False,
+        proxies={},
     )
 
     response.raise_for_status()

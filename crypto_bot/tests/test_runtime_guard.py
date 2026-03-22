@@ -41,3 +41,15 @@ def test_check_disk_space_has_expected_keys(tmp_path: Path):
     assert "ok" in result
     assert "free_mb" in result
     assert result["required_min_free_mb"] == 1
+
+
+def test_cleanup_log_rotations_removes_excess_files(tmp_path: Path):
+    (tmp_path / "bot.log").write_text("base", encoding="utf-8")
+    for idx in range(1, 8):
+        (tmp_path / f"bot.log.{idx}").write_text(str(idx), encoding="utf-8")
+
+    result = runtime_guard.cleanup_log_rotations(tmp_path, keep_rotations=5)
+    assert result["removed_count"] == 2
+    assert not (tmp_path / "bot.log.6").exists()
+    assert not (tmp_path / "bot.log.7").exists()
+    assert (tmp_path / "bot.log.5").exists()

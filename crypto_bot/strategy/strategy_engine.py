@@ -2,26 +2,39 @@ import time
 from pathlib import Path
 
 from strategy.breakout_momentum import evaluate_breakout_momentum_entry
+from strategy.diagnostics import (
+    compute_buy_diagnostics as _compute_buy_diagnostics_impl,
+    compute_scalper_diagnostics as _compute_scalper_diagnostics_impl,
+    record_symbol_metrics as _record_symbol_metrics_impl,
+)
 from strategy.route_quality import load_route_quality_report_cached
 from strategy.regime_engine import normalize_shadow_state, update_regime_shadow_state
-from strategy.regime_engine_v2 import evaluate_regime_v2
+from strategy.regime_engine_v2 import evaluate_regime_unified
 from strategy.regime_router import resolve_entry_route
 from strategy.regime import detect_regime
-from strategy.scoring import score_indicators
+from strategy.routing import (
+    advisory_has_required_fields as _advisory_has_required_fields_impl,
+    configured_regime_for_symbol as _configured_regime_for_symbol_impl,
+    resolve_scalper_config as _resolve_scalper_config_impl,
+    router_flag as _router_flag_impl,
+    strategy_for_symbol as _strategy_for_symbol_impl,
+)
+from strategy.sell_eval import (
+    evaluate_scalper_sell as _evaluate_scalper_sell_impl,
+    evaluate_sell as _evaluate_sell_impl,
+)
+from strategy.state_io import (
+    load_strategy_state as _load_strategy_state_impl,
+    paper_state_mtime as _paper_state_mtime_impl,
+    save_strategy_state as _save_strategy_state_impl,
+    sync_with_broker_state as _sync_with_broker_state_impl,
+)
 from strategy.trend_pullback import evaluate_trend_pullback_entry
 from utils.logger import setup_logger
 from utils.state_io import read_json_file, write_json_file
 from utils.token_regimes import (
     TOKEN_REGIME_AUTO,
-    TOKEN_REGIME_MEAN_REVERSION,
-    normalize_symbol as normalize_token_symbol,
-    normalize_token_regime,
 )
-
-try:
-    from analysis.data_analysis import calculate_support_resistance
-except ModuleNotFoundError:
-    from crypto_bot.analysis.data_analysis import calculate_support_resistance
 
 logger = setup_logger("strategy")
 
@@ -44,6 +57,8 @@ _last_detected_regime_confidence = {}
 _last_detected_regime_confidence_label = {}
 _last_detected_regime_stability = {}
 _last_detected_regime_persistence = {}
+_last_detected_regime_stability_inferred = {}
+_last_detected_regime_persistence_inferred = {}
 _last_regime_data_quality_status = {}
 _last_regime_key_windows_supported = {}
 _last_suggested_regime_v2 = {}
@@ -75,59 +90,17 @@ PAPER_STATE_FILE = STATE_DIR / "paper_state.json"
 # ============================================================
 
 def _sync_with_broker_state():
-    if not PAPER_STATE_FILE.exists():
-        """
-        On startup, align strategy state with PaperBroker positions.
-        """
-        return
-
-    try:
-        data = read_json_file(PAPER_STATE_FILE, default={})
-        if not isinstance(data, dict):
-            data = {}
-
-        positions = data.get("positions", {})
-        broker_symbols = set(positions)
-        state_changed = False
-
-        # Paper broker state is the source of truth for which positions are open.
-        for symbol in list(_entry_price.keys()):
-            if symbol not in broker_symbols:
-                _entry_price.pop(symbol, None)
-                _entry_time.pop(symbol, None)
-                _profit_lock.pop(symbol, None)
-                _peak_pnl.pop(symbol, None)
-                _last_momentum.pop(symbol, None)
-                _last_signal.pop(symbol, None)
-                state_changed = True
-                logger.info(f"Strategy sync: removed stale state for {symbol}")
-
-        for symbol in list(_entry_time.keys()):
-            if symbol not in broker_symbols:
-                _entry_time.pop(symbol, None)
-                state_changed = True
-
-        for symbol in list(_profit_lock.keys()):
-            if symbol not in broker_symbols:
-                _profit_lock.pop(symbol, None)
-                state_changed = True
-
-        for symbol in list(_peak_pnl.keys()):
-            if symbol not in broker_symbols:
-                _peak_pnl.pop(symbol, None)
-                state_changed = True
-
-        for symbol in list(_last_momentum.keys()):
-            if symbol not in broker_symbols:
-                _last_momentum.pop(symbol, None)
-                state_changed = True
-
-        for symbol in list(_last_signal.keys()):
-            if symbol not in broker_symbols:
-                _last_signal.pop(symbol, None)
-                state_changed = True
-
-        for mapping in (
+    _sync_with_broker_state_impl(
+        paper_state_file=PAPER_STATE_FILE,
+        read_json_file=read_json_file,
+        parse_numeric=_parse_numeric,
+        entry_price=_entry_price,
+        entry_time=_entry_time,
+        profit_lock=_profit_lock,
+        peak_pnl=_peak_pnl,
+        last_momentum=_last_momentum,
+        last_signal=_last_signal,
+        metadata_maps=(
             _last_regime,
             _last_score,
             _last_volatility,
@@ -137,6 +110,8 @@ def _sync_with_broker_state():
             _last_detected_regime_confidence_label,
             _last_detected_regime_stability,
             _last_detected_regime_persistence,
+            _last_detected_regime_stability_inferred,
+            _last_detected_regime_persistence_inferred,
             _last_regime_data_quality_status,
             _last_regime_key_windows_supported,
             _last_suggested_regime_v2,
@@ -148,55 +123,14 @@ def _sync_with_broker_state():
             _last_regime_eval_ts,
             _last_auto_fallback_reason,
             _last_fallback_reason,
-        ):
-            for symbol in list(mapping.keys()):
-                if symbol in broker_symbols:
-                    continue
-                mapping.pop(symbol, None)
-                state_changed = True
-
-        for symbol, pos in positions.items():
-            entry_price = pos.get("price")
-            entry_time = _parse_numeric(pos.get("entry_time"), fallback=None)
-            if entry_time is None:
-                entry_time = time.time()
-            if symbol not in _entry_price:
-                _entry_price[symbol] = entry_price
-                _entry_time[symbol] = entry_time
-                _profit_lock[symbol] = None
-                _last_signal[symbol] = "BUY"
-                state_changed = True
-                logger.info(f"Strategy sync: restored {symbol} @ {entry_price}")
-            elif _entry_price.get(symbol) != entry_price:
-                _entry_price[symbol] = entry_price
-                state_changed = True
-                logger.info(f"Strategy sync: reconciled {symbol} entry to {entry_price}")
-            if _entry_time.get(symbol) != entry_time:
-                _entry_time[symbol] = entry_time
-                state_changed = True
-
-            if symbol not in _profit_lock:
-                _profit_lock[symbol] = None
-                state_changed = True
-            if symbol not in _peak_pnl:
-                _peak_pnl[symbol] = 0.0
-                state_changed = True
-            if _last_signal.get(symbol) != "BUY":
-                _last_signal[symbol] = "BUY"
-                state_changed = True
-
-        if state_changed:
-            _save_strategy_state()
-
-    except Exception as e:
-        logger.exception(f"Strategy state sync failed: {e}")
+        ),
+        save_strategy_state=_save_strategy_state,
+        logger=logger,
+    )
 
 
 def _paper_state_mtime():
-    try:
-        return PAPER_STATE_FILE.stat().st_mtime
-    except OSError:
-        return None
+    return _paper_state_mtime_impl(PAPER_STATE_FILE)
 
 
 def _sync_with_broker_state_if_needed(force: bool = False):
@@ -222,165 +156,16 @@ def evaluate_symbol(snapshot: dict, cfg: dict) -> dict:
     return generate_decision(snapshot, cfg)
 
 
-def _router_cfg(cfg: dict) -> dict:
-    strategy_defaults = cfg.get("strategy_defaults", {})
-    if not isinstance(strategy_defaults, dict):
-        return {}
-    router = strategy_defaults.get("router", {})
-    if not isinstance(router, dict):
-        return {}
-    return router
-
-
 def _router_flag(cfg: dict, key: str, default: bool = False) -> bool:
-    raw = _router_cfg(cfg).get(key)
-    if isinstance(raw, bool):
-        return raw
-    if isinstance(raw, (int, float)):
-        return bool(raw)
-    if isinstance(raw, str):
-        normalized = raw.strip().lower()
-        if normalized in {"1", "true", "yes", "on"}:
-            return True
-        if normalized in {"0", "false", "no", "off"}:
-            return False
-    return default
+    return _router_flag_impl(cfg, key, default)
 
 
 def _configured_regime_for_symbol(cfg: dict, symbol: str) -> str:
-    token_regimes = cfg.get("token_regimes", {})
-    if not isinstance(token_regimes, dict):
-        return TOKEN_REGIME_MEAN_REVERSION
-    symbol_key = normalize_token_symbol(symbol)
-    if not symbol_key:
-        return TOKEN_REGIME_MEAN_REVERSION
-    raw = token_regimes.get(symbol_key)
-    return normalize_token_regime(raw, default=TOKEN_REGIME_MEAN_REVERSION)
+    return _configured_regime_for_symbol_impl(cfg, symbol)
 
 
-def _confidence_label_from_score(score: float) -> str:
-    if score >= 72.0:
-        return "HIGH"
-    if score >= 48.0:
-        return "MEDIUM"
-    return "LOW"
-
-
-def _build_runtime_multitimeframe_advisory(snapshot: dict, now_epoch: float) -> dict | None:
-    prices_raw = snapshot.get("recent_prices", [])
-    if not isinstance(prices_raw, list):
-        return None
-    prices = []
-    for value in prices_raw:
-        numeric = _parse_numeric(value, fallback=None)
-        if numeric is None or numeric <= 0:
-            continue
-        prices.append(float(numeric))
-    if len(prices) < 24:
-        return {
-            "detectionSource": "advisory_multitimeframe_runtime",
-            "analysisAnchorEpoch": now_epoch,
-            "suggestedRegime": "MIXED_OR_UNCLEAR",
-            "confidenceScore": 0.0,
-            "confidenceLabel": "LOW",
-            "insufficientData": True,
-            "insufficientReasonCode": "insufficient_recent_prices",
-            "insufficientReasonMessage": "Need at least 24 recent prices for runtime multitimeframe advisory.",
-        }
-
-    window_sizes = [12, 24, 36, 48]
-    trend_votes = 0.0
-    range_votes = 0.0
-    breakout_votes = 0.0
-    mixed_votes = 0.0
-    total_weight = 0.0
-
-    for index, size in enumerate(window_sizes):
-        if len(prices) < size:
-            continue
-        window = prices[-size:]
-        first_price = window[0]
-        last_price = window[-1]
-        if first_price <= 0:
-            continue
-        high_price = max(window)
-        low_price = min(window)
-        if low_price <= 0:
-            continue
-        slope_pct = ((last_price - first_price) / first_price) * 100.0
-        amplitude_pct = ((high_price - low_price) / ((high_price + low_price) / 2.0)) * 100.0
-        abs_slope = abs(slope_pct)
-        weight = 1.0 + (index * 0.35)
-        total_weight += weight
-
-        trend_component = (
-            (0.45 if abs_slope >= 0.28 else 0.12)
-            + min(abs_slope / 1.4, 1.0) * 0.35
-            + (0.10 if amplitude_pct >= 1.0 else 0.0)
-        )
-        range_component = (
-            (0.45 if abs_slope <= 0.18 else 0.10)
-            + (0.30 if 0.4 <= amplitude_pct <= 7.5 else 0.0)
-            + (0.15 if abs_slope <= 0.12 else 0.0)
-        )
-        breakout_component = (
-            (0.40 if amplitude_pct >= 2.2 else 0.08)
-            + (0.20 if abs_slope >= 0.32 else 0.0)
-            + (0.15 if last_price >= high_price * 0.995 or last_price <= low_price * 1.005 else 0.0)
-        )
-
-        top_component = max(trend_component, range_component, breakout_component)
-        mixed_component = max(0.0, 0.85 - top_component)
-
-        trend_votes += trend_component * weight
-        range_votes += range_component * weight
-        breakout_votes += breakout_component * weight
-        mixed_votes += mixed_component * weight
-
-    if total_weight <= 0:
-        return {
-            "detectionSource": "advisory_multitimeframe_runtime",
-            "analysisAnchorEpoch": now_epoch,
-            "suggestedRegime": "MIXED_OR_UNCLEAR",
-            "confidenceScore": 0.0,
-            "confidenceLabel": "LOW",
-            "insufficientData": True,
-            "insufficientReasonCode": "insufficient_weighted_windows",
-            "insufficientReasonMessage": "Insufficient weighted windows for runtime advisory.",
-        }
-
-    scored = [
-        ("TREND_CONTINUATION", trend_votes),
-        ("MEAN_REVERSION_FRIENDLY", range_votes),
-        ("BREAKOUT_EXPANSION", breakout_votes),
-        ("MIXED_OR_UNCLEAR", mixed_votes),
-    ]
-    scored.sort(key=lambda row: row[1], reverse=True)
-    top_label, top_score = scored[0]
-    second_score = scored[1][1] if len(scored) > 1 else 0.0
-    dominance = max(top_score - second_score, 0.0)
-    confidence_score = max(0.0, min((dominance / total_weight) * 140.0, 100.0))
-    suggested = top_label
-    if suggested != "MIXED_OR_UNCLEAR" and confidence_score < 45.0:
-        suggested = "MIXED_OR_UNCLEAR"
-    if suggested == "MIXED_OR_UNCLEAR":
-        confidence_score = min(confidence_score, 55.0)
-
-    return {
-        "detectionSource": "advisory_multitimeframe_runtime",
-        "analysisAnchorEpoch": now_epoch,
-        "suggestedRegime": suggested,
-        "confidenceScore": round(confidence_score, 3),
-        "confidenceLabel": _confidence_label_from_score(confidence_score),
-        "insufficientData": False,
-        "componentScores": {
-            "trend_score": round((trend_votes / total_weight) * 100.0, 3),
-            "range_score": round((range_votes / total_weight) * 100.0, 3),
-            "breakout_score": round((breakout_votes / total_weight) * 100.0, 3),
-            "mixed_score": round((mixed_votes / total_weight) * 100.0, 3),
-        },
-    }
-
+def _advisory_has_required_fields(advisory: dict) -> bool:
+    return _advisory_has_required_fields_impl(advisory)
 
 
 # ============================================================
@@ -423,7 +208,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
 
     if configured_regime == TOKEN_REGIME_AUTO:
         existing_advisory = route_snapshot.get("regime_advisory")
-        existing_advisory_valid = isinstance(existing_advisory, dict) and bool(existing_advisory)
+        existing_advisory_valid = _advisory_has_required_fields(existing_advisory)
 
         if existing_advisory_valid:
             route_snapshot["regime_eval_ts"] = (
@@ -434,7 +219,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
                 or route_eval_ts
             )
         else:
-            runtime_advisory_v2 = evaluate_regime_v2(
+            runtime_advisory_v2 = evaluate_regime_unified(
                 snapshot=route_snapshot,
                 now_epoch=route_eval_ts,
                 cfg=cfg,
@@ -677,6 +462,8 @@ def _record_route_metadata(symbol: str, route: dict):
     detected_confidence_label = route.get("detected_regime_confidence_label")
     detected_stability = _parse_numeric(route.get("detected_regime_stability"), fallback=None)
     detected_persistence = _parse_numeric(route.get("detected_regime_persistence"), fallback=None)
+    detected_stability_inferred = route.get("detected_regime_stability_inferred")
+    detected_persistence_inferred = route.get("detected_regime_persistence_inferred")
     regime_data_quality_status = route.get("regime_data_quality_status")
     regime_key_windows_supported = route.get("regime_key_windows_supported")
     suggested_regime_v2 = route.get("suggested_regime_v2")
@@ -740,6 +527,24 @@ def _record_route_metadata(symbol: str, route: dict):
     else:
         if _last_detected_regime_persistence.get(symbol) != detected_persistence:
             _last_detected_regime_persistence[symbol] = detected_persistence
+            changed = True
+
+    if isinstance(detected_stability_inferred, bool):
+        if _last_detected_regime_stability_inferred.get(symbol) != detected_stability_inferred:
+            _last_detected_regime_stability_inferred[symbol] = detected_stability_inferred
+            changed = True
+    else:
+        if symbol in _last_detected_regime_stability_inferred:
+            _last_detected_regime_stability_inferred.pop(symbol, None)
+            changed = True
+
+    if isinstance(detected_persistence_inferred, bool):
+        if _last_detected_regime_persistence_inferred.get(symbol) != detected_persistence_inferred:
+            _last_detected_regime_persistence_inferred[symbol] = detected_persistence_inferred
+            changed = True
+    else:
+        if symbol in _last_detected_regime_persistence_inferred:
+            _last_detected_regime_persistence_inferred.pop(symbol, None)
             changed = True
 
     if isinstance(regime_data_quality_status, str) and regime_data_quality_status:
@@ -959,70 +764,26 @@ def _evaluate_sell(
     reset_below_activation,
     max_negative_z_score,
 ):
-    if entry is None:
-        return None
-
-    pnl_pct = (price - entry) / entry
-    current_lock = _profit_lock.get(symbol)
-    saved_peak = _peak_pnl.get(symbol)
-    peak_pnl = pnl_pct if saved_peak is None else max(saved_peak, pnl_pct)
-    state_changed = False
-
-    if pnl_pct < first_activation:
-        reset_peak = max(pnl_pct, 0.0) if reset_below_activation else peak_pnl
-        if _peak_pnl.get(symbol) != reset_peak:
-            _peak_pnl[symbol] = reset_peak
-            state_changed = True
-        if reset_below_activation and current_lock is not None:
-            _profit_lock[symbol] = None
-            state_changed = True
-        if state_changed:
-            _save_strategy_state()
-        return _decision(symbol, "HOLD", price, momentum, "waiting_for_first_lock")
-
-    if _peak_pnl.get(symbol) != peak_pnl:
-        _peak_pnl[symbol] = peak_pnl
-        state_changed = True
-
-    if current_lock is None:
-        current_lock = initial_lock
-
-    for trigger, lock in profit_levels:
-        if pnl_pct >= trigger:
-            current_lock = max(current_lock, lock)
-
-    if peak_pnl >= trailing_activation:
-        current_lock = max(current_lock, peak_pnl - trailing_gap)
-
-    previous_lock = _profit_lock.get(symbol)
-    if previous_lock != current_lock:
-        _profit_lock[symbol] = current_lock
-        state_changed = True
-
-    if state_changed:
-        _save_strategy_state()
-
-    logger.info(
-        f"{symbol} PNL={pnl_pct:.4f} | lock={current_lock:.4f} | "
-        f"lock_price={(entry * (1 + current_lock)):.2f}"
+    return _evaluate_sell_impl(
+        symbol=symbol,
+        price=price,
+        momentum=momentum,
+        entry=entry,
+        z_score=z_score,
+        first_activation=first_activation,
+        initial_lock=initial_lock,
+        profit_levels=profit_levels,
+        trailing_activation=trailing_activation,
+        trailing_gap=trailing_gap,
+        reset_below_activation=reset_below_activation,
+        max_negative_z_score=max_negative_z_score,
+        profit_lock_state=_profit_lock,
+        peak_pnl_state=_peak_pnl,
+        entry_price_state=_entry_price,
+        save_strategy_state=_save_strategy_state,
+        decision=_decision,
+        logger=logger,
     )
-
-    if pnl_pct <= current_lock:
-        if symbol not in _entry_price:
-            return _decision(symbol, "HOLD", price, momentum, "desync_protection")
-
-        return _decision(
-            symbol,
-            "SELL",
-            price,
-            momentum,
-            f"profit_lock_exit_{int(current_lock*100)}pct",
-        )
-
-    if z_score is not None and current_lock == 0.01 and z_score < max_negative_z_score:
-        return _decision(symbol, "SELL", price, momentum, "structural_break_exit")
-
-    return _decision(symbol, "HOLD", price, momentum, "in_position")
 
 
 def _evaluate_scalper_sell(
@@ -1035,57 +796,20 @@ def _evaluate_scalper_sell(
     z_score,
     scalper_cfg,
 ):
-    if entry is None:
-        return None
-
-    now = time.time()
-    if entry_ts is None:
-        entry_ts = _entry_time.get(symbol)
-    entry_ts = _parse_numeric(entry_ts, fallback=None)
-    if entry_ts is None:
-        entry_ts = now
-        _entry_time[symbol] = entry_ts
-
-    atr_value = _parse_numeric(atr, fallback=0.0) or 0.0
-    min_move_pct = max(
-        _parse_numeric(scalper_cfg.get("min_move_pct"), fallback=0.0015) or 0.0015,
-        0.0,
+    return _evaluate_scalper_sell_impl(
+        symbol=symbol,
+        price=price,
+        momentum=momentum,
+        entry=entry,
+        entry_ts=entry_ts,
+        atr=atr,
+        z_score=z_score,
+        scalper_cfg=scalper_cfg,
+        entry_time_state=_entry_time,
+        peak_pnl_state=_peak_pnl,
+        parse_numeric=_parse_numeric,
+        decision=_decision,
     )
-    take_profit_pct = max(
-        atr_value * max(scalper_cfg.get("take_profit_atr_mult", 0.6), 0.0),
-        min_move_pct,
-    )
-    stop_loss_pct = max(
-        atr_value * max(scalper_cfg.get("stop_loss_atr_mult", 0.35), 0.0),
-        min_move_pct * 0.75,
-    )
-    max_hold_seconds = max(int(scalper_cfg.get("max_hold_seconds", 180)), 1)
-    exit_z_score = _parse_numeric(
-        scalper_cfg.get("exit_z_score"),
-        fallback=0.8,
-    )
-
-    pnl_pct = (price - entry) / entry
-    _peak_pnl[symbol] = max(_peak_pnl.get(symbol, pnl_pct), pnl_pct)
-
-    if pnl_pct >= take_profit_pct:
-        return _decision(symbol, "SELL", price, momentum, "scalper_take_profit")
-
-    if pnl_pct <= -stop_loss_pct:
-        return _decision(symbol, "SELL", price, momentum, "scalper_stop_loss")
-
-    if (
-        z_score is not None
-        and exit_z_score is not None
-        and z_score >= exit_z_score
-        and pnl_pct > 0
-    ):
-        return _decision(symbol, "SELL", price, momentum, "scalper_vwap_exit")
-
-    if (now - entry_ts) >= max_hold_seconds:
-        return _decision(symbol, "SELL", price, momentum, "scalper_time_stop")
-
-    return _decision(symbol, "HOLD", price, momentum, "scalper_in_position")
 
 
 def _evaluate_scalper_buy(
@@ -1247,87 +971,83 @@ def _evaluate_buy(
 
 def _save_strategy_state():
     global _metrics_dirty, _last_metrics_flush_at
-
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-
-    state = {
-        "entry_price": _entry_price,
-        "entry_time": _entry_time,
-        "profit_lock": _profit_lock,
-        "peak_pnl": _peak_pnl,
-        "last_signal": _last_signal,
-        "last_momentum": _last_momentum,
-        "last_regime": _last_regime,
-        "last_score": _last_score,
-        "last_volatility": _last_volatility,
-        "last_configured_regime": _last_configured_regime,
-        "last_detected_regime": _last_detected_regime,
-        "last_detected_regime_confidence": _last_detected_regime_confidence,
-        "last_detected_regime_confidence_label": _last_detected_regime_confidence_label,
-        "last_detected_regime_stability": _last_detected_regime_stability,
-        "last_detected_regime_persistence": _last_detected_regime_persistence,
-        "last_regime_data_quality_status": _last_regime_data_quality_status,
-        "last_regime_key_windows_supported": _last_regime_key_windows_supported,
-        "last_suggested_regime_v2": _last_suggested_regime_v2,
-        "last_detection_source": _last_detection_source,
-        "last_detection_timestamp_epoch": _last_detection_timestamp_epoch,
-        "last_effective_strategy": _last_effective_strategy,
-        "last_effective_route": _last_effective_route,
-        "last_route_eval_ts": _last_route_eval_ts,
-        "last_regime_eval_ts": _last_regime_eval_ts,
-        "last_auto_fallback_reason": _last_auto_fallback_reason,
-        "last_fallback_reason": _last_fallback_reason,
-        "shadow_regime_state": _shadow_regime_state,
-    }
-
-    write_json_file(STRATEGY_STATE_FILE, state)
+    _last_metrics_flush_at = _save_strategy_state_impl(
+        state_dir=STATE_DIR,
+        strategy_state_file=STRATEGY_STATE_FILE,
+        write_json_file=write_json_file,
+        state_maps={
+            "entry_price": _entry_price,
+            "entry_time": _entry_time,
+            "profit_lock": _profit_lock,
+            "peak_pnl": _peak_pnl,
+            "last_signal": _last_signal,
+            "last_momentum": _last_momentum,
+            "last_regime": _last_regime,
+            "last_score": _last_score,
+            "last_volatility": _last_volatility,
+            "last_configured_regime": _last_configured_regime,
+            "last_detected_regime": _last_detected_regime,
+            "last_detected_regime_confidence": _last_detected_regime_confidence,
+            "last_detected_regime_confidence_label": _last_detected_regime_confidence_label,
+            "last_detected_regime_stability": _last_detected_regime_stability,
+            "last_detected_regime_persistence": _last_detected_regime_persistence,
+            "last_detected_regime_stability_inferred": _last_detected_regime_stability_inferred,
+            "last_detected_regime_persistence_inferred": _last_detected_regime_persistence_inferred,
+            "last_regime_data_quality_status": _last_regime_data_quality_status,
+            "last_regime_key_windows_supported": _last_regime_key_windows_supported,
+            "last_suggested_regime_v2": _last_suggested_regime_v2,
+            "last_detection_source": _last_detection_source,
+            "last_detection_timestamp_epoch": _last_detection_timestamp_epoch,
+            "last_effective_strategy": _last_effective_strategy,
+            "last_effective_route": _last_effective_route,
+            "last_route_eval_ts": _last_route_eval_ts,
+            "last_regime_eval_ts": _last_regime_eval_ts,
+            "last_auto_fallback_reason": _last_auto_fallback_reason,
+            "last_fallback_reason": _last_fallback_reason,
+        },
+        shadow_regime_state=_shadow_regime_state,
+    )
     _metrics_dirty = False
-    _last_metrics_flush_at = time.time()
 
 
 def _load_strategy_state():
-    if not STRATEGY_STATE_FILE.exists():
-        return
-
-    try:
-        state = read_json_file(STRATEGY_STATE_FILE, default={})
-        if not isinstance(state, dict):
-            state = {}
-
-        _entry_price.update(state.get("entry_price", {}))
-        _entry_time.update(state.get("entry_time", {}))
-        _profit_lock.update(state.get("profit_lock", {}))
-        _peak_pnl.update(state.get("peak_pnl", {}))
-        _last_signal.update(state.get("last_signal", {}))
-        _last_momentum.update(state.get("last_momentum", {}))
-        _last_regime.update(state.get("last_regime", {}))
-        _last_score.update(state.get("last_score", {}))
-        _last_volatility.update(state.get("last_volatility", {}))
-        _last_configured_regime.update(state.get("last_configured_regime", {}))
-        _last_detected_regime.update(state.get("last_detected_regime", {}))
-        _last_detected_regime_confidence.update(state.get("last_detected_regime_confidence", {}))
-        _last_detected_regime_confidence_label.update(state.get("last_detected_regime_confidence_label", {}))
-        _last_detected_regime_stability.update(state.get("last_detected_regime_stability", {}))
-        _last_detected_regime_persistence.update(state.get("last_detected_regime_persistence", {}))
-        _last_regime_data_quality_status.update(state.get("last_regime_data_quality_status", {}))
-        _last_regime_key_windows_supported.update(state.get("last_regime_key_windows_supported", {}))
-        _last_suggested_regime_v2.update(state.get("last_suggested_regime_v2", {}))
-        _last_detection_source.update(state.get("last_detection_source", {}))
-        _last_detection_timestamp_epoch.update(state.get("last_detection_timestamp_epoch", {}))
-        _last_effective_strategy.update(state.get("last_effective_strategy", {}))
-        _last_effective_route.update(state.get("last_effective_route", {}))
-        _last_route_eval_ts.update(state.get("last_route_eval_ts", {}))
-        _last_regime_eval_ts.update(state.get("last_regime_eval_ts", {}))
-        _last_auto_fallback_reason.update(state.get("last_auto_fallback_reason", {}))
-        _last_fallback_reason.update(state.get("last_fallback_reason", {}))
-        _shadow_regime_state.update(
-            normalize_shadow_state(state.get("shadow_regime_state", {}))
-        )
-
-        logger.info("Strategy state restored")
-
-    except Exception as e:
-        logger.error(f"Failed to load strategy state: {e}")
+    _load_strategy_state_impl(
+        strategy_state_file=STRATEGY_STATE_FILE,
+        read_json_file=read_json_file,
+        normalize_shadow_state=normalize_shadow_state,
+        state_maps={
+            "entry_price": _entry_price,
+            "entry_time": _entry_time,
+            "profit_lock": _profit_lock,
+            "peak_pnl": _peak_pnl,
+            "last_signal": _last_signal,
+            "last_momentum": _last_momentum,
+            "last_regime": _last_regime,
+            "last_score": _last_score,
+            "last_volatility": _last_volatility,
+            "last_configured_regime": _last_configured_regime,
+            "last_detected_regime": _last_detected_regime,
+            "last_detected_regime_confidence": _last_detected_regime_confidence,
+            "last_detected_regime_confidence_label": _last_detected_regime_confidence_label,
+            "last_detected_regime_stability": _last_detected_regime_stability,
+            "last_detected_regime_persistence": _last_detected_regime_persistence,
+            "last_detected_regime_stability_inferred": _last_detected_regime_stability_inferred,
+            "last_detected_regime_persistence_inferred": _last_detected_regime_persistence_inferred,
+            "last_regime_data_quality_status": _last_regime_data_quality_status,
+            "last_regime_key_windows_supported": _last_regime_key_windows_supported,
+            "last_suggested_regime_v2": _last_suggested_regime_v2,
+            "last_detection_source": _last_detection_source,
+            "last_detection_timestamp_epoch": _last_detection_timestamp_epoch,
+            "last_effective_strategy": _last_effective_strategy,
+            "last_effective_route": _last_effective_route,
+            "last_route_eval_ts": _last_route_eval_ts,
+            "last_regime_eval_ts": _last_regime_eval_ts,
+            "last_auto_fallback_reason": _last_auto_fallback_reason,
+            "last_fallback_reason": _last_fallback_reason,
+        },
+        shadow_regime_state=_shadow_regime_state,
+        logger=logger,
+    )
 
 
 # ============================================================
@@ -1364,6 +1084,8 @@ def _cleanup(symbol, price):
     _last_detected_regime_confidence_label.pop(symbol, None)
     _last_detected_regime_stability.pop(symbol, None)
     _last_detected_regime_persistence.pop(symbol, None)
+    _last_detected_regime_stability_inferred.pop(symbol, None)
+    _last_detected_regime_persistence_inferred.pop(symbol, None)
     _last_regime_data_quality_status.pop(symbol, None)
     _last_regime_key_windows_supported.pop(symbol, None)
     _last_suggested_regime_v2.pop(symbol, None)
@@ -1404,6 +1126,10 @@ def _decision(symbol, action, price, momentum, reason):
         payload["detected_regime_stability"] = _last_detected_regime_stability[symbol]
     if symbol in _last_detected_regime_persistence:
         payload["detected_regime_persistence"] = _last_detected_regime_persistence[symbol]
+    if symbol in _last_detected_regime_stability_inferred:
+        payload["detected_regime_stability_inferred"] = _last_detected_regime_stability_inferred[symbol]
+    if symbol in _last_detected_regime_persistence_inferred:
+        payload["detected_regime_persistence_inferred"] = _last_detected_regime_persistence_inferred[symbol]
     if symbol in _last_regime_data_quality_status:
         payload["regime_data_quality_status"] = _last_regime_data_quality_status[symbol]
     if symbol in _last_regime_key_windows_supported:
@@ -1446,154 +1172,25 @@ def _compute_buy_diagnostics(
     z_score,
     regime_cfg,
 ):
-    regime = detect_regime(snapshot, regime_cfg)
-    volatility = _parse_numeric(atr, fallback=None)
-
-    range_pos = None
-    if high_24h > low_24h:
-        range_pos = (price - low_24h) / (high_24h - low_24h)
-        range_pos = max(0.0, min(1.0, range_pos))
-
-    rsi = _parse_numeric(snapshot.get("rsi"), fallback=None)
-    if rsi is None:
-        if range_pos is not None:
-            rsi = range_pos * 100.0
-        elif z_score is not None:
-            rsi = max(0.0, min(100.0, 50.0 + (z_score * 10.0)))
-        else:
-            rsi = 50.0
-
-    structure = 0.0
-    recent_prices = snapshot.get("recent_prices")
-    if isinstance(recent_prices, list):
-        valid_prices = []
-        for raw in recent_prices:
-            value = _parse_numeric(raw, fallback=None)
-            if value is None or value <= 0:
-                continue
-            valid_prices.append(value)
-
-        if len(valid_prices) >= 5:
-            try:
-                support, resistance = calculate_support_resistance(
-                    valid_prices,
-                    window=min(14, len(valid_prices)),
-                )
-                if price <= support * 1.01:
-                    structure = 1.0
-                elif price >= resistance * 0.995:
-                    structure = -1.0
-            except Exception:
-                structure = 0.0
-
-    indicators = {
-        "rsi": rsi,
-        "momentum": _parse_numeric(momentum, fallback=0.0),
-        "structure": structure,
-    }
-
-    score = score_indicators(
-        regime=regime,
-        indicators=indicators,
-        range_pos=range_pos if range_pos is not None else 0.0,
+    return _compute_buy_diagnostics_impl(
+        snapshot=snapshot,
+        price=price,
+        momentum=momentum,
+        high_24h=high_24h,
+        low_24h=low_24h,
+        atr=atr,
+        z_score=z_score,
+        regime_cfg=regime_cfg,
+        parse_numeric=_parse_numeric,
     )
-
-    return regime, float(score), range_pos, volatility
-
-
-def _normalize_symbol(value):
-    if not isinstance(value, str):
-        return ""
-    return value.strip().upper()
-
-
-def _normalize_strategy_name(value):
-    raw = str(value or "").strip().lower()
-    if raw in {"volatility_scalper", "vol_scalper", "scalper"}:
-        return "volatility_scalper"
-    return "mean_reversion"
 
 
 def _resolve_scalper_config(cfg):
-    raw = cfg.get("volatility_scalper", {})
-    if not isinstance(raw, dict):
-        raw = {}
-
-    symbols = set()
-    raw_symbols = raw.get("symbols", [])
-    if isinstance(raw_symbols, list):
-        for item in raw_symbols:
-            symbol = _normalize_symbol(item)
-            if symbol:
-                symbols.add(symbol)
-
-    max_range_pos = _parse_numeric(raw.get("max_range_pos"), fallback=0.65)
-    if max_range_pos is not None:
-        max_range_pos = max(0.0, min(1.0, max_range_pos))
-
-    return {
-        "enabled": raw.get("enabled", True) is not False,
-        "symbols": symbols,
-        "min_atr": max(_parse_numeric(raw.get("min_atr"), fallback=0.008) or 0.008, 0.0),
-        "min_trades": max(int(_parse_numeric(raw.get("min_trades"), fallback=6) or 6), 1),
-        "max_spread_bps": max(
-            _parse_numeric(raw.get("max_spread_bps"), fallback=120.0) or 120.0,
-            0.0,
-        ),
-        "min_momentum": _parse_numeric(raw.get("min_momentum"), fallback=0.2),
-        "entry_z_score_max": _parse_numeric(raw.get("entry_z_score_max"), fallback=-0.1),
-        "exit_z_score": _parse_numeric(raw.get("exit_z_score"), fallback=0.8),
-        "take_profit_atr_mult": max(
-            _parse_numeric(raw.get("take_profit_atr_mult"), fallback=0.6) or 0.6,
-            0.0,
-        ),
-        "stop_loss_atr_mult": max(
-            _parse_numeric(raw.get("stop_loss_atr_mult"), fallback=0.35) or 0.35,
-            0.0,
-        ),
-        "max_hold_seconds": max(
-            int(_parse_numeric(raw.get("max_hold_seconds"), fallback=180) or 180),
-            1,
-        ),
-        "min_move_pct": max(
-            _parse_numeric(raw.get("min_move_pct"), fallback=0.0015) or 0.0015,
-            0.0,
-        ),
-        "min_score_to_buy": max(
-            _parse_numeric(raw.get("min_score_to_buy"), fallback=55.0) or 55.0,
-            0.0,
-        ),
-        "max_range_pos": max_range_pos,
-    }
+    return _resolve_scalper_config_impl(cfg, _parse_numeric)
 
 
 def _strategy_for_symbol(cfg, symbol, scalper_cfg):
-    symbol_key = _normalize_symbol(symbol)
-    if not symbol_key:
-        return "mean_reversion"
-
-    symbol_strategies = cfg.get("symbol_strategies", {})
-    if isinstance(symbol_strategies, dict):
-        for raw_symbol, raw_strategy in symbol_strategies.items():
-            if _normalize_symbol(raw_symbol) != symbol_key:
-                continue
-            return _normalize_strategy_name(raw_strategy)
-
-    strategy_overrides = cfg.get("strategy_overrides", {})
-    if isinstance(strategy_overrides, dict):
-        for raw_symbol, override in strategy_overrides.items():
-            if _normalize_symbol(raw_symbol) != symbol_key:
-                continue
-
-            mode = override
-            if isinstance(override, dict):
-                mode = override.get("strategy", override.get("mode"))
-            return _normalize_strategy_name(mode)
-
-    if scalper_cfg.get("enabled") and symbol_key in scalper_cfg.get("symbols", set()):
-        return "volatility_scalper"
-
-    return "mean_reversion"
+    return _strategy_for_symbol_impl(cfg, symbol, scalper_cfg)
 
 
 def _compute_scalper_diagnostics(
@@ -1607,88 +1204,34 @@ def _compute_scalper_diagnostics(
     regime_cfg,
     scalper_cfg,
 ):
-    regime = detect_regime(snapshot, regime_cfg)
-    volatility = _parse_numeric(atr, fallback=None)
-
-    range_pos = None
-    if high_24h > low_24h:
-        range_pos = (price - low_24h) / (high_24h - low_24h)
-        range_pos = max(0.0, min(1.0, range_pos))
-
-    score = 0.0
-    min_atr = scalper_cfg.get("min_atr", 0.008)
-    if volatility is not None:
-        if volatility >= min_atr:
-            score += 45
-            score += min((volatility - min_atr) / max(min_atr, 1e-9), 1.0) * 20.0
-        else:
-            score += max(volatility / max(min_atr, 1e-9), 0.0) * 35.0
-
-    momentum_value = _parse_numeric(momentum, fallback=0.0) or 0.0
-    if momentum_value > 0:
-        score += min(momentum_value / 2.0, 1.0) * 20.0
-
-    spread_bps = _parse_numeric(snapshot.get("spread_bps"), fallback=None)
-    max_spread_bps = max(scalper_cfg.get("max_spread_bps", 120.0), 1e-9)
-    if spread_bps is not None:
-        if spread_bps <= max_spread_bps:
-            score += 15.0
-        else:
-            penalty = min(((spread_bps - max_spread_bps) / max_spread_bps) * 30.0, 40.0)
-            score -= penalty
-
-    entry_z_score_max = scalper_cfg.get("entry_z_score_max")
-    if z_score is not None and entry_z_score_max is not None:
-        if z_score <= entry_z_score_max:
-            score += 15.0
-        elif z_score >= 1.2:
-            score -= 15.0
-
-    if range_pos is not None:
-        max_range_pos = scalper_cfg.get("max_range_pos")
-        if max_range_pos is not None and range_pos <= max_range_pos:
-            score += 10.0
-        elif range_pos > 0.8:
-            score -= 10.0
-
-    if regime in {"trend_down", "dump"}:
-        score -= 10.0
-    elif regime in {"trend_up", "accumulation", "spike"}:
-        score += 5.0
-
-    score = max(0.0, min(score, 100.0))
-    return regime, float(score), range_pos, volatility
+    return _compute_scalper_diagnostics_impl(
+        snapshot=snapshot,
+        price=price,
+        momentum=momentum,
+        high_24h=high_24h,
+        low_24h=low_24h,
+        atr=atr,
+        z_score=z_score,
+        regime_cfg=regime_cfg,
+        scalper_cfg=scalper_cfg,
+        parse_numeric=_parse_numeric,
+    )
 
 
 def _record_symbol_metrics(symbol, regime, score, volatility):
     global _metrics_dirty
-
-    changed = False
-
-    if _last_regime.get(symbol) != regime:
-        _last_regime[symbol] = regime
-        changed = True
-
-    previous_score = _parse_numeric(_last_score.get(symbol), fallback=None)
-    if previous_score is None or abs(previous_score - score) > SCORE_EPSILON:
-        _last_score[symbol] = float(score)
-        changed = True
-
-    if volatility is None:
-        if symbol in _last_volatility:
-            _last_volatility.pop(symbol, None)
-            changed = True
-    else:
-        previous_volatility = _parse_numeric(
-            _last_volatility.get(symbol),
-            fallback=None,
-        )
-        if (
-            previous_volatility is None
-            or abs(previous_volatility - volatility) > VOLATILITY_EPSILON
-        ):
-            _last_volatility[symbol] = float(volatility)
-            changed = True
+    changed = _record_symbol_metrics_impl(
+        symbol=symbol,
+        regime=regime,
+        score=score,
+        volatility=volatility,
+        last_regime_state=_last_regime,
+        last_score_state=_last_score,
+        last_volatility_state=_last_volatility,
+        parse_numeric=_parse_numeric,
+        score_epsilon=SCORE_EPSILON,
+        volatility_epsilon=VOLATILITY_EPSILON,
+    )
 
     if changed:
         _metrics_dirty = True

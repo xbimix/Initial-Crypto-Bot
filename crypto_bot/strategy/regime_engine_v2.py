@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from strategy.regime import detect_regime
+
 
 WINDOWS_MINUTES = [
     ("1h", 60),
@@ -13,6 +15,33 @@ WINDOWS_MINUTES = [
     ("3d", 4320),
     ("7d", 10080),
 ]
+
+LEGACY_TO_V2 = {
+    "range": "MEAN_REVERSION_FRIENDLY",
+    "accumulation": "ACCUMULATION",
+    "trend_up": "TREND_CONTINUATION",
+    "spike": "BREAKOUT_EXPANSION",
+    "trend_down": "SLOW_BLEED",
+    "dump": "CAPITULATION_PANIC",
+    "chop": "MIXED_OR_UNCLEAR",
+    "unknown": "MIXED_OR_UNCLEAR",
+}
+
+REGIME_LABELS = {
+    "MEAN_REVERSION_FRIENDLY": "Mean-Reversion-Friendly Range",
+    "TREND_CONTINUATION": "Trend Continuation / Pullback",
+    "BREAKOUT_EXPANSION": "Breakout Expansion",
+    "TREND_WEAKENING": "Trend Weakening",
+    "HIGH_RISK_UNSTABLE": "High-Risk Unstable / Whipsaw",
+    "ACCUMULATION": "Accumulation",
+    "DISTRIBUTION": "Distribution",
+    "LIQUIDITY_SWEEP_REVERSAL": "Liquidity Sweep Reversal",
+    "VOLATILITY_COMPRESSION": "Volatility Compression / Squeeze",
+    "SLOW_BLEED": "Slow Bleed / Downtrend Drift",
+    "CAPITULATION_PANIC": "Capitulation / Panic Flush",
+    "LOW_PARTICIPATION_DEAD_MARKET": "Low-Participation Dead Market",
+    "MIXED_OR_UNCLEAR": "Mixed / Unclear",
+}
 
 
 def _as_float(value: Any, default: float | None = None) -> float | None:
@@ -27,6 +56,34 @@ def _as_float(value: Any, default: float | None = None) -> float | None:
 
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
+
+
+def _regime_label(code: str) -> str:
+    return REGIME_LABELS.get(str(code or "").strip().upper(), "Mixed / Unclear")
+
+
+def _router_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
+    strategy_defaults = cfg.get("strategy_defaults", {})
+    router_cfg = strategy_defaults.get("router", {}) if isinstance(strategy_defaults, dict) else {}
+    if not isinstance(router_cfg, dict):
+        return {}
+    return router_cfg
+
+
+def _threshold(router_cfg: dict[str, Any], key: str, fallback: float) -> float:
+    thresholds = router_cfg.get("regime_v2_thresholds", {})
+    if isinstance(thresholds, dict):
+        parsed = _as_float(thresholds.get(key))
+        if parsed is not None:
+            if 0 <= parsed <= 1.0:
+                return float(parsed)
+            return float(parsed / 100.0)
+    parsed = _as_float(router_cfg.get(key))
+    if parsed is not None:
+        if 0 <= parsed <= 1.0:
+            return float(parsed)
+        return float(parsed / 100.0)
+    return fallback
 
 
 def _label(score: float) -> str:
@@ -61,10 +118,7 @@ def evaluate_regime_v2(
     cfg: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     cfg = cfg or {}
-    strategy_defaults = cfg.get("strategy_defaults", {})
-    router_cfg = strategy_defaults.get("router", {}) if isinstance(strategy_defaults, dict) else {}
-    if not isinstance(router_cfg, dict):
-        router_cfg = {}
+    router_cfg = _router_cfg(cfg)
 
     prices_raw = snapshot.get("recent_prices", [])
     prices: list[float] = []
@@ -109,9 +163,18 @@ def evaluate_regime_v2(
                     "sample": len(prices),
                     "required_sample": points,
                     "structure": "UNSUPPORTED",
+                    "structure_label": "Unsupported",
+                    "structure_score": 0.0,
+                    "stability_score": 0.0,
+                    "persistence_score": 0.0,
+                    "breakout_score": 0.0,
+                    "bounce_score": 0.0,
                     "slope_pct": None,
                     "amplitude_pct": None,
+                    "median_high_zone": None,
+                    "median_low_zone": None,
                     "quality": "INSUFFICIENT",
+                    "quality_status": "INSUFFICIENT",
                 }
             )
             continue
@@ -129,15 +192,37 @@ def evaluate_regime_v2(
                     "sample": points,
                     "required_sample": points,
                     "structure": "UNSUPPORTED",
+                    "structure_label": "Unsupported",
+                    "structure_score": 0.0,
+                    "stability_score": 0.0,
+                    "persistence_score": 0.0,
+                    "breakout_score": 0.0,
+                    "bounce_score": 0.0,
                     "slope_pct": None,
                     "amplitude_pct": None,
+                    "median_high_zone": None,
+                    "median_low_zone": None,
                     "quality": "INSUFFICIENT",
+                    "quality_status": "INSUFFICIENT",
                 }
             )
             continue
 
         slope_pct = ((last_price - first_price) / first_price) * 100.0
         amplitude_pct = ((high_price - low_price) / ((high_price + low_price) / 2.0)) * 100.0
+        window_returns = []
+        for idx in range(1, len(window)):
+            prev_px = window[idx - 1]
+            if prev_px <= 0:
+                continue
+            window_returns.append((window[idx] - prev_px) / prev_px)
+        if window_returns:
+            mean_window_ret = sum(window_returns) / len(window_returns)
+            ret_sigma = (
+                sum((ret - mean_window_ret) ** 2 for ret in window_returns) / len(window_returns)
+            ) ** 0.5
+        else:
+            ret_sigma = 0.0
         abs_slope = abs(slope_pct)
         structure = "RANGE"
         if slope_pct >= 0.45:
@@ -183,15 +268,26 @@ def evaluate_regime_v2(
                 "sample": points,
                 "required_sample": points,
                 "structure": structure,
+                "structure_label": structure.title(),
+                "structure_score": round(max(trend_component, range_component, breakout_component) * 100.0, 3),
+                "stability_score": round(_clamp(100.0 - (ret_sigma * 4000.0), 0.0, 100.0), 3),
+                "persistence_score": round(agreement * 100.0, 3),
+                "breakout_score": round(breakout_component * 100.0, 3),
+                "bounce_score": round(_clamp(100.0 - (breakout_component * 100.0), 0.0, 100.0), 3),
                 "slope_pct": round(slope_pct, 4),
                 "amplitude_pct": round(amplitude_pct, 4),
+                "median_high_zone": round((high_price + ((high_price + low_price) / 2.0)) / 2.0, 8),
+                "median_low_zone": round((low_price + ((high_price + low_price) / 2.0)) / 2.0, 8),
                 "quality": quality,
+                "quality_status": quality,
             }
         )
 
     if total_weight <= 0:
         return {
             "suggestedRegime": "MIXED_OR_UNCLEAR",
+            "suggestedRegimeLabel": _regime_label("MIXED_OR_UNCLEAR"),
+            "regimeTier": "TIER_1",
             "confidenceScore": 0.0,
             "confidenceLabel": "LOW",
             "stabilityScore": 0.0,
@@ -296,26 +392,101 @@ def evaluate_regime_v2(
     elif trade_count > 40 and spread_bps < 60:
         participation_state = "HIGH"
 
-    suggested_regime = "MEAN_REVERSION_FRIENDLY"
+    quality_score = _clamp(quality_multiplier, 0.0, 1.0)
+    confidence_score_norm = _clamp(confidence_score / 100.0, 0.0, 1.0)
+    stability_score_norm = _clamp(stability_score / 100.0, 0.0, 1.0)
+    persistence_score_norm = _clamp(persistence_score / 100.0, 0.0, 1.0)
+    trend_score_norm = _clamp(trend_score / 100.0, 0.0, 1.0)
+    range_score_norm = _clamp(range_score / 100.0, 0.0, 1.0)
+    breakout_score_norm = _clamp(breakout_score / 100.0, 0.0, 1.0)
+    weakening_score_norm = _clamp(weakening_score / 100.0, 0.0, 1.0)
+    compression_score_norm = _clamp(1.0 - min((ret_sigma * 2200.0), 1.0), 0.0, 1.0)
+    dead_market_score = _clamp(
+        (0.55 * compression_score_norm)
+        + (0.25 * (1.0 if participation_state == "LOW" else 0.25))
+        + (0.20 * (1.0 - min(abs(agreement_score - 50.0) / 50.0, 1.0))),
+        0.0,
+        1.0,
+    )
+    accumulation_score = _clamp((0.60 * range_score_norm) + (0.40 * compression_score_norm), 0.0, 1.0)
+    distribution_score = _clamp((0.60 * weakening_score_norm) + (0.40 * (1.0 - persistence_score_norm)), 0.0, 1.0)
+    capitulation_score = _clamp(
+        (0.45 * _clamp((ret_sigma * 3200.0), 0.0, 1.0))
+        + (0.35 * weakening_score_norm)
+        + (0.20 * (1.0 - stability_score_norm)),
+        0.0,
+        1.0,
+    )
+    liquidity_sweep_score = _clamp(
+        (0.50 * breakout_score_norm)
+        + (0.30 * range_score_norm)
+        + (0.20 * _clamp((100.0 - spread_bps) / 100.0, 0.0, 1.0)),
+        0.0,
+        1.0,
+    )
+
+    min_conf = _threshold(router_cfg, "regime_v2_min_confidence", 0.62)
+    min_stability = _threshold(router_cfg, "regime_v2_min_stability", 0.58)
+    min_persistence = _threshold(router_cfg, "regime_v2_min_persistence", 0.58)
+    min_trend = _threshold(router_cfg, "regime_v2_trend_min", 0.67)
+    min_breakout = _threshold(router_cfg, "regime_v2_breakout_min", 0.82)
+    min_breakout_conf = _threshold(router_cfg, "regime_v2_breakout_min_confidence", 0.80)
+
+    suggested_regime = "MIXED_OR_UNCLEAR"
+    regime_tier = "TIER_1"
     if quality_status in {"STALE", "INSUFFICIENT", "UNSUPPORTED_WINDOW"}:
         suggested_regime = "MIXED_OR_UNCLEAR"
-    elif confidence_score < 62.0:
-        suggested_regime = "MIXED_OR_UNCLEAR"
-    elif stability_score < 38.0 and participation_state == "LOW":
-        suggested_regime = "HIGH_RISK_UNSTABLE"
-    elif breakout_score >= 70.0 and confidence_score >= 74.0 and stability_score >= 52.0:
+    elif (
+        breakout_score_norm >= min_breakout
+        and confidence_score_norm >= min_breakout_conf
+        and stability_score_norm >= min_stability
+        and persistence_score_norm >= min_persistence
+    ):
         suggested_regime = "BREAKOUT_EXPANSION"
-    elif weakening_score >= 64.0:
-        suggested_regime = "TREND_WEAKENING"
-    elif trend_score >= 60.0 and persistence_score >= 58.0:
+    elif (
+        trend_score_norm >= min_trend
+        and confidence_score_norm >= _threshold(router_cfg, "regime_v2_trend_min_confidence", 0.70)
+        and stability_score_norm >= min_stability
+        and persistence_score_norm >= min_persistence
+    ):
         suggested_regime = "TREND_CONTINUATION"
-    elif range_score >= 54.0:
+    elif (
+        range_score_norm >= _threshold(router_cfg, "regime_v2_range_min", 0.58)
+        and confidence_score_norm >= min_conf
+    ):
         suggested_regime = "MEAN_REVERSION_FRIENDLY"
     else:
-        suggested_regime = "MIXED_OR_UNCLEAR"
+        regime_tier = "TIER_2"
+        if weakening_score_norm >= _threshold(router_cfg, "regime_v2_trend_weakening_min", 0.62):
+            suggested_regime = "TREND_WEAKENING"
+        elif (
+            stability_score_norm < _threshold(router_cfg, "regime_v2_low_stability", 0.48)
+            and persistence_score_norm < _threshold(router_cfg, "regime_v2_low_persistence", 0.48)
+        ):
+            suggested_regime = "HIGH_RISK_UNSTABLE"
+        elif dead_market_score >= _threshold(router_cfg, "regime_v2_dead_market_min", 0.62):
+            suggested_regime = "LOW_PARTICIPATION_DEAD_MARKET"
+        elif weakening_score_norm >= _threshold(router_cfg, "regime_v2_slow_bleed_min", 0.58):
+            suggested_regime = "SLOW_BLEED"
+        else:
+            regime_tier = "TIER_3"
+            if accumulation_score >= _threshold(router_cfg, "regime_v2_accumulation_min", 0.66):
+                suggested_regime = "ACCUMULATION"
+            elif distribution_score >= _threshold(router_cfg, "regime_v2_distribution_min", 0.66):
+                suggested_regime = "DISTRIBUTION"
+            elif liquidity_sweep_score >= _threshold(router_cfg, "regime_v2_liquidity_sweep_min", 0.72):
+                suggested_regime = "LIQUIDITY_SWEEP_REVERSAL"
+            elif compression_score_norm >= _threshold(router_cfg, "regime_v2_compression_min", 0.70):
+                suggested_regime = "VOLATILITY_COMPRESSION"
+            elif capitulation_score >= _threshold(router_cfg, "regime_v2_capitulation_min", 0.74):
+                suggested_regime = "CAPITULATION_PANIC"
+            else:
+                suggested_regime = "MIXED_OR_UNCLEAR"
 
     return {
         "suggestedRegime": suggested_regime,
+        "suggestedRegimeLabel": _regime_label(suggested_regime),
+        "regimeTier": regime_tier,
         "confidenceScore": round(confidence_score, 3),
         "confidenceLabel": _label(confidence_score),
         "stabilityScore": round(stability_score, 3),
@@ -331,7 +502,7 @@ def evaluate_regime_v2(
         "detectionSource": "regime_v2_runtime",
         "analysisAnchorEpoch": latest_ts,
         "explanation": (
-            f"{suggested_regime.replace('_', ' ')} | "
+            f"{_regime_label(suggested_regime)} | "
             f"confidence={confidence_score:.1f} stability={stability_score:.1f} "
             f"persistence={persistence_score:.1f} quality={quality_status}"
         ),
@@ -352,6 +523,7 @@ def evaluate_regime_v2(
             "supportedKeyWindows": supported_key_windows,
             "supportedWindowCount": supported_count,
             "stale": stale,
+            "dataQualityScore": round(quality_score, 6),
         },
         "timeframeSummary": timeframe_summary,
         "componentScores": {
@@ -361,5 +533,74 @@ def evaluate_regime_v2(
             "mixed_score": round(_clamp(100.0 - agreement_score, 0.0, 100.0), 3),
             "weakening_score": round(weakening_score, 3),
         },
+        "primaryScores": {
+            "range_score": round(range_score_norm, 6),
+            "trend_pullback_score": round(trend_score_norm, 6),
+            "breakout_score": round(breakout_score_norm, 6),
+            "unstable_score": round(
+                _clamp((1.0 - stability_score_norm) * 0.5 + (1.0 - persistence_score_norm) * 0.5, 0.0, 1.0),
+                6,
+            ),
+            "bleed_score": round(weakening_score_norm, 6),
+        },
+        "qualityAnalytics": {
+            "data_quality_score": round(quality_score, 6),
+            "supported_window_flags": {row["window"]: bool(row.get("supported")) for row in timeframe_summary},
+            "freshness_ok": not stale,
+            "spread_quality": round(_clamp((100.0 - spread_bps) / 100.0, 0.0, 1.0), 6),
+            "source_strength": 1.0,
+        },
+        "volatilityAnalytics": {
+            "atr_norm": round((amplitude_pct / 100.0), 8),
+            "expansion_ratio": round(_clamp(breakout_score_norm * 1.3, 0.0, 1.0), 6),
+            "compression_score": round(compression_score_norm, 6),
+            "impulse_strength": round(_clamp(trend_score_norm, 0.0, 1.0), 6),
+            "bounce_strength_score": round(_clamp(1.0 - breakout_score_norm, 0.0, 1.0), 6),
+            "volatility_state": volatility_state,
+        },
+        "confidenceAnalytics": {
+            "stability_score": round(stability_score_norm, 6),
+            "persistence_score": round(persistence_score_norm, 6),
+            "agreement_score": round(_clamp(agreement_score / 100.0, 0.0, 1.0), 6),
+            "unified_confidence_score": round(_clamp(confidence_score / 100.0, 0.0, 1.0), 6),
+        },
     }
 
+
+def evaluate_regime_unified(
+    *,
+    snapshot: dict[str, Any],
+    now_epoch: float,
+    cfg: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    cfg = cfg or {}
+    v2 = evaluate_regime_v2(snapshot=snapshot, now_epoch=now_epoch, cfg=cfg)
+    if not isinstance(v2, dict):
+        v2 = {}
+
+    insufficient = bool(v2.get("insufficientData", False))
+    confidence_score = float(v2.get("confidenceScore", 0.0) or 0.0)
+    suggested = str(v2.get("suggestedRegime") or "").strip().upper()
+    if not suggested:
+        insufficient = True
+
+    # Keep V2 primary; only use legacy regime as conservative fallback context.
+    if insufficient or confidence_score < 35.0:
+        try:
+            legacy = str(detect_regime(snapshot, cfg.get("market_regime", {})) or "unknown").strip().lower()
+        except Exception:
+            legacy = "unknown"
+        legacy_mapped = LEGACY_TO_V2.get(legacy, "MIXED_OR_UNCLEAR")
+        if not suggested or suggested == "MIXED_OR_UNCLEAR":
+            v2["suggestedRegime"] = legacy_mapped
+        v2["legacyRegime"] = legacy
+        v2["legacyMappedRegime"] = legacy_mapped
+        if "confidenceScore" not in v2 or confidence_score <= 0:
+            v2["confidenceScore"] = 32.0
+            v2["confidenceLabel"] = _label(32.0)
+
+    v2.setdefault("detectionSource", "regime_v2_runtime")
+    v2.setdefault("analysisAnchorEpoch", now_epoch)
+    if "suggestedRegimeLabel" not in v2:
+        v2["suggestedRegimeLabel"] = _regime_label(str(v2.get("suggestedRegime") or "MIXED_OR_UNCLEAR"))
+    return v2

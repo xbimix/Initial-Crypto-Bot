@@ -19,10 +19,16 @@ def _snapshot(**overrides):
 def test_regime_v2_returns_expected_shape():
     result = evaluate_regime_v2(snapshot=_snapshot(), now_epoch=1_730_000_050.0, cfg={})
     assert "suggestedRegime" in result
+    assert "suggestedRegimeLabel" in result
+    assert "regimeTier" in result
     assert "confidenceScore" in result
     assert "stabilityScore" in result
     assert "persistenceScore" in result
     assert "timeframeSummary" in result
+    assert "primaryScores" in result
+    assert "qualityAnalytics" in result
+    assert "volatilityAnalytics" in result
+    assert "confidenceAnalytics" in result
     assert isinstance(result["timeframeSummary"], list)
     assert result["detectionSource"] == "regime_v2_runtime"
 

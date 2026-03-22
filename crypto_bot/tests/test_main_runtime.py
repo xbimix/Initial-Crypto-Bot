@@ -119,3 +119,25 @@ def test_select_symbols_for_cycle_honors_due_and_max_per_cycle():
     assert selected == ["AAA-USD", "CCC-USD"]
     assert last_polled_at["AAA-USD"] == now
     assert last_polled_at["CCC-USD"] == now
+
+
+def test_symbols_for_scan_prefers_active_tiers_and_keeps_open_symbols():
+    class _Exec:
+        @staticmethod
+        def open_symbols():
+            return ["DOGE-USD"]
+
+    cfg = {
+        "symbols": ["BTC-USD", "ETH-USD"],
+        "market_data": {
+            "active_tiers": ["tier1", "tier2"],
+            "symbol_tiers": {
+                "tier1": ["BTC-USD"],
+                "tier2": ["SOL-USD"],
+                "tier3": ["XRP-USD"],
+            },
+        },
+    }
+
+    symbols = bot_main._symbols_for_scan(cfg, _Exec())
+    assert symbols == ["BTC-USD", "SOL-USD", "DOGE-USD"]

@@ -1,5 +1,5 @@
 {
-  "balance": 5039.477431706927,
+  "balance": 5225.172957706927,
   "positions": {
     "CRV-USD": {
       "price": 0.25637,
@@ -23,12 +23,6 @@
       "price": 73382.295,
       "size": 0.002725,
       "entry_time": 1773672884.4933138,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "ETH-USD": {
-      "price": 2311.31,
-      "size": 0.086531,
-      "entry_time": 1773719396.354518,
       "reason": "bear_market_mean_reversion_buy"
     },
     "XRP-USD": {

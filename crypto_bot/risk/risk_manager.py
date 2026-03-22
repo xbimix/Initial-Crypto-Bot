@@ -18,6 +18,14 @@ class RiskManager:
     def __init__(self, cfg):
         self.cfg = cfg
         self.last_trade_time = {}
+        self.open_positions = {}
+        self._daily_loss_cache = {
+            "day": None,
+            "trades_mtime": None,
+            "trades_size": None,
+            "realized_usd": 0.0,
+        }
+        self._sync_with_broker_state()
 
     # =====================================================
     # SYNC OPEN POSITIONS FROM PAPER STATE (RESTART SAFE)
@@ -25,12 +33,27 @@ class RiskManager:
 
     def _sync_with_broker_state(self):
         if not os.path.exists(PAPER_STATE_FILE):
+            self.open_positions = {}
             return
 
         try:
-            with open(PAPER_STATE_FILE, "r") as f:
-                json.load(f)
-            logger.info("RiskManager synced open positions from broker")
+            with open(PAPER_STATE_FILE, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            positions = payload.get("positions", {}) if isinstance(payload, dict) else {}
+            if not isinstance(positions, dict):
+                positions = {}
+            synced = {}
+            for raw_symbol, row in positions.items():
+                symbol = self._normalize_symbol(raw_symbol)
+                if not symbol or not isinstance(row, dict):
+                    continue
+                synced[symbol] = {
+                    "entry": self._as_float(row.get("price"), None),
+                    "size": max(self._as_float(row.get("size"), 0.0), 0.0),
+                    "entry_time": self._as_float(row.get("entry_time"), None),
+                }
+            self.open_positions = synced
+            logger.info(f"RiskManager synced {len(self.open_positions)} open positions from broker")
         except Exception as e:
             logger.error(f"RiskManager sync failed: {e}")
 
@@ -47,6 +70,10 @@ class RiskManager:
             return float(value)
         except (TypeError, ValueError):
             return default
+
+    @staticmethod
+    def _normalize_symbol(symbol):
+        return str(symbol or "").strip().upper()
 
     def _risk_cfg(self):
         risk_cfg = self.cfg.get("risk", {})
@@ -123,9 +150,9 @@ class RiskManager:
     def can_trade(self, symbol, volatility=None):
         risk_cfg = self._risk_cfg()
         cooldown = float(risk_cfg.get("cooldown_seconds", 90))
+        symbol_key = self._normalize_symbol(symbol)
         symbol_cooldown = risk_cfg.get("symbol_cooldown_seconds", {})
         if isinstance(symbol_cooldown, dict):
-            symbol_key = str(symbol or "").strip().upper()
             if symbol_key in symbol_cooldown:
                 cooldown = max(
                     self._as_float(symbol_cooldown.get(symbol_key), cooldown),
@@ -133,11 +160,30 @@ class RiskManager:
                 )
         scaling = self._volatility_scaling(volatility)
         cooldown *= scaling["cooldown_mult"]
-        last_time = self.last_trade_time.get(symbol, 0)
+        last_time = self.last_trade_time.get(symbol_key, 0)
         return (time.time() - last_time) >= cooldown
 
     def mark_trade(self, symbol):
-        self.last_trade_time[symbol] = time.time()
+        symbol_key = self._normalize_symbol(symbol)
+        if symbol_key:
+            self.last_trade_time[symbol_key] = time.time()
+
+    def register_position(self, symbol, position: dict | None = None):
+        symbol_key = self._normalize_symbol(symbol)
+        if not symbol_key:
+            return
+        row = position if isinstance(position, dict) else {}
+        self.open_positions[symbol_key] = {
+            "entry": self._as_float(row.get("entry"), None),
+            "size": max(self._as_float(row.get("size"), 0.0), 0.0),
+            "entry_time": self._as_float(row.get("entry_time"), None),
+        }
+
+    def close_position(self, symbol):
+        symbol_key = self._normalize_symbol(symbol)
+        if not symbol_key:
+            return
+        self.open_positions.pop(symbol_key, None)
 
     # =====================================================
     # POSITION LIMIT CONTROL
@@ -244,24 +290,48 @@ class RiskManager:
 
         day_start_epoch, day_key = self._utc_day_start_epoch(now=now)
         realized = 0.0
-
+        trades_mtime = None
+        trades_size = None
         if os.path.exists(TRADES_FILE):
             try:
-                with open(TRADES_FILE, "r", encoding="utf-8") as handle:
-                    trades = json.load(handle)
-                if isinstance(trades, list):
-                    for trade in trades:
-                        if not isinstance(trade, dict):
-                            continue
-                        if str(trade.get("side", "")).upper() != "SELL":
-                            continue
-                        ts = self._as_float(trade.get("time"), None)
-                        if ts is None or ts < day_start_epoch:
-                            continue
-                        pnl = self._as_float(trade.get("pnl"), 0.0) or 0.0
-                        realized += pnl
-            except Exception as exc:
-                logger.warning(f"Daily loss state read failed: {exc}")
+                trades_mtime = os.path.getmtime(TRADES_FILE)
+                trades_size = os.path.getsize(TRADES_FILE)
+            except OSError:
+                trades_mtime = None
+                trades_size = None
+
+        cache_hit = (
+            self._daily_loss_cache.get("day") == day_key
+            and self._daily_loss_cache.get("trades_mtime") == trades_mtime
+            and self._daily_loss_cache.get("trades_size") == trades_size
+        )
+
+        if cache_hit:
+            realized = self._as_float(self._daily_loss_cache.get("realized_usd"), 0.0) or 0.0
+        else:
+            if os.path.exists(TRADES_FILE):
+                try:
+                    with open(TRADES_FILE, "r", encoding="utf-8") as handle:
+                        trades = json.load(handle)
+                    if isinstance(trades, list):
+                        for trade in trades:
+                            if not isinstance(trade, dict):
+                                continue
+                            if str(trade.get("side", "")).upper() != "SELL":
+                                continue
+                            ts = self._as_float(trade.get("time"), None)
+                            if ts is None or ts < day_start_epoch:
+                                continue
+                            pnl = self._as_float(trade.get("pnl"), 0.0) or 0.0
+                            realized += pnl
+                except Exception as exc:
+                    logger.warning(f"Daily loss state read failed: {exc}")
+            self._daily_loss_cache = {
+                "day": day_key,
+                "trades_mtime": trades_mtime,
+                "trades_size": trades_size,
+                "realized_usd": realized,
+            }
 
         breached = daily_loss_limit > 0 and realized <= -daily_loss_limit
         return {

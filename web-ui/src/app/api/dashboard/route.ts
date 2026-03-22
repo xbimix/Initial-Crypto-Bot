@@ -60,8 +60,11 @@ type ConfigState = {
   };
   profit_locks?: {
     first_activation?: number;
+    initial_lock?: number;
+    levels?: unknown;
     trailing_activation?: number;
     trailing_gap?: number;
+    max_negative_z_score?: number;
   };
   market_regime?: {
     preferred_buy_zone?: [number, number];
@@ -70,6 +73,7 @@ type ConfigState = {
     min_atr?: number;
     blocked_regimes?: string[];
     hard_blocked_regimes?: string[];
+    max_negative_z_score?: number;
   };
 };
 
@@ -100,6 +104,8 @@ type StrategyState = {
   last_detected_regime_confidence_label?: Record<string, string>;
   last_detected_regime_stability?: Record<string, number>;
   last_detected_regime_persistence?: Record<string, number>;
+  last_detected_regime_stability_inferred?: Record<string, boolean>;
+  last_detected_regime_persistence_inferred?: Record<string, boolean>;
   last_regime_data_quality_status?: Record<string, string>;
   last_regime_key_windows_supported?: Record<string, boolean>;
   last_suggested_regime_v2?: Record<string, string>;
@@ -147,6 +153,24 @@ type PositionRow = {
   advisoryMaxDrawdownPriceDuringTrade: number | null;
   advisoryMaxDrawdownAt: number | null;
   thesis: string;
+  exitDiagnostics: {
+    canExitNow: boolean;
+    blockedBy: string;
+    nextGate: string;
+    reason: string;
+    pnlPct: number | null;
+    firstActivationPct: number;
+    toFirstActivationPct: number | null;
+    currentLockPct: number | null;
+    lockPrice: number | null;
+    toLockPct: number | null;
+    peakPnlPct: number;
+    trailingArmed: boolean;
+    trailingActivationPct: number;
+    zScore: number | null;
+    maxNegativeZScore: number;
+    structuralBreakEligible: boolean;
+  };
 };
 
 type SymbolControl = {
@@ -157,6 +181,8 @@ type SymbolControl = {
   detectedRegimeConfidenceScore: number | null;
   detectedRegimeStabilityScore: number | null;
   detectedRegimePersistenceScore: number | null;
+  detectedRegimeStabilityInferred?: boolean;
+  detectedRegimePersistenceInferred?: boolean;
   detectedRegimeDataQualityStatus: string;
   detectedRegimeKeyWindowsSupported: boolean;
   suggestedRegimeV2: string | null;
@@ -1712,6 +1738,31 @@ function uniqueSymbols(...collections: Array<readonly string[]>) {
   return output;
 }
 
+function normalizeProfitLevels(raw: unknown): Array<[number, number]> {
+  const defaults: Array<[number, number]> = [
+    [0.04, 0.03],
+    [0.05, 0.04],
+    [0.06, 0.05],
+    [0.08, 0.06],
+  ];
+  if (!Array.isArray(raw)) {
+    return defaults;
+  }
+  const rows: Array<[number, number]> = [];
+  for (const item of raw) {
+    if (!Array.isArray(item) || item.length < 2) {
+      continue;
+    }
+    const trigger = asFiniteNumber(item[0]);
+    const lock = asFiniteNumber(item[1]);
+    if (trigger === null || lock === null) {
+      continue;
+    }
+    rows.push([trigger, lock]);
+  }
+  return rows.length > 0 ? rows : defaults;
+}
+
 function buildEquityCurve(
   startingBalance: number,
   trades: TradeEntry[],
@@ -1768,6 +1819,8 @@ export async function GET() {
   const runtimeDetectedRegimeConfidenceLabelMap = parseTextMap(strategy.last_detected_regime_confidence_label);
   const runtimeDetectedRegimeStabilityMap = parseNumberMap(strategy.last_detected_regime_stability);
   const runtimeDetectedRegimePersistenceMap = parseNumberMap(strategy.last_detected_regime_persistence);
+  const runtimeDetectedRegimeStabilityInferredMap = parseEnabledMap(strategy.last_detected_regime_stability_inferred);
+  const runtimeDetectedRegimePersistenceInferredMap = parseEnabledMap(strategy.last_detected_regime_persistence_inferred);
   const runtimeDetectedRegimeDataQualityStatusMap = parseTextMap(strategy.last_regime_data_quality_status);
   const runtimeDetectedRegimeKeyWindowsSupportedMap = parseEnabledMap(strategy.last_regime_key_windows_supported);
   const runtimeSuggestedRegimeV2Map = parseTextMap(strategy.last_suggested_regime_v2);
@@ -1963,6 +2016,8 @@ export async function GET() {
     const runtimeDetectedRegimeConfidenceLabel = runtimeDetectedRegimeConfidenceLabelMap[symbol] ?? null;
     const runtimeDetectedRegimeStability = runtimeDetectedRegimeStabilityMap[symbol] ?? null;
     const runtimeDetectedRegimePersistence = runtimeDetectedRegimePersistenceMap[symbol] ?? null;
+    const runtimeDetectedRegimeStabilityInferred = runtimeDetectedRegimeStabilityInferredMap[symbol] ?? false;
+    const runtimeDetectedRegimePersistenceInferred = runtimeDetectedRegimePersistenceInferredMap[symbol] ?? false;
     const runtimeDetectedRegimeDataQualityStatus = runtimeDetectedRegimeDataQualityStatusMap[symbol] ?? null;
     const runtimeDetectedRegimeKeyWindowsSupported = runtimeDetectedRegimeKeyWindowsSupportedMap[symbol] ?? false;
     const runtimeSuggestedRegimeV2 = runtimeSuggestedRegimeV2Map[symbol] ?? null;
@@ -2031,6 +2086,8 @@ export async function GET() {
       detectedRegimePersistenceScore:
         runtimeDetectedRegimePersistence
         ?? null,
+      detectedRegimeStabilityInferred: runtimeDetectedRegimeStabilityInferred,
+      detectedRegimePersistenceInferred: runtimeDetectedRegimePersistenceInferred,
       detectedRegimeDataQualityStatus:
         (runtimeDetectedRegimeDataQualityStatus ?? regimeAdvisory?.data_quality?.status ?? "UNKNOWN").toUpperCase(),
       detectedRegimeKeyWindowsSupported:
@@ -2154,13 +2211,23 @@ export async function GET() {
   const firstActivation = Number(
     config.profit_locks?.first_activation ?? 0.02,
   );
+  const initialLock = Number(
+    config.profit_locks?.initial_lock ?? 0.01,
+  );
+  const profitLevels = normalizeProfitLevels(config.profit_locks?.levels);
   const trailingActivation = Number(
     config.profit_locks?.trailing_activation ?? 0.1,
   );
   const trailingGap = Number(config.profit_locks?.trailing_gap ?? 0.02);
+  const maxNegativeZScore = Number(
+    config.profit_locks?.max_negative_z_score
+      ?? config.market_regime?.max_negative_z_score
+      ?? -3.0,
+  );
 
   const draftRows = positionSymbols.map((symbol) => {
     const position = positions[symbol] ?? {};
+    const snapshot = snapshots[symbol] ?? null;
     const entryPrice = Number(
       strategy.entry_price?.[symbol] ?? position.price ?? 0,
     );
@@ -2221,6 +2288,82 @@ export async function GET() {
       status = "Arming";
     }
 
+    const pnlPct = currentPrice === null || entryPrice <= 0
+      ? null
+      : ((currentPrice - entryPrice) / entryPrice) * 100;
+    const firstActivationPct = firstActivation * 100;
+    const trailingActivationPct = trailingActivation * 100;
+    const peakRatio = peakPnlPct / 100;
+    const zScore = (
+      currentPrice !== null
+      && snapshot?.vwap !== null
+      && snapshot?.atrRaw !== null
+      && snapshot.atrRaw > 0
+    )
+      ? (currentPrice - snapshot.vwap) / snapshot.atrRaw
+      : null;
+    let computedLockRatio = profitLock === null ? null : Number(profitLock);
+    if (pnlPct !== null && pnlPct >= firstActivationPct) {
+      if (computedLockRatio === null) {
+        computedLockRatio = initialLock;
+      }
+      for (const [trigger, lock] of profitLevels) {
+        if (pnlPct >= (trigger * 100)) {
+          computedLockRatio = Math.max(computedLockRatio, lock);
+        }
+      }
+      if (peakRatio >= trailingActivation) {
+        computedLockRatio = Math.max(computedLockRatio, peakRatio - trailingGap);
+      }
+    }
+    const currentLockPct = computedLockRatio === null ? null : computedLockRatio * 100;
+    const computedLockPrice = (
+      computedLockRatio === null || entryPrice <= 0
+    )
+      ? null
+      : entryPrice * (1 + computedLockRatio);
+    const toFirstActivationPct = pnlPct === null ? null : (firstActivationPct - pnlPct);
+    const toLockPct = (
+      pnlPct === null || currentLockPct === null
+    )
+      ? null
+      : (pnlPct - currentLockPct);
+    const structuralBreakEligible = (
+      zScore !== null
+      && computedLockRatio !== null
+      && Math.abs(computedLockRatio - initialLock) < 1e-9
+      && zScore < maxNegativeZScore
+    );
+    let blockedBy = "missing_live_price";
+    let nextGate = "Need live spot price";
+    let reason = "No current price snapshot available for sell-gate evaluation.";
+    let canExitNow = false;
+    if (pnlPct !== null) {
+      if (pnlPct < firstActivationPct) {
+        blockedBy = "waiting_for_first_lock";
+        nextGate = `Reach ${firstActivationPct.toFixed(2)}% PnL`;
+        reason = `Current PnL ${pnlPct.toFixed(2)}% is below first lock activation.`;
+      } else if (currentLockPct !== null && pnlPct <= currentLockPct) {
+        blockedBy = "profit_lock_exit_ready";
+        nextGate = "Exit ready";
+        reason = `PnL is at/below lock (${currentLockPct.toFixed(2)}%).`;
+        canExitNow = true;
+      } else if (structuralBreakEligible) {
+        blockedBy = "structural_break_exit_ready";
+        nextGate = "Exit ready";
+        reason = `Z-score ${zScore?.toFixed(2)} is below structural break threshold ${maxNegativeZScore.toFixed(2)}.`;
+        canExitNow = true;
+      } else {
+        blockedBy = "holding_above_lock";
+        nextGate = currentLockPct === null
+          ? "Build lock context"
+          : `Drop to lock ${currentLockPct.toFixed(2)}%`;
+        reason = currentLockPct === null
+          ? "Position is armed but lock has not been persisted yet."
+          : `PnL is still above lock by ${(toLockPct ?? 0).toFixed(2)}%.`;
+      }
+    }
+
     return {
       symbol,
       units,
@@ -2245,6 +2388,24 @@ export async function GET() {
       advisoryMaxDrawdownPriceDuringTrade,
       advisoryMaxDrawdownAt,
       thesis: position.reason ?? "state_sync",
+      exitDiagnostics: {
+        canExitNow,
+        blockedBy,
+        nextGate,
+        reason,
+        pnlPct,
+        firstActivationPct,
+        toFirstActivationPct,
+        currentLockPct,
+        lockPrice: computedLockPrice,
+        toLockPct,
+        peakPnlPct,
+        trailingArmed: peakPnlPct >= trailingActivationPct,
+        trailingActivationPct,
+        zScore,
+        maxNegativeZScore,
+        structuralBreakEligible,
+      },
     };
   });
 
@@ -2480,6 +2641,8 @@ export async function GET() {
         control.detectedRegimePersistenceScore === null
           ? null
           : round(control.detectedRegimePersistenceScore, 1),
+      detectedRegimeStabilityInferred: control.detectedRegimeStabilityInferred === true,
+      detectedRegimePersistenceInferred: control.detectedRegimePersistenceInferred === true,
       detectedRegimeDataQualityStatus: control.detectedRegimeDataQualityStatus,
       detectedRegimeKeyWindowsSupported: control.detectedRegimeKeyWindowsSupported,
       suggestedRegimeV2: control.suggestedRegimeV2,
@@ -2681,6 +2844,37 @@ export async function GET() {
         row.advisoryMaxDrawdownAt === null
           ? null
           : round(row.advisoryMaxDrawdownAt, 3),
+      exitDiagnostics: {
+        ...row.exitDiagnostics,
+        pnlPct:
+          row.exitDiagnostics.pnlPct === null
+            ? null
+            : round(row.exitDiagnostics.pnlPct, 2),
+        firstActivationPct: round(row.exitDiagnostics.firstActivationPct, 2),
+        toFirstActivationPct:
+          row.exitDiagnostics.toFirstActivationPct === null
+            ? null
+            : round(row.exitDiagnostics.toFirstActivationPct, 2),
+        currentLockPct:
+          row.exitDiagnostics.currentLockPct === null
+            ? null
+            : round(row.exitDiagnostics.currentLockPct, 2),
+        lockPrice:
+          row.exitDiagnostics.lockPrice === null
+            ? null
+            : round(row.exitDiagnostics.lockPrice, 6),
+        toLockPct:
+          row.exitDiagnostics.toLockPct === null
+            ? null
+            : round(row.exitDiagnostics.toLockPct, 2),
+        peakPnlPct: round(row.exitDiagnostics.peakPnlPct, 2),
+        trailingActivationPct: round(row.exitDiagnostics.trailingActivationPct, 2),
+        zScore:
+          row.exitDiagnostics.zScore === null
+            ? null
+            : round(row.exitDiagnostics.zScore, 3),
+        maxNegativeZScore: round(row.exitDiagnostics.maxNegativeZScore, 3),
+      },
     })),
   });
 }

@@ -107,6 +107,52 @@ def cleanup_temp_files(
     }
 
 
+def cleanup_log_rotations(
+    state_dir: str | Path,
+    *,
+    keep_rotations: int | None = None,
+) -> dict[str, Any]:
+    base = Path(state_dir)
+    keep = (
+        keep_rotations
+        if keep_rotations is not None
+        else _parse_int_env("REVBOT_LOG_BACKUP_COUNT", 5)
+    )
+    keep = max(1, int(keep))
+
+    scanned = 0
+    removed: list[str] = []
+    failed: list[str] = []
+    base_logs = sorted(base.glob("bot*.log"))
+    for base_log in base_logs:
+        rotated: list[tuple[int, Path]] = []
+        for candidate in base.glob(f"{base_log.name}.*"):
+            if not candidate.is_file():
+                continue
+            suffix = candidate.name.split(".")[-1]
+            if not suffix.isdigit():
+                continue
+            scanned += 1
+            rotated.append((int(suffix), candidate))
+        for idx, path in rotated:
+            if idx <= keep:
+                continue
+            try:
+                path.unlink()
+                removed.append(path.name)
+            except OSError:
+                failed.append(path.name)
+
+    return {
+        "scanned": scanned,
+        "removed_count": len(removed),
+        "removed": removed,
+        "failed_count": len(failed),
+        "failed": failed,
+        "keep_rotations": keep,
+    }
+
+
 def check_disk_space(
     state_dir: str | Path,
     *,

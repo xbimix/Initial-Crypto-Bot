@@ -8,9 +8,17 @@ $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 
 $patterns = @(
     ".pytest_cache",
+    "pytest-cache-files-*",
+    "scripts\_pytest_tmp*",
+    "scripts\pytest-cache-files-*",
+    "crypto_bot\pytest-cache-files-*",
+    "crypto_bot\work_testdirs\case_*",
     "crypto_bot\state\.pytest_cache*",
     "crypto_bot\state\pytest_tmp*",
     "crypto_bot\state\pytest-cache-files-*",
+    "crypto_bot\state\pytest_base_env",
+    "crypto_bot\state\pytest_tmp_codex",
+    "crypto_bot\state\replay_tmp\run_*",
     "crypto_bot\tests\.pytest_cache*",
     "crypto_bot\tests\_pytest_tmp*",
     "crypto_bot\tests\pytest-cache-files-*"

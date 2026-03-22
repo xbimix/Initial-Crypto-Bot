@@ -37,6 +37,12 @@ def test_can_trade_with_symbol_cooldown_override():
     assert rm.can_trade("BTC-USD") is True
 
 
+def test_can_trade_symbol_normalization_is_consistent():
+    rm = risk_module.RiskManager({"risk": {"cooldown_seconds": 90}})
+    rm.mark_trade("btc-usd")
+    assert rm.can_trade("BTC-USD") is False
+
+
 def test_exposure_block_reason_and_trade_amount_cap():
     rm = risk_module.RiskManager(
         {

@@ -107,7 +107,7 @@
     "trade_amount_usd": 200,
     "max_concurrent_trades": 40,
     "cooldown_seconds": 180,
-    "max_concurrent_trades_per_token": 1,
+    "max_concurrent_trades_per_token": 2,
     "max_trade_amount_usd": 10000,
     "max_portfolio_exposure_pct": 100,
     "max_exposure_per_token_pct": 100,
@@ -169,6 +169,23 @@
     "max_spread_bps": 150,
     "max_book_trade_gap_pct": 0.02,
     "trade_confirmation_limit": 0,
+    "sync_timeframes": [
+      "1h",
+      "4h",
+      "1d",
+      "1m",
+      "5m",
+      "15m"
+    ],
+    "active_tiers": [
+      "tier1",
+      "tier2"
+    ],
+    "symbol_tiers": {
+      "tier1": [],
+      "tier2": [],
+      "tier3": []
+    },
     "fast_poll_seconds": 20,
     "mid_poll_seconds": 90,
     "slow_poll_seconds": 240,
@@ -406,7 +423,8 @@
     "SWFTC-USD": "volatility_scalper",
     "HYPE-USD": "volatility_scalper",
     "API3-USD": "volatility_scalper",
-    "GODS-USD": "volatility_scalper"
+    "GODS-USD": "volatility_scalper",
+    "ETH-USD": "volatility_scalper"
   },
   "token_regimes": {
     "ACH-USD": "AUTO",
@@ -517,26 +535,27 @@
       "SWFTC-USD",
       "HYPE-USD",
       "API3-USD",
-      "GODS-USD"
+      "GODS-USD",
+      "ETH-USD"
     ]
   },
   "config_version": 1,
   "trading_enabled": true,
   "strategy_defaults": {
     "router": {
-      "auto_min_confidence": 68.0,
+      "auto_min_confidence": 68,
       "auto_min_confirmations": 2,
       "auto_use_current_cycle_shadow": false,
       "auto_use_multitimeframe_advisory": false,
       "auto_use_route_quality_gates": true,
-      "auto_trend_min_confidence": 74.0,
-      "auto_trend_min_stability": 68.0,
-      "auto_trend_min_persistence": 68.0,
-      "auto_breakout_min_confidence": 82.0,
-      "auto_breakout_min_stability": 76.0,
-      "auto_breakout_min_persistence": 76.0,
-      "auto_trend_max_route_share_pct": 35.0,
-      "auto_breakout_max_route_share_pct": 8.0,
+      "auto_trend_min_confidence": 74,
+      "auto_trend_min_stability": 68,
+      "auto_trend_min_persistence": 68,
+      "auto_breakout_min_confidence": 82,
+      "auto_breakout_min_stability": 76,
+      "auto_breakout_min_persistence": 76,
+      "auto_trend_max_route_share_pct": 35,
+      "auto_breakout_max_route_share_pct": 8,
       "trend_min_closed_trades": 8,
       "trend_min_win_rate_pct": 52,
       "trend_min_expectancy_usd": 0.25,

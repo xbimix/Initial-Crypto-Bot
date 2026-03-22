@@ -496,6 +496,66 @@ def normalize_config(
         "market_data.trade_confirmation_limit",
         min_value=0,
     )
+    sync_timeframes_default = ["1h", "4h", "1d"]
+    raw_sync_timeframes = market_data.get("sync_timeframes")
+    cleaned_sync_timeframes: list[str] = []
+    allowed_sync_timeframes = {"1m", "5m", "15m", "30m", "1h", "4h", "1d"}
+    if isinstance(raw_sync_timeframes, list):
+        for item in raw_sync_timeframes:
+            tf = str(item or "").strip().lower()
+            if tf in allowed_sync_timeframes and tf not in cleaned_sync_timeframes:
+                cleaned_sync_timeframes.append(tf)
+            elif tf:
+                changed = True
+                warn(f"market_data.sync_timeframes contains unsupported entry '{tf}'; removed")
+    if not cleaned_sync_timeframes:
+        cleaned_sync_timeframes = sync_timeframes_default
+        if raw_sync_timeframes != cleaned_sync_timeframes:
+            changed = True
+            warn("market_data.sync_timeframes missing/invalid; core-first default applied")
+    if market_data.get("sync_timeframes") != cleaned_sync_timeframes:
+        market_data["sync_timeframes"] = cleaned_sync_timeframes
+        changed = True
+
+    raw_active_tiers = market_data.get("active_tiers")
+    cleaned_active_tiers: list[str] = []
+    allowed_tiers = {"tier1", "tier2", "tier3"}
+    if isinstance(raw_active_tiers, list):
+        for item in raw_active_tiers:
+            tier = str(item or "").strip().lower()
+            if tier in allowed_tiers and tier not in cleaned_active_tiers:
+                cleaned_active_tiers.append(tier)
+            elif tier:
+                changed = True
+                warn(f"market_data.active_tiers contains unsupported tier '{tier}'; removed")
+    if not cleaned_active_tiers:
+        cleaned_active_tiers = ["tier1", "tier2"]
+        if raw_active_tiers != cleaned_active_tiers:
+            changed = True
+            warn("market_data.active_tiers missing/invalid; defaulted to ['tier1','tier2']")
+    if market_data.get("active_tiers") != cleaned_active_tiers:
+        market_data["active_tiers"] = cleaned_active_tiers
+        changed = True
+
+    raw_tiers = market_data.get("symbol_tiers")
+    cleaned_tiers = {"tier1": [], "tier2": [], "tier3": []}
+    if isinstance(raw_tiers, dict):
+        for tier in cleaned_tiers.keys():
+            values = raw_tiers.get(tier, [])
+            if not isinstance(values, list):
+                changed = True
+                warn(f"market_data.symbol_tiers.{tier} missing/invalid; reset to []")
+                continue
+            seen_tier: set[str] = set()
+            for raw_symbol in values:
+                symbol = normalize_token_symbol(raw_symbol)
+                if not symbol or symbol in seen_tier:
+                    continue
+                seen_tier.add(symbol)
+                cleaned_tiers[tier].append(symbol)
+    if market_data.get("symbol_tiers") != cleaned_tiers:
+        market_data["symbol_tiers"] = cleaned_tiers
+        changed = True
 
     # Volatility filters.
     volatility = ensure_dict(cfg, "volatility_filters", "volatility_filters")

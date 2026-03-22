@@ -145,9 +145,6 @@ class Executor:
         """
         Keep RiskManager in sync with restored broker positions when supported.
         """
-        if not hasattr(self.risk, "register_position"):
-            return
-
         for symbol, pos in self.paper.positions.items():
             self.risk.register_position(
                 symbol,
@@ -230,12 +227,14 @@ class Executor:
         # Execute buy
         if self.paper.buy(symbol, price, size, reason):
             self.risk.mark_trade(symbol)
-            # self.risk.register_position(symbol, {
-            #     "entry": price,
-            #     "size": size
-            # })
-             # --- NEW: confirm entry to strategy ---
-            
+            self.risk.register_position(
+                symbol,
+                {
+                    "entry": price,
+                    "size": size,
+                },
+            )
+            # --- NEW: confirm entry to strategy ---
             confirm_entry(symbol, price)
 
             return True
@@ -258,8 +257,7 @@ class Executor:
         # Execute sell
         if self.paper.sell(symbol, price, reason):
             self.risk.mark_trade(symbol)
-            if hasattr(self.risk, "close_position"):
-                self.risk.close_position(symbol)
+            self.risk.close_position(symbol)
             confirm_exit(symbol, price)
             return True
 

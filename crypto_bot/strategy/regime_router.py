@@ -37,6 +37,13 @@ SUGGESTED_REGIME_TREND = "TREND_CONTINUATION"
 SUGGESTED_REGIME_BREAKOUT = "BREAKOUT_EXPANSION"
 SUGGESTED_REGIME_TREND_WEAKENING = "TREND_WEAKENING"
 SUGGESTED_REGIME_HIGH_RISK_UNSTABLE = "HIGH_RISK_UNSTABLE"
+SUGGESTED_REGIME_ACCUMULATION = "ACCUMULATION"
+SUGGESTED_REGIME_DISTRIBUTION = "DISTRIBUTION"
+SUGGESTED_REGIME_LIQUIDITY_SWEEP = "LIQUIDITY_SWEEP_REVERSAL"
+SUGGESTED_REGIME_VOL_COMPRESSION = "VOLATILITY_COMPRESSION"
+SUGGESTED_REGIME_SLOW_BLEED = "SLOW_BLEED"
+SUGGESTED_REGIME_CAPITULATION = "CAPITULATION_PANIC"
+SUGGESTED_REGIME_DEAD_MARKET = "LOW_PARTICIPATION_DEAD_MARKET"
 SUGGESTED_REGIME_MIXED = "MIXED_OR_UNCLEAR"
 
 SUGGESTED_REGIME_TO_STRATEGY = {
@@ -45,6 +52,13 @@ SUGGESTED_REGIME_TO_STRATEGY = {
     SUGGESTED_REGIME_BREAKOUT: STRATEGY_BREAKOUT_MOMENTUM,
     SUGGESTED_REGIME_TREND_WEAKENING: STRATEGY_MEAN_REVERSION,
     SUGGESTED_REGIME_HIGH_RISK_UNSTABLE: STRATEGY_MEAN_REVERSION,
+    SUGGESTED_REGIME_ACCUMULATION: STRATEGY_MEAN_REVERSION,
+    SUGGESTED_REGIME_DISTRIBUTION: STRATEGY_MEAN_REVERSION,
+    SUGGESTED_REGIME_LIQUIDITY_SWEEP: STRATEGY_MEAN_REVERSION,
+    SUGGESTED_REGIME_VOL_COMPRESSION: STRATEGY_MEAN_REVERSION,
+    SUGGESTED_REGIME_SLOW_BLEED: STRATEGY_MEAN_REVERSION,
+    SUGGESTED_REGIME_CAPITULATION: STRATEGY_MEAN_REVERSION,
+    SUGGESTED_REGIME_DEAD_MARKET: STRATEGY_MEAN_REVERSION,
     SUGGESTED_REGIME_MIXED: STRATEGY_MEAN_REVERSION,
 }
 
@@ -58,6 +72,37 @@ RAW_REGIME_TO_SUGGESTED = {
     "trend_down": SUGGESTED_REGIME_MIXED,
     "unknown": SUGGESTED_REGIME_MIXED,
 }
+
+HUMAN_LABEL_TO_SUGGESTED = {
+    "MEAN-REVERSION-FRIENDLY RANGE": SUGGESTED_REGIME_MEAN_REVERSION,
+    "TREND CONTINUATION / PULLBACK": SUGGESTED_REGIME_TREND,
+    "BREAKOUT EXPANSION": SUGGESTED_REGIME_BREAKOUT,
+    "TREND WEAKENING": SUGGESTED_REGIME_TREND_WEAKENING,
+    "HIGH-RISK UNSTABLE / WHIPSAW": SUGGESTED_REGIME_HIGH_RISK_UNSTABLE,
+    "ACCUMULATION": SUGGESTED_REGIME_ACCUMULATION,
+    "DISTRIBUTION": SUGGESTED_REGIME_DISTRIBUTION,
+    "LIQUIDITY SWEEP REVERSAL": SUGGESTED_REGIME_LIQUIDITY_SWEEP,
+    "VOLATILITY COMPRESSION / SQUEEZE": SUGGESTED_REGIME_VOL_COMPRESSION,
+    "SLOW BLEED / DOWNTREND DRIFT": SUGGESTED_REGIME_SLOW_BLEED,
+    "CAPITULATION / PANIC FLUSH": SUGGESTED_REGIME_CAPITULATION,
+    "LOW-PARTICIPATION DEAD MARKET": SUGGESTED_REGIME_DEAD_MARKET,
+    "MIXED / UNCLEAR": SUGGESTED_REGIME_MIXED,
+}
+
+
+def _normalize_suggested_regime(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    raw = value.strip()
+    if not raw:
+        return None
+    upper = raw.upper()
+    if upper in SUGGESTED_REGIME_TO_STRATEGY:
+        return upper
+    mapped = HUMAN_LABEL_TO_SUGGESTED.get(upper)
+    if mapped:
+        return mapped
+    return None
 
 
 def _as_float(value: Any) -> float | None:
@@ -285,6 +330,23 @@ def _auto_max_route_age_seconds(cfg: dict[str, Any]) -> float:
     return max(age, 60.0)
 
 
+def _auto_require_core_candle_readiness(cfg: dict[str, Any]) -> bool:
+    router = _router_cfg(cfg)
+    return _as_bool(router.get("auto_require_core_candle_readiness"), True)
+
+
+def _core_candle_readiness(snapshot: dict[str, Any]) -> tuple[bool, str | None]:
+    payload = snapshot.get("core_candle_readiness")
+    if not isinstance(payload, dict):
+        # Backward compatibility: enforce readiness only when payload is supplied.
+        return True, None
+    ready = _as_bool(payload.get("ready"), False)
+    reason = payload.get("reason")
+    if not isinstance(reason, str) or not reason.strip():
+        reason = "core_candle_readiness_not_ready"
+    return ready, reason.strip().lower()
+
+
 def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
     advisory = snapshot.get("regime_advisory")
     if not isinstance(advisory, dict):
@@ -349,6 +411,14 @@ def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
     persistence_score = _normalize_confidence_score(advisory.get("persistenceScore"))
     if persistence_score is None:
         persistence_score = _normalize_confidence_score(advisory.get("persistence_score"))
+    stability_inferred = False
+    persistence_inferred = False
+    if stability_score is None:
+        stability_score = confidence_score
+        stability_inferred = stability_score is not None
+    if persistence_score is None:
+        persistence_score = confidence_score
+        persistence_inferred = persistence_score is not None
 
     data_quality = advisory.get("dataQuality")
     if not isinstance(data_quality, dict):
@@ -364,9 +434,7 @@ def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
     if "supported_key_windows" in data_quality:
         supported_key_windows = _as_bool(data_quality.get("supported_key_windows"), supported_key_windows)
 
-    normalized_suggested = ""
-    if isinstance(suggested, str):
-        normalized_suggested = suggested.strip().upper()
+    normalized_suggested = _normalize_suggested_regime(suggested) or ""
 
     return {
         "suggested_regime": normalized_suggested or None,
@@ -378,6 +446,8 @@ def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
         "detection_timestamp_epoch": detection_timestamp_epoch,
         "stability_score": stability_score,
         "persistence_score": persistence_score,
+        "stability_inferred": stability_inferred,
+        "persistence_inferred": persistence_inferred,
         "data_quality_status": data_quality_status,
         "supported_key_windows": supported_key_windows,
     }
@@ -414,6 +484,8 @@ def _extract_shadow_advisory(
             "detection_timestamp_epoch": None,
             "stability_score": None,
             "persistence_score": None,
+            "stability_inferred": False,
+            "persistence_inferred": False,
             "data_quality_status": "UNKNOWN",
             "supported_key_windows": False,
         }
@@ -430,6 +502,8 @@ def _extract_shadow_advisory(
             "detection_timestamp_epoch": None,
             "stability_score": None,
             "persistence_score": None,
+            "stability_inferred": False,
+            "persistence_inferred": False,
             "data_quality_status": "UNKNOWN",
             "supported_key_windows": False,
         }
@@ -448,6 +522,8 @@ def _extract_shadow_advisory(
             "detection_timestamp_epoch": _as_float(row.get("last_update_ts")),
             "stability_score": _normalize_confidence_score(row.get("confidence")),
             "persistence_score": _normalize_confidence_score(row.get("confidence")),
+            "stability_inferred": True,
+            "persistence_inferred": True,
             "data_quality_status": "PARTIAL",
             "supported_key_windows": True,
         }
@@ -471,6 +547,8 @@ def _extract_shadow_advisory(
         "detection_timestamp_epoch": _as_float(row.get("last_update_ts")),
         "stability_score": confidence_score,
         "persistence_score": confidence_score,
+        "stability_inferred": True,
+        "persistence_inferred": True,
         "data_quality_status": "PARTIAL",
         "supported_key_windows": True,
     }
@@ -508,6 +586,8 @@ def resolve_entry_route(
         "detected_regime_confidence_label": None,
         "detected_regime_stability": None,
         "detected_regime_persistence": None,
+        "detected_regime_stability_inferred": False,
+        "detected_regime_persistence_inferred": False,
         "regime_data_quality_status": "UNKNOWN",
         "regime_key_windows_supported": False,
         "detection_source": "configured_manual",
@@ -592,6 +672,8 @@ def resolve_entry_route(
     result["detected_regime_confidence_label"] = advisory["confidence_label"]
     result["detected_regime_stability"] = advisory.get("stability_score")
     result["detected_regime_persistence"] = advisory.get("persistence_score")
+    result["detected_regime_stability_inferred"] = _as_bool(advisory.get("stability_inferred"), False)
+    result["detected_regime_persistence_inferred"] = _as_bool(advisory.get("persistence_inferred"), False)
     result["regime_data_quality_status"] = str(advisory.get("data_quality_status") or "UNKNOWN").upper()
     result["regime_key_windows_supported"] = _as_bool(advisory.get("supported_key_windows"), False)
     result["detection_source"] = str(advisory.get("detection_source") or "runtime_shadow")
@@ -630,6 +712,13 @@ def resolve_entry_route(
         result["auto_fallback_reason"] = "data_quality_not_acceptable"
         result["fallback_reason"] = result["auto_fallback_reason"]
         return result
+
+    if _auto_require_core_candle_readiness(cfg):
+        readiness_ok, readiness_reason = _core_candle_readiness(snapshot)
+        if not readiness_ok:
+            result["auto_fallback_reason"] = "core_timeframe_not_ready"
+            result["fallback_reason"] = f"core_timeframe_not_ready:{readiness_reason}"
+            return result
 
     detection_timestamp = _as_float(advisory.get("detection_timestamp_epoch"))
     route_eval_ts = _as_float(result.get("route_eval_ts")) or time.time()
@@ -690,6 +779,27 @@ def resolve_entry_route(
         result["fallback_reason"] = result["auto_fallback_reason"]
     elif suggested_regime == SUGGESTED_REGIME_TREND_WEAKENING:
         result["auto_fallback_reason"] = "trend_weakening"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+    elif suggested_regime == SUGGESTED_REGIME_SLOW_BLEED:
+        result["auto_fallback_reason"] = "slow_bleed_downtrend"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+    elif suggested_regime == SUGGESTED_REGIME_DEAD_MARKET:
+        result["auto_fallback_reason"] = "low_participation_dead_market"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+    elif suggested_regime == SUGGESTED_REGIME_VOL_COMPRESSION:
+        result["auto_fallback_reason"] = "compression_watch_state"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+    elif suggested_regime == SUGGESTED_REGIME_DISTRIBUTION:
+        result["auto_fallback_reason"] = "distribution_defensive"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+    elif suggested_regime == SUGGESTED_REGIME_ACCUMULATION:
+        result["auto_fallback_reason"] = "accumulation_watch_state"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+    elif suggested_regime == SUGGESTED_REGIME_LIQUIDITY_SWEEP:
+        result["auto_fallback_reason"] = "liquidity_sweep_watch_state"
+        result["fallback_reason"] = result["auto_fallback_reason"]
+    elif suggested_regime == SUGGESTED_REGIME_CAPITULATION:
+        result["auto_fallback_reason"] = "capitulation_watch_state"
         result["fallback_reason"] = result["auto_fallback_reason"]
 
     result["effective_strategy"] = mapped_strategy

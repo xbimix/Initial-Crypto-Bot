@@ -684,3 +684,99 @@ def test_auto_falls_back_when_route_timestamp_is_stale():
     )
     assert decision["effective_strategy"] == "mean_reversion"
     assert decision["fallback_reason"] == "route_timestamp_stale"
+
+
+def test_auto_falls_back_when_core_timeframes_not_ready():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "auto_use_route_quality_gates": False,
+            "auto_require_core_candle_readiness": True,
+        }
+    }
+    decision = se.generate_decision(
+        _snapshot(
+            regime_advisory={
+                "suggestedRegime": "TREND_CONTINUATION",
+                "confidenceScore": 90,
+                "stabilityScore": 84,
+                "persistenceScore": 83,
+                "dataQuality": {"status": "GOOD", "supportedKeyWindows": True},
+            },
+            core_candle_readiness={
+                "ready": False,
+                "reason": "1h:insufficient_depth,4h:insufficient_depth,1d:stale",
+            },
+        ),
+        cfg,
+    )
+    assert decision["effective_strategy"] == "mean_reversion"
+    assert decision["auto_fallback_reason"] == "core_timeframe_not_ready"
+
+
+def test_auto_accepts_human_readable_suggested_regime_label():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["market_regime"]["min_score_to_buy"] = 0
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "auto_use_route_quality_gates": False,
+            "auto_min_confidence": 60,
+            "auto_min_stability": 50,
+            "auto_min_persistence": 50,
+            "auto_trend_min_confidence": 60,
+            "auto_trend_min_stability": 50,
+            "auto_trend_min_persistence": 50,
+        }
+    }
+    decision = se.generate_decision(
+        _snapshot(
+            price=101.4,
+            momentum_norm=0.42,
+            trade_count=30,
+            high_24h=110.0,
+            low_24h=90.0,
+            atr=1.0,
+            vwap=101.3,
+            ema_50=101.2,
+            ema_200=95.0,
+            ema_50_slope=0.08,
+            regime_advisory={
+                "suggestedRegime": "Trend Continuation / Pullback",
+                "confidenceScore": 82,
+                "stabilityScore": 78,
+                "persistenceScore": 77,
+                "dataQuality": {"status": "GOOD", "supportedKeyWindows": True},
+            },
+        ),
+        cfg,
+    )
+    assert decision["effective_route"] == "trend_pullback"
+
+
+def test_auto_distribution_regime_stays_mean_reversion():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "auto_use_route_quality_gates": False,
+        }
+    }
+    decision = se.generate_decision(
+        _snapshot(
+            regime_advisory={
+                "suggestedRegime": "DISTRIBUTION",
+                "confidenceScore": 92,
+                "stabilityScore": 83,
+                "persistenceScore": 82,
+                "dataQuality": {"status": "GOOD", "supportedKeyWindows": True},
+            },
+        ),
+        cfg,
+    )
+    assert decision["effective_route"] == "mean_reversion"
+    assert decision["fallback_reason"] == "distribution_defensive"

@@ -53,6 +53,20 @@ $attempt = 0
 
 Push-Location $repoRoot
 try {
+    # Ensure bot runtime calls do not inherit broken local proxy settings.
+    foreach ($proxyVar in @("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")) {
+        if (Test-Path "Env:$proxyVar") {
+            Remove-Item "Env:$proxyVar" -ErrorAction SilentlyContinue
+        }
+    }
+    $existingNoProxy = [string]$env:NO_PROXY
+    $noProxyEntries = @("localhost", "127.0.0.1", "::1", "revx.revolut.com")
+    if (-not [string]::IsNullOrWhiteSpace($existingNoProxy)) {
+        $noProxyEntries += ($existingNoProxy -split ",")
+    }
+    $env:NO_PROXY = (($noProxyEntries | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique) -join ",")
+    $env:no_proxy = $env:NO_PROXY
+
     do {
         $attempt += 1
         $env:REVBOT_RESTART_CAUSE = $restartCause

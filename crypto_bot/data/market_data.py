@@ -30,9 +30,93 @@ DEFAULT_CANDLE_TIMEFRAME = "1m"
 DEFAULT_CANDLE_HISTORY_LIMIT = 6_000
 DEFAULT_CANDLE_SYNC_ENABLED = False
 DEFAULT_CANDLE_SYNC_INTERVAL_SECONDS = 20
+DEFAULT_REGIME_CORE_TIMEFRAMES = ("1h", "4h", "1d")
+DEFAULT_REGIME_MIN_CANDLES = {"1h": 300, "4h": 180, "1d": 120}
+DEFAULT_REGIME_STALE_AFTER_SECONDS = {"1h": 7200, "4h": 28800, "1d": 172800}
 
 _PRICE_HISTORY = defaultdict(deque)
 _LAST_CANDLE_SYNC_AT: dict[str, float] = {}
+
+
+def _core_readiness_payload(symbol: str, market_data_cfg: dict) -> dict:
+    core_timeframes_raw = market_data_cfg.get("regime_core_timeframes", list(DEFAULT_REGIME_CORE_TIMEFRAMES))
+    core_timeframes: list[str] = []
+    if isinstance(core_timeframes_raw, list):
+        for item in core_timeframes_raw:
+            tf = str(item or "").strip().lower()
+            if tf and tf not in core_timeframes:
+                core_timeframes.append(tf)
+    if not core_timeframes:
+        core_timeframes = list(DEFAULT_REGIME_CORE_TIMEFRAMES)
+
+    by_timeframe: dict[str, dict] = {}
+    supported = {}
+    stale = {}
+    counts = {}
+    mins = {}
+    fresh = {}
+    for tf in core_timeframes:
+        min_required = int(market_data_cfg.get(f"regime_min_candles_{tf}", DEFAULT_REGIME_MIN_CANDLES.get(tf, 120)))
+        stale_after_seconds = int(
+            market_data_cfg.get(
+                f"regime_stale_after_seconds_{tf}",
+                DEFAULT_REGIME_STALE_AFTER_SECONDS.get(tf, 7200),
+            )
+        )
+        try:
+            meta = get_candle_meta(symbol=symbol, timeframe=tf, stale_after_seconds=stale_after_seconds)
+        except Exception:
+            meta = {
+                "supported": False,
+                "stale": True,
+                "candle_count": 0,
+                "status": "UNSUPPORTED_WINDOW",
+                "reason": "meta_fetch_failed",
+            }
+        count = int(meta.get("candle_count") or 0)
+        is_supported = bool(meta.get("supported", False))
+        is_stale = bool(meta.get("stale", True))
+        is_fresh = (not is_stale) and is_supported and count >= max(min_required, 1)
+        supported[tf] = is_supported
+        stale[tf] = is_stale
+        counts[tf] = count
+        mins[tf] = max(min_required, 1)
+        fresh[tf] = is_fresh
+        by_timeframe[tf] = {
+            "supported": is_supported,
+            "stale": is_stale,
+            "candle_count": count,
+            "min_required": max(min_required, 1),
+            "status": meta.get("status"),
+            "reason": meta.get("reason"),
+            "last_update_ts": meta.get("last_update_ts"),
+        }
+
+    ready = all(bool(fresh.get(tf, False)) for tf in core_timeframes)
+    reason = "ok"
+    if not ready:
+        missing = []
+        for tf in core_timeframes:
+            row = by_timeframe.get(tf, {})
+            if not row.get("supported", False):
+                missing.append(f"{tf}:unsupported")
+            elif row.get("stale", True):
+                missing.append(f"{tf}:stale")
+            elif int(row.get("candle_count") or 0) < int(row.get("min_required") or 1):
+                missing.append(f"{tf}:insufficient_depth")
+        reason = ",".join(missing) if missing else "unknown"
+
+    return {
+        "timeframes": core_timeframes,
+        "ready": ready,
+        "reason": reason,
+        "by_timeframe": by_timeframe,
+        "supported_by_timeframe": supported,
+        "stale_by_timeframe": stale,
+        "counts_by_timeframe": counts,
+        "min_counts_by_timeframe": mins,
+        "fresh_by_timeframe": fresh,
+    }
 
 
 def _parse_ts(payload) -> float | None:
@@ -484,6 +568,7 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             data_quality_status = "STALE"
         elif quality_reasons:
             data_quality_status = "PARTIAL"
+        core_readiness = _core_readiness_payload(symbol=symbol, market_data_cfg=market_data_cfg)
 
         snapshot = {
             "symbol": symbol,
@@ -522,6 +607,7 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             "data_quality_ok": data_quality_ok,
             "data_quality_reason": data_quality_reason,
             "data_quality_status": data_quality_status,
+            "core_candle_readiness": core_readiness,
 
             "ema_50": ema_50,
             "ema_200": ema_200,

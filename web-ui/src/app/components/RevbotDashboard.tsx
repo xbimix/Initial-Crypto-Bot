@@ -85,6 +85,8 @@ type DashboardPayload = {
     detectedRegimeConfidenceScore: number | null;
     detectedRegimeStabilityScore: number | null;
     detectedRegimePersistenceScore?: number | null;
+    detectedRegimeStabilityInferred?: boolean;
+    detectedRegimePersistenceInferred?: boolean;
     detectedRegimeDataQualityStatus?: string;
     detectedRegimeKeyWindowsSupported?: boolean;
     detectionSource: string;
@@ -182,6 +184,24 @@ type DashboardPayload = {
     advisoryMaxDrawdownPriceDuringTrade: number | null;
     advisoryMaxDrawdownAt: number | null;
     thesis: string;
+    exitDiagnostics: {
+      canExitNow: boolean;
+      blockedBy: string;
+      nextGate: string;
+      reason: string;
+      pnlPct: number | null;
+      firstActivationPct: number;
+      toFirstActivationPct: number | null;
+      currentLockPct: number | null;
+      lockPrice: number | null;
+      toLockPct: number | null;
+      peakPnlPct: number;
+      trailingArmed: boolean;
+      trailingActivationPct: number;
+      zScore: number | null;
+      maxNegativeZScore: number;
+      structuralBreakEligible: boolean;
+    };
   }>;
 };
 
@@ -2249,6 +2269,13 @@ export default function RevbotDashboard() {
                               Persistence {control.detectedRegimePersistenceScore === null || control.detectedRegimePersistenceScore === undefined ? "n/a" : control.detectedRegimePersistenceScore.toFixed(1)}
                             </span>
                           </div>
+                          <div className="mt-1 text-[9px] uppercase tracking-[0.12em] text-slate-500">
+                            Inputs C:N
+                            {" "}
+                            S:{control.detectedRegimeStabilityInferred ? "I" : "N"}
+                            {" "}
+                            P:{control.detectedRegimePersistenceInferred ? "I" : "N"}
+                          </div>
                         </td>
                         <td className="px-3 py-2.5">
                           <span
@@ -4075,6 +4102,97 @@ export default function RevbotDashboard() {
                   Review rule: age {" >= "} {data.summary.staleLosingReviewThresholdAgeHours.toFixed(1)}h and P&L {" <= "} {formatPercent(data.summary.staleLosingReviewThresholdUnrealizedPnlPct)}
                 </span>
               ) : null}
+            </div>
+
+            <div className="mt-6">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+                    Exit Gates
+                  </p>
+                  <h3 className="mt-1 text-xl font-semibold tracking-tight text-white">
+                    Why Not Exiting
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Per-position sell gate diagnostics from current lock and live snapshot state.
+                </p>
+              </div>
+              <div className="rb-table-wrap mt-3 max-h-[320px] overflow-y-auto overflow-x-auto">
+                <table className="min-w-full table-fixed border-collapse">
+                  <thead className="sticky top-0 z-10 bg-[#0b1220]">
+                    <tr className="border-b border-white/8 bg-white/[0.05] text-left">
+                      <th className="w-[13%] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                        Symbol
+                      </th>
+                      <th className="w-[10%] px-3 py-2 text-right text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                        P&L
+                      </th>
+                      <th className="w-[18%] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                        Blocked By
+                      </th>
+                      <th className="w-[20%] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                        Next Gate
+                      </th>
+                      <th className="w-[21%] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                        Lock State
+                      </th>
+                      <th className="w-[18%] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                        Structural Break
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/6">
+                    {data.positions.map((position) => {
+                      const diag = position.exitDiagnostics;
+                      return (
+                        <tr key={`${position.symbol}-exit-diagnostics`} className="bg-white/[0.02]">
+                          <td className="px-3 py-2 text-xs font-semibold text-white">
+                            {position.symbol}
+                          </td>
+                          <td className={`px-3 py-2 text-right text-xs font-semibold ${valueTone(diag.pnlPct ?? 0)}`}>
+                            {diag.pnlPct === null ? "n/a" : formatPercent(diag.pnlPct)}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-slate-200">
+                            {diag.canExitNow ? (
+                              <span className="rounded-md border border-emerald-400/30 bg-emerald-500/12 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald-200">
+                                Exit Ready
+                              </span>
+                            ) : (
+                              <span className="rounded-md border border-white/15 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-200">
+                                {diag.blockedBy.replaceAll("_", " ")}
+                              </span>
+                            )}
+                            <p className="mt-1 text-[10px] text-slate-400">{diag.reason}</p>
+                          </td>
+                          <td className="px-3 py-2 text-xs text-slate-200">
+                            {diag.nextGate}
+                            {diag.toFirstActivationPct !== null && diag.blockedBy === "waiting_for_first_lock" ? (
+                              <p className="mt-1 text-[10px] text-slate-400">
+                                Needs +{Math.max(diag.toFirstActivationPct, 0).toFixed(2)}%
+                              </p>
+                            ) : null}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-slate-200">
+                            {diag.currentLockPct === null
+                              ? "No lock yet"
+                              : `${formatPercent(diag.currentLockPct)} @ ${formatPrice(diag.lockPrice ?? position.entryPrice)}`}
+                            <p className="mt-1 text-[10px] text-slate-400">
+                              Peak {formatPercent(diag.peakPnlPct)} | Trailing {diag.trailingArmed ? "On" : "Off"}
+                            </p>
+                          </td>
+                          <td className="px-3 py-2 text-xs text-slate-200">
+                            {diag.zScore === null ? "z-score unavailable" : `z=${diag.zScore.toFixed(2)}`}
+                            <p className="mt-1 text-[10px] text-slate-400">
+                              threshold {diag.maxNegativeZScore.toFixed(2)} | {diag.structuralBreakEligible ? "eligible" : "not eligible"}
+                            </p>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </section>
             </div>

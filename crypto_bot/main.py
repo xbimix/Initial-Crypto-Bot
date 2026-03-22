@@ -6,6 +6,7 @@ from pathlib import Path
 
 from api.revolut_account_sync import sync_account_snapshot
 from api.revolut_universe import build_universe_snapshot
+from data.candle_coverage import summarize_core_timeframe_coverage
 from data.live_sync_scheduler import run_incremental_sync_tick
 from data.market_data import fetch_market_snapshot
 from strategy.strategy_engine import evaluate_symbol
@@ -16,6 +17,7 @@ from utils.runtime_events import append_runtime_event
 from utils.runtime_guard import (
     check_disk_space,
     check_timestamp_sanity,
+    cleanup_log_rotations,
     cleanup_stale_locks,
     cleanup_temp_files,
 )
@@ -28,6 +30,7 @@ logger = setup_logger("main")
 HEARTBEAT_INTERVAL = 60
 ACCOUNT_SYNC_INTERVAL_SECONDS = 120
 UNIVERSE_SYNC_INTERVAL_SECONDS = 300
+COVERAGE_LOG_INTERVAL_SECONDS = 300
 _buy_signal_streak: dict[str, int] = {}
 DEFAULT_FAST_POLL_SECONDS = 20.0
 DEFAULT_MID_POLL_SECONDS = 90.0
@@ -80,9 +83,33 @@ def _normalize_symbols(raw_symbols: list[str]) -> list[str]:
 
 
 def _symbols_for_scan(cfg: dict, executor: Executor | None) -> list[str]:
+    market_data_cfg = cfg.get("market_data", {})
+    if not isinstance(market_data_cfg, dict):
+        market_data_cfg = {}
+
     configured_symbols = _normalize_symbols(cfg.get("symbols", []))
+    tiered_symbols: list[str] = []
+    tiers_raw = market_data_cfg.get("symbol_tiers")
+    if isinstance(tiers_raw, dict):
+        active_tiers_raw = market_data_cfg.get("active_tiers", ["tier1", "tier2"])
+        active_tiers: list[str] = []
+        if isinstance(active_tiers_raw, list):
+            for item in active_tiers_raw:
+                key = str(item or "").strip().lower()
+                if key in {"tier1", "tier2", "tier3"} and key not in active_tiers:
+                    active_tiers.append(key)
+        if not active_tiers:
+            active_tiers = ["tier1", "tier2"]
+
+        for tier in active_tiers:
+            values = tiers_raw.get(tier)
+            if not isinstance(values, list):
+                continue
+            tiered_symbols.extend(_normalize_symbols(values))
+
+    base_symbols = tiered_symbols or configured_symbols
     open_symbols = executor.open_symbols() if executor else []
-    return _normalize_symbols(configured_symbols + open_symbols)
+    return _normalize_symbols(base_symbols + open_symbols)
 
 
 def _as_positive_float(value, default: float) -> float:
@@ -265,6 +292,60 @@ def _is_action_enabled(cfg: dict, symbol: str, action: str) -> bool:
     return True
 
 
+def _log_sync_diagnostics(sync_summary: dict):
+    jobs = sync_summary.get("jobs", [])
+    if not isinstance(jobs, list):
+        return
+
+    error_rows = [row for row in jobs if isinstance(row, dict) and str(row.get("status", "")).lower() == "error"]
+    if error_rows:
+        top_rows = error_rows[:3]
+        compact = "; ".join(
+            f"{row.get('symbol', '?')}:{row.get('timeframe', '?')}:{str(row.get('error', 'unknown'))[:120]}"
+            for row in top_rows
+        )
+        logger.warning(
+            "Candle sync errors (top %s/%s): %s",
+            len(top_rows),
+            len(error_rows),
+            compact,
+        )
+
+    degraded_rows = [
+        row for row in jobs
+        if isinstance(row, dict) and str(row.get("status", "")).lower() in {"degraded", "unsupported"}
+    ]
+    if degraded_rows:
+        top_rows = degraded_rows[:3]
+        compact = "; ".join(
+            f"{row.get('symbol', '?')}:{row.get('timeframe', '?')}:{row.get('source', 'unknown')}:{str(row.get('note', ''))[:320]}"
+            for row in top_rows
+        )
+        logger.info(
+            "Candle sync degraded (top %s/%s): %s",
+            len(top_rows),
+            len(degraded_rows),
+            compact,
+        )
+
+
+def _log_candle_coverage():
+    summary = summarize_core_timeframe_coverage()
+    status_counts = summary.get("status_counts", {})
+    fresh_counts = summary.get("fresh_counts_by_timeframe", {})
+    logger.info(
+        "Candle coverage: status=%s fresh_1h=%s fresh_4h=%s fresh_24h=%s "
+        "stale_symbol_timeframes=%s rows=%s rows_24h=%s",
+        status_counts,
+        fresh_counts.get("1h", 0),
+        fresh_counts.get("4h", 0),
+        fresh_counts.get("1d", 0),
+        summary.get("stale_symbol_timeframes", 0),
+        summary.get("total_rows", 0),
+        summary.get("rows_updated_last_24h", 0),
+    )
+
+
 def _signal_confirmation_cycles(cfg: dict) -> int:
     risk_cfg = cfg.get("risk", {})
     if not isinstance(risk_cfg, dict):
@@ -315,6 +396,16 @@ def _run_startup_checks() -> dict:
             "name": "temp_file_cleanup",
             "ok": True,
             "removed_count": temp_cleanup.get("removed_count", 0),
+        }
+    )
+
+    log_cleanup = cleanup_log_rotations(STATE_DIR)
+    checks.append(
+        {
+            "name": "log_rotation_cleanup",
+            "ok": log_cleanup.get("failed_count", 0) == 0,
+            "removed_count": log_cleanup.get("removed_count", 0),
+            "failed_count": log_cleanup.get("failed_count", 0),
         }
     )
 
@@ -425,6 +516,7 @@ def main():
     last_heartbeat = 0.0
     last_account_sync_at = 0.0
     last_universe_sync_at = 0.0
+    last_coverage_log_at = 0.0
     symbol_last_polled_at: dict[str, float] = {}
     clean_shutdown = False
     shutdown_reason = "unknown"
@@ -486,6 +578,9 @@ def main():
                 if now - last_heartbeat > HEARTBEAT_INTERVAL:
                     logger.info("Heartbeat - bot running")
                     last_heartbeat = now
+                if (now - last_coverage_log_at) >= COVERAGE_LOG_INTERVAL_SECONDS:
+                    _log_candle_coverage()
+                    last_coverage_log_at = now
 
                 symbols = _symbols_for_scan(cfg, executor)
                 if not symbols:
@@ -515,13 +610,16 @@ def main():
                 if sync_summary.get("enabled") and (
                     int(sync_summary.get("requests", 0) or 0) > 0
                     or int(sync_summary.get("errors", 0) or 0) > 0
+                    or int(sync_summary.get("degraded", 0) or 0) > 0
                 ):
                     logger.info(
                         "Candle incremental sync: "
                         f"requests={sync_summary.get('requests', 0)} "
                         f"inserted={sync_summary.get('inserted', 0)} "
-                        f"errors={sync_summary.get('errors', 0)}"
+                        f"errors={sync_summary.get('errors', 0)} "
+                        f"degraded={sync_summary.get('degraded', 0)}"
                     )
+                    _log_sync_diagnostics(sync_summary)
 
                 for symbol in cycle_symbols:
                     market = fetch_market_snapshot(symbol, cfg)

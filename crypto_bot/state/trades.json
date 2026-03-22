@@ -1210,5 +1210,15 @@
     "pnl": 7.02208028114999,
     "balance": 5039.477431706927,
     "reason": "profit_lock_exit_4pct"
+  },
+  {
+    "time": 1774043151.2916439,
+    "symbol": "ETH-USD",
+    "side": "SELL",
+    "price": 2146,
+    "size": 0.086531,
+    "pnl": -14.304439609999994,
+    "balance": 5225.172957706927,
+    "reason": "scalper_stop_loss"
   }
 ]
