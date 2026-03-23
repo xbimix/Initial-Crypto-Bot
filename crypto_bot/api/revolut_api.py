@@ -34,6 +34,8 @@ MAX_RETRIES = 1
 REQUEST_TIMEOUT_SECONDS = 10
 USER_AGENT = "RevBot/1.0 (+local)"
 _PUBLIC_REQUEST_TIMES = deque()
+_PUBLIC_RATE_LIMIT_TIMES = deque()
+_PUBLIC_THROTTLE_EVENTS = deque()
 _MISSING_AUTH_WARNED = False
 _MISSING_SIGNING_WARNED = False
 _HTTP_SESSION = requests.Session()
@@ -146,6 +148,7 @@ def _throttle_public_request():
     if len(_PUBLIC_REQUEST_TIMES) >= PUBLIC_MAX_REQUESTS:
         sleep_for = PUBLIC_WINDOW_SECONDS - (now - _PUBLIC_REQUEST_TIMES[0]) + PUBLIC_THROTTLE_PADDING
         sleep_for = max(sleep_for, PUBLIC_THROTTLE_PADDING)
+        _PUBLIC_THROTTLE_EVENTS.append((time.time(), float(sleep_for)))
         logger.info(f"Public API throttle active, sleeping {sleep_for:.2f}s")
         time.sleep(sleep_for)
         now = time.time()
@@ -189,6 +192,7 @@ def _get(path: str, params: dict | None = None, auth: bool = False) -> dict:
 
         if attempt >= MAX_RETRIES:
             break
+        _PUBLIC_RATE_LIMIT_TIMES.append(time.time())
 
         retry_after = response.headers.get("Retry-After")
         try:
@@ -242,3 +246,24 @@ def _post(path: str, payload: dict, auth: bool = True) -> dict:
 
     response.raise_for_status()
     return response.json()
+
+
+def get_public_api_health(*, window_seconds: float = 60.0) -> dict:
+    now = time.time()
+    window = max(float(window_seconds), 1.0)
+    cutoff = now - window
+
+    while _PUBLIC_RATE_LIMIT_TIMES and _PUBLIC_RATE_LIMIT_TIMES[0] < cutoff:
+        _PUBLIC_RATE_LIMIT_TIMES.popleft()
+    while _PUBLIC_THROTTLE_EVENTS and _PUBLIC_THROTTLE_EVENTS[0][0] < cutoff:
+        _PUBLIC_THROTTLE_EVENTS.popleft()
+
+    throttle_sleep_sum = float(sum(wait for _, wait in _PUBLIC_THROTTLE_EVENTS))
+    return {
+        "window_seconds": window,
+        "rate_limited_count": len(_PUBLIC_RATE_LIMIT_TIMES),
+        "throttle_event_count": len(_PUBLIC_THROTTLE_EVENTS),
+        "throttle_sleep_seconds_sum": throttle_sleep_sum,
+        "public_window_seconds": float(PUBLIC_WINDOW_SECONDS),
+        "public_max_requests": int(PUBLIC_MAX_REQUESTS),
+    }

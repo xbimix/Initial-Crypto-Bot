@@ -1,14 +1,19 @@
 import time
 import os
 import logging
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from api.revolut_api import get_public_api_health
 from api.revolut_account_sync import sync_account_snapshot
 from api.revolut_universe import build_universe_snapshot
 from data.candle_coverage import summarize_core_timeframe_coverage
+from data.db_maintenance import run_db_maintenance
 from data.live_sync_scheduler import run_incremental_sync_tick
 from data.market_data import fetch_market_snapshot
+from data.revolut_candle_fetcher import get_candle_fetch_telemetry
+from strategy.route_quality import load_route_quality_report_cached
 from strategy.strategy_engine import evaluate_symbol
 from trading.executor import Executor
 from utils.config_loader import load_config
@@ -32,19 +37,47 @@ ACCOUNT_SYNC_INTERVAL_SECONDS = 120
 UNIVERSE_SYNC_INTERVAL_SECONDS = 300
 COVERAGE_LOG_INTERVAL_SECONDS = 300
 _buy_signal_streak: dict[str, int] = {}
+_symbol_watchlist_until: dict[str, float] = {}
+_symbol_health_score: dict[str, float] = {}
 DEFAULT_FAST_POLL_SECONDS = 20.0
 DEFAULT_MID_POLL_SECONDS = 90.0
 DEFAULT_SLOW_POLL_SECONDS = 240.0
+DEFAULT_WATCHLIST_POLL_SECONDS = 300.0
 DEFAULT_TOP_OPPORTUNITY_COUNT = 12
 DEFAULT_MID_TIER_COUNT = 28
 DEFAULT_MAX_SYMBOLS_PER_CYCLE = 16
+DEFAULT_SYMBOL_HEALTH_MIN_SCORE = 45.0
+DEFAULT_SYMBOL_HEALTH_WATCHLIST_SECONDS = 24 * 60 * 60
+DEFAULT_ROUTE_QUALITY_MIN_CONFIDENCE = 75.0
+DEFAULT_ROUTE_QUALITY_MIN_STABILITY = 60.0
+DEFAULT_ROUTE_QUALITY_MIN_PERSISTENCE = 60.0
+DEFAULT_ROUTE_QUALITY_MAX_RATE_LIMITED = 2
 STATE_DIR = Path(__file__).resolve().parent / "state"
+MARKET_SYNC_HEALTH_PATH = STATE_DIR / "market_sync_health.json"
+MARKET_SYNC_HEALTH_HISTORY_PATH = STATE_DIR / "market_sync_health_history.jsonl"
+DECISION_AUDIT_PATH = STATE_DIR / "decision_audit.jsonl"
+DECISION_AUDIT_MAX_LINES_DEFAULT = 200000
+SYNC_HEALTH_HISTORY_MAX_LINES_DEFAULT = 200000
+SYNC_HEALTH_HISTORY_RETENTION_DAYS_DEFAULT = 14.0
+SNAPSHOT_RETENTION_DAYS_DEFAULT = 14.0
+SNAPSHOT_MAX_DIRS_DEFAULT = 100
 REQUIRED_STATE_FILES = (
     "config.json",
     "paper_state.json",
     "strategy_state.json",
     "trades.json",
 )
+
+ROUTE_GUARD_STREAK_CACHE_TTL_SECONDS = 30.0
+_route_guard_cap_hits: dict[str, int] = {}
+_route_guard_cooldown_hits: dict[str, int] = {}
+_route_guard_confidence_tier_hits: dict[str, int] = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
+_route_guard_loss_streak_cache: dict[str, object] = {
+    "mtime": None,
+    "computed_at": 0.0,
+    "streaks": {},
+}
+_route_guard_cooldown_until: dict[str, float] = {}
 
 
 def _bool_env(name: str, default: bool = False) -> bool:
@@ -64,6 +97,168 @@ STRICT_STARTUP_CHECKS = _bool_env("REVBOT_MAIN_STRICT_STARTUP", default=False)
 
 def _now_utc_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _json_dumps_safe(payload: dict) -> str:
+    try:
+        return json.dumps(payload, ensure_ascii=False)
+    except TypeError:
+        normalized = {}
+        for key, value in payload.items():
+            if isinstance(value, (str, int, float, bool)) or value is None:
+                normalized[key] = value
+            else:
+                normalized[key] = str(value)
+        return json.dumps(normalized, ensure_ascii=False)
+
+
+def _parse_positive_int(value, default: int) -> int:
+    try:
+        parsed = int(float(value))
+    except (TypeError, ValueError):
+        parsed = default
+    return max(1, parsed)
+
+
+def _parse_positive_float(value, default: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(0.0, parsed)
+
+
+def _trim_jsonl_lines(path: Path, *, max_lines: int) -> int:
+    if max_lines <= 0 or not path.exists():
+        return 0
+    try:
+        lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception:
+        return 0
+    if len(lines) <= max_lines:
+        return 0
+    keep = lines[-max_lines:]
+    try:
+        path.write_text("\n".join(keep) + "\n", encoding="utf-8")
+        return len(lines) - len(keep)
+    except Exception:
+        return 0
+
+
+def _prune_market_sync_history(path: Path, *, max_lines: int, retention_days: float) -> int:
+    if max_lines <= 0 or not path.exists():
+        return 0
+    cutoff_epoch = time.time() - max(0.0, retention_days) * 86400.0
+    try:
+        raw_lines = path.read_text(encoding="utf-8", errors="ignore").splitlines()
+    except Exception:
+        return 0
+    if not raw_lines:
+        return 0
+    kept: list[str] = []
+    for text in raw_lines:
+        line = text.strip()
+        if not line:
+            continue
+        try:
+            payload = json.loads(line)
+        except Exception:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        ts = _to_float(payload.get("ts_epoch"), 0.0) or 0.0
+        if ts > 0 and ts < cutoff_epoch:
+            continue
+        kept.append(_json_dumps_safe(payload))
+    if len(kept) > max_lines:
+        kept = kept[-max_lines:]
+    removed_count = len(raw_lines) - len(kept)
+    if removed_count <= 0:
+        return 0
+    try:
+        path.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+        return removed_count
+    except Exception:
+        return 0
+
+
+def _prune_snapshots(*, snapshots_dir: Path, retention_days: float, max_dirs: int) -> int:
+    if not snapshots_dir.exists():
+        return 0
+    now = time.time()
+    cutoff_epoch = now - max(0.0, retention_days) * 86400.0
+    dirs: list[Path] = []
+    try:
+        for row in snapshots_dir.iterdir():
+            if row.is_dir():
+                dirs.append(row)
+    except Exception:
+        return 0
+    if not dirs:
+        return 0
+    dirs.sort(key=lambda item: item.stat().st_mtime if item.exists() else 0.0, reverse=True)
+    removed = 0
+    for idx, directory in enumerate(dirs):
+        try:
+            mtime = directory.stat().st_mtime
+        except Exception:
+            continue
+        if idx < max_dirs and mtime >= cutoff_epoch:
+            continue
+        try:
+            for child in directory.rglob("*"):
+                if child.is_file():
+                    child.unlink(missing_ok=True)
+            for child in sorted(directory.rglob("*"), reverse=True):
+                if child.is_dir():
+                    child.rmdir()
+            directory.rmdir()
+            removed += 1
+        except Exception:
+            continue
+    return removed
+
+
+def _run_housekeeping(cfg: dict) -> dict:
+    market_data_cfg = cfg.get("market_data", {})
+    if not isinstance(market_data_cfg, dict):
+        market_data_cfg = {}
+    sync_history_max_lines = _parse_positive_int(
+        market_data_cfg.get("sync_health_history_max_lines"),
+        SYNC_HEALTH_HISTORY_MAX_LINES_DEFAULT,
+    )
+    sync_history_retention_days = _parse_positive_float(
+        market_data_cfg.get("sync_health_history_retention_days"),
+        SYNC_HEALTH_HISTORY_RETENTION_DAYS_DEFAULT,
+    )
+    audit_max_lines = _parse_positive_int(
+        market_data_cfg.get("decision_audit_max_lines"),
+        DECISION_AUDIT_MAX_LINES_DEFAULT,
+    )
+    snapshot_retention_days = _parse_positive_float(
+        market_data_cfg.get("snapshot_retention_days"),
+        SNAPSHOT_RETENTION_DAYS_DEFAULT,
+    )
+    snapshot_max_dirs = _parse_positive_int(
+        market_data_cfg.get("snapshot_max_dirs"),
+        SNAPSHOT_MAX_DIRS_DEFAULT,
+    )
+    removed_sync_history = _prune_market_sync_history(
+        MARKET_SYNC_HEALTH_HISTORY_PATH,
+        max_lines=sync_history_max_lines,
+        retention_days=sync_history_retention_days,
+    )
+    removed_audit = _trim_jsonl_lines(DECISION_AUDIT_PATH, max_lines=audit_max_lines)
+    removed_snapshots = _prune_snapshots(
+        snapshots_dir=STATE_DIR / "snapshots",
+        retention_days=snapshot_retention_days,
+        max_dirs=snapshot_max_dirs,
+    )
+    return {
+        "removed_sync_history_lines": int(removed_sync_history),
+        "removed_decision_audit_lines": int(removed_audit),
+        "removed_snapshots": int(removed_snapshots),
+    }
 
 
 def _normalize_symbols(raw_symbols: list[str]) -> list[str]:
@@ -89,6 +284,7 @@ def _symbols_for_scan(cfg: dict, executor: Executor | None) -> list[str]:
 
     configured_symbols = _normalize_symbols(cfg.get("symbols", []))
     tiered_symbols: list[str] = []
+    inactive_tier_symbols: list[str] = []
     tiers_raw = market_data_cfg.get("symbol_tiers")
     if isinstance(tiers_raw, dict):
         active_tiers_raw = market_data_cfg.get("active_tiers", ["tier1", "tier2"])
@@ -106,10 +302,26 @@ def _symbols_for_scan(cfg: dict, executor: Executor | None) -> list[str]:
             if not isinstance(values, list):
                 continue
             tiered_symbols.extend(_normalize_symbols(values))
+        for tier_name, values in tiers_raw.items():
+            tier_key = str(tier_name or "").strip().lower()
+            if tier_key in active_tiers:
+                continue
+            if not isinstance(values, list):
+                continue
+            inactive_tier_symbols.extend(_normalize_symbols(values))
 
     base_symbols = tiered_symbols or configured_symbols
     open_symbols = executor.open_symbols() if executor else []
-    return _normalize_symbols(base_symbols + open_symbols)
+    dynamic_tiering_enabled = bool(market_data_cfg.get("dynamic_tiering_enabled", False))
+    promoted_symbols: list[str] = []
+    if dynamic_tiering_enabled and inactive_tier_symbols:
+        promotion_count = _as_positive_int(
+            market_data_cfg.get("dynamic_tier_promotion_count"),
+            4,
+        )
+        ranked_inactive = _strategy_priority_rank(cfg, _normalize_symbols(inactive_tier_symbols))
+        promoted_symbols = ranked_inactive[:promotion_count]
+    return _normalize_symbols(base_symbols + promoted_symbols + open_symbols)
 
 
 def _as_positive_float(value, default: float) -> float:
@@ -169,6 +381,10 @@ def _polling_settings(cfg: dict) -> dict:
         "max_symbols_per_cycle": _as_positive_int(
             market_data_cfg.get("max_symbols_per_cycle"),
             DEFAULT_MAX_SYMBOLS_PER_CYCLE,
+        ),
+        "watchlist_poll_seconds": _as_positive_float(
+            market_data_cfg.get("watchlist_poll_seconds"),
+            DEFAULT_WATCHLIST_POLL_SECONDS,
         ),
     }
 
@@ -234,7 +450,365 @@ def _build_symbol_poll_intervals(
             intervals[symbol] = settings["mid_poll_seconds"]
         else:
             intervals[symbol] = settings["slow_poll_seconds"]
+        watch_until = float(_symbol_watchlist_until.get(symbol, 0.0))
+        if symbol not in open_set and watch_until > time.time():
+            intervals[symbol] = max(intervals[symbol], settings["watchlist_poll_seconds"])
     return intervals
+
+
+def _is_symbol_watchlisted(symbol: str, now_epoch: float) -> bool:
+    return float(_symbol_watchlist_until.get(symbol, 0.0)) > float(now_epoch)
+
+
+def _symbol_health_assessment(symbol: str, market: dict, cfg: dict) -> tuple[float, list[str]]:
+    market_data_cfg = cfg.get("market_data", {})
+    if not isinstance(market_data_cfg, dict):
+        market_data_cfg = {}
+    score = 100.0
+    reasons: list[str] = []
+    quality_status = str(market.get("data_quality_status") or "UNKNOWN").upper()
+    if quality_status == "GOOD":
+        pass
+    elif quality_status == "PARTIAL":
+        score -= 25.0
+        reasons.append("quality_partial")
+    elif quality_status == "STALE":
+        score -= 45.0
+        reasons.append("quality_stale")
+    elif quality_status == "INSUFFICIENT":
+        score -= 55.0
+        reasons.append("quality_insufficient")
+    elif quality_status == "UNSUPPORTED_WINDOW":
+        score -= 70.0
+        reasons.append("quality_unsupported")
+    else:
+        score -= 20.0
+        reasons.append("quality_unknown")
+
+    max_spread_bps = _as_positive_float(
+        market_data_cfg.get("max_spread_bps"),
+        150.0,
+    )
+    spread_bps = _as_positive_float(market.get("spread_bps"), 0.0)
+    if spread_bps > max_spread_bps:
+        penalty = min(30.0, (spread_bps - max_spread_bps) * 0.25)
+        score -= penalty
+        reasons.append("spread_wide")
+
+    readiness = market.get("core_candle_readiness", {})
+    if isinstance(readiness, dict) and not bool(readiness.get("ready", True)):
+        score -= 35.0
+        reasons.append("core_not_ready")
+
+    score = max(0.0, min(100.0, score))
+    return score, reasons
+
+
+def _update_symbol_health(symbol: str, market: dict, cfg: dict, now_epoch: float) -> dict:
+    market_data_cfg = cfg.get("market_data", {})
+    if not isinstance(market_data_cfg, dict):
+        market_data_cfg = {}
+    score, reasons = _symbol_health_assessment(symbol, market, cfg)
+    _symbol_health_score[symbol] = score
+    min_score = _as_positive_float(
+        market_data_cfg.get("symbol_health_min_score"),
+        DEFAULT_SYMBOL_HEALTH_MIN_SCORE,
+    )
+    watchlist_seconds = _as_positive_int(
+        market_data_cfg.get("symbol_health_watchlist_seconds"),
+        DEFAULT_SYMBOL_HEALTH_WATCHLIST_SECONDS,
+    )
+    watchlisted = False
+    if score < min_score:
+        _symbol_watchlist_until[symbol] = float(now_epoch) + float(watchlist_seconds)
+        watchlisted = True
+    elif symbol in _symbol_watchlist_until and _symbol_watchlist_until[symbol] <= float(now_epoch):
+        _symbol_watchlist_until.pop(symbol, None)
+    return {
+        "score": round(score, 2),
+        "reasons": reasons,
+        "watchlisted": watchlisted or _is_symbol_watchlisted(symbol, now_epoch),
+        "watch_until_epoch": _symbol_watchlist_until.get(symbol),
+    }
+
+
+def _to_float(value, fallback: float | None = None) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _normalize_route_key(value: str) -> str:
+    return str(value or "").strip().lower()
+
+
+def _liquidity_tier(market: dict) -> str:
+    spread_bps = _as_positive_float(market.get("spread_bps"), 9999.0)
+    trade_count = _as_positive_int(market.get("trade_count"), 0)
+    if spread_bps <= 20.0 and trade_count >= 25:
+        return "HIGH"
+    if spread_bps <= 60.0 and trade_count >= 10:
+        return "MEDIUM"
+    return "LOW"
+
+
+def _route_confidence_multiplier(cfg: dict, market: dict) -> float:
+    market_data_cfg = cfg.get("market_data", {})
+    if not isinstance(market_data_cfg, dict):
+        market_data_cfg = {}
+    tier = _liquidity_tier(market)
+    raw = market_data_cfg.get("route_quality_confidence_multiplier_by_liquidity", {})
+    if isinstance(raw, dict):
+        value = _to_float(raw.get(tier.lower()))
+        if value is None:
+            value = _to_float(raw.get(tier.upper()))
+        if value is not None and value > 0:
+            _route_guard_confidence_tier_hits[tier] = int(_route_guard_confidence_tier_hits.get(tier, 0) or 0) + 1
+            return float(value)
+    defaults = {"HIGH": 1.0, "MEDIUM": 1.05, "LOW": 1.12}
+    _route_guard_confidence_tier_hits[tier] = int(_route_guard_confidence_tier_hits.get(tier, 0) or 0) + 1
+    return float(defaults[tier])
+
+
+def _route_exposure_share_pct(route: str, cfg: dict, now_epoch: float) -> float | None:
+    try:
+        report = load_route_quality_report_cached(state_dir=STATE_DIR, cfg=cfg, now_epoch=now_epoch)
+    except Exception:
+        return None
+    if not isinstance(report, dict):
+        return None
+    current = report.get("current", {})
+    if not isinstance(current, dict):
+        return None
+    counts = current.get("effective_route_counts", {})
+    if not isinstance(counts, dict):
+        return None
+    total = 0.0
+    target = 0.0
+    for key, raw in counts.items():
+        value = _to_float(raw, 0.0) or 0.0
+        if value <= 0:
+            continue
+        total += value
+        if _normalize_route_key(key) == _normalize_route_key(route):
+            target += value
+    if total <= 0:
+        return None
+    return (target / total) * 100.0
+
+
+def _refresh_route_loss_streaks(now_epoch: float) -> dict[str, int]:
+    cache = _route_guard_loss_streak_cache
+    trades_path = STATE_DIR / "trades.json"
+    try:
+        mtime = trades_path.stat().st_mtime
+    except OSError:
+        mtime = None
+
+    if (
+        cache.get("mtime") == mtime
+        and (float(now_epoch) - float(cache.get("computed_at", 0.0) or 0.0)) <= ROUTE_GUARD_STREAK_CACHE_TTL_SECONDS
+        and isinstance(cache.get("streaks"), dict)
+    ):
+        return cache.get("streaks")  # type: ignore[return-value]
+
+    trades = read_json_file(trades_path, default=[])
+    if not isinstance(trades, list):
+        trades = []
+    sells: list[dict] = []
+    for row in trades:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("side", "")).upper() != "SELL":
+            continue
+        route = _normalize_route_key(row.get("effective_route") or row.get("effective_strategy") or row.get("route"))
+        if not route:
+            route = _normalize_route_key(row.get("reason"))
+            if "trend_pullback" in route:
+                route = "trend_pullback"
+            elif "breakout_momentum" in route:
+                route = "breakout_momentum"
+            elif "volatility_scalper" in route or route.startswith("scalper_"):
+                route = "volatility_scalper"
+            else:
+                route = "mean_reversion"
+        pnl = _to_float(row.get("pnl"), None)
+        if pnl is None:
+            continue
+        sells.append({"time": _to_float(row.get("time"), 0.0) or 0.0, "route": route, "pnl": pnl})
+    sells.sort(key=lambda item: float(item.get("time", 0.0)), reverse=True)
+    streaks: dict[str, int] = {}
+    seen_break: set[str] = set()
+    for row in sells:
+        route = _normalize_route_key(row.get("route"))
+        if not route or route in seen_break:
+            continue
+        pnl = float(row.get("pnl", 0.0))
+        if pnl < 0:
+            streaks[route] = int(streaks.get(route, 0) or 0) + 1
+        else:
+            seen_break.add(route)
+
+    cache["mtime"] = mtime
+    cache["computed_at"] = float(now_epoch)
+    cache["streaks"] = streaks
+    return streaks
+
+
+def _non_mr_route_guard(
+    *,
+    symbol: str,
+    decision: dict,
+    market: dict,
+    cfg: dict,
+    now_epoch: float,
+    pressure: dict,
+) -> tuple[bool, str | None]:
+    market_data_cfg = cfg.get("market_data", {})
+    if not isinstance(market_data_cfg, dict):
+        market_data_cfg = {}
+    if not bool(market_data_cfg.get("route_quality_guard_enabled", True)):
+        return True, None
+
+    route = str(decision.get("effective_route") or decision.get("effective_strategy") or "").upper()
+    if route in {"", "MEAN_REVERSION", "MEAN_REVERSION_FRIENDLY"}:
+        return True, None
+
+    if _is_symbol_watchlisted(symbol, now_epoch):
+        return False, "symbol_watchlisted_health_cooldown"
+
+    readiness = market.get("core_candle_readiness", {})
+    if isinstance(readiness, dict) and not bool(readiness.get("ready", True)):
+        return False, f"core_not_ready:{readiness.get('reason', 'unknown')}"
+
+    confidence = _to_float(
+        decision.get("detected_regime_confidence_score")
+        or decision.get("detectedRegimeConfidenceScore")
+        or decision.get("regime_confidence_score"),
+        0.0,
+    ) or 0.0
+    stability = _to_float(
+        decision.get("detected_regime_stability_score")
+        or decision.get("detectedRegimeStabilityScore")
+        or decision.get("regime_stability_score"),
+        0.0,
+    ) or 0.0
+    persistence = _to_float(
+        decision.get("detected_regime_persistence_score")
+        or decision.get("detectedRegimePersistenceScore")
+        or decision.get("regime_persistence_score"),
+        0.0,
+    ) or 0.0
+
+    min_conf = _as_positive_float(
+        market_data_cfg.get("route_quality_min_confidence"),
+        DEFAULT_ROUTE_QUALITY_MIN_CONFIDENCE,
+    )
+    min_conf *= _route_confidence_multiplier(cfg, market)
+    min_stability = _as_positive_float(
+        market_data_cfg.get("route_quality_min_stability"),
+        DEFAULT_ROUTE_QUALITY_MIN_STABILITY,
+    )
+    min_persistence = _as_positive_float(
+        market_data_cfg.get("route_quality_min_persistence"),
+        DEFAULT_ROUTE_QUALITY_MIN_PERSISTENCE,
+    )
+    if confidence < min_conf:
+        return False, "route_quality_low_confidence"
+    if stability < min_stability:
+        return False, "route_quality_low_stability"
+    if persistence < min_persistence:
+        return False, "route_quality_low_persistence"
+
+    quality_status = str(
+        decision.get("regime_data_quality_status")
+        or market.get("data_quality_status")
+        or "UNKNOWN"
+    ).upper()
+    if quality_status in {"STALE", "INSUFFICIENT", "UNSUPPORTED_WINDOW"}:
+        return False, "route_quality_bad_data"
+
+    route_key = _normalize_route_key(route)
+    per_route_cap_cfg = market_data_cfg.get("route_quality_max_route_share_pct", {})
+    if not isinstance(per_route_cap_cfg, dict):
+        per_route_cap_cfg = {}
+    cap_pct = _to_float(per_route_cap_cfg.get(route_key), None)
+    if cap_pct is not None and cap_pct > 0:
+        share_pct = _route_exposure_share_pct(route_key, cfg, now_epoch)
+        if share_pct is not None and share_pct >= cap_pct:
+            _route_guard_cap_hits[route_key] = int(_route_guard_cap_hits.get(route_key, 0) or 0) + 1
+            return False, f"route_exposure_cap:{route_key}:{round(share_pct, 2)}"
+
+    streak_cfg = market_data_cfg.get("route_quality_max_consecutive_losses", {})
+    if not isinstance(streak_cfg, dict):
+        streak_cfg = {}
+    cooldown_cfg = market_data_cfg.get("route_quality_cooldown_seconds_after_losses", {})
+    if not isinstance(cooldown_cfg, dict):
+        cooldown_cfg = {}
+    max_losses = _as_positive_int(streak_cfg.get(route_key), 0)
+    cooldown_seconds = _as_positive_int(cooldown_cfg.get(route_key), 0)
+    cooldown_until = float(_route_guard_cooldown_until.get(route_key, 0.0) or 0.0)
+    if cooldown_until > float(now_epoch):
+        _route_guard_cooldown_hits[route_key] = int(_route_guard_cooldown_hits.get(route_key, 0) or 0) + 1
+        return False, f"route_cooldown_active:{route_key}:{int(cooldown_until - now_epoch)}"
+    if max_losses > 0 and cooldown_seconds > 0:
+        streaks = _refresh_route_loss_streaks(now_epoch)
+        route_streak = int(streaks.get(route_key, 0) or 0)
+        if route_streak >= max_losses:
+            _route_guard_cooldown_until[route_key] = float(now_epoch) + float(cooldown_seconds)
+            _route_guard_cooldown_hits[route_key] = int(_route_guard_cooldown_hits.get(route_key, 0) or 0) + 1
+            return False, f"route_cooldown_triggered:{route_key}:{route_streak}"
+
+    max_rate_limited = _as_positive_int(
+        market_data_cfg.get("route_quality_max_rate_limited"),
+        DEFAULT_ROUTE_QUALITY_MAX_RATE_LIMITED,
+    )
+    rate_limited_count = _as_positive_int(pressure.get("rate_limited_count"), 0)
+    if rate_limited_count > max_rate_limited:
+        return False, "route_quality_throttle_pressure"
+    return True, None
+
+
+def _append_decision_audit(
+    *,
+    symbol: str,
+    market: dict,
+    decision: dict,
+    executed: bool,
+    blocked_reason: str | None,
+):
+    payload = {
+        "ts_epoch": time.time(),
+        "symbol": symbol,
+        "action": decision.get("action"),
+        "executed": bool(executed),
+        "blocked_reason": blocked_reason,
+        "decision_reason": decision.get("reason"),
+        "effective_route": decision.get("effective_route"),
+        "effective_strategy": decision.get("effective_strategy"),
+        "configured_regime": decision.get("configured_regime"),
+        "detected_regime": decision.get("detected_regime"),
+        "confidence_score": decision.get("detected_regime_confidence_score"),
+        "stability_score": decision.get("detected_regime_stability_score"),
+        "persistence_score": decision.get("detected_regime_persistence_score"),
+        "fallback_reason": decision.get("fallback_reason"),
+        "auto_fallback_reason": decision.get("auto_fallback_reason"),
+        "data_quality_status": market.get("data_quality_status"),
+        "data_quality_reason": market.get("data_quality_reason"),
+        "core_candle_readiness": market.get("core_candle_readiness"),
+        "spread_bps": market.get("spread_bps"),
+        "momentum_norm": market.get("momentum_norm"),
+        "rsi": market.get("rsi"),
+        "atr_raw": market.get("atr_raw"),
+        "price": market.get("price"),
+    }
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        with DECISION_AUDIT_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(_json_dumps_safe(payload) + "\n")
+    except Exception as exc:
+        logger.debug(f"Decision audit append failed for {symbol}: {exc}")
 
 
 def _select_symbols_for_cycle(
@@ -329,6 +903,86 @@ def _log_sync_diagnostics(sync_summary: dict):
         )
 
 
+def _apply_adaptive_sync_request_budget(cfg: dict) -> dict:
+    market_data_cfg = cfg.get("market_data", {})
+    if not isinstance(market_data_cfg, dict):
+        market_data_cfg = {}
+        cfg["market_data"] = market_data_cfg
+
+    base_cap = _as_positive_int(market_data_cfg.get("max_sync_requests_per_tick"), 8)
+    min_cap = _as_positive_int(market_data_cfg.get("min_sync_requests_per_tick_under_pressure"), 1)
+    window_seconds = _as_positive_float(market_data_cfg.get("sync_pressure_window_seconds"), 60.0)
+    rate_limit_threshold = _as_positive_int(market_data_cfg.get("sync_pressure_rate_limit_threshold"), 3)
+    throttle_sleep_threshold = _as_positive_float(
+        market_data_cfg.get("sync_pressure_throttle_sleep_seconds"),
+        5.0,
+    )
+    pressure = get_public_api_health(window_seconds=window_seconds)
+    rate_limited_count = int(pressure.get("rate_limited_count", 0) or 0)
+    throttle_sleep = float(pressure.get("throttle_sleep_seconds_sum", 0.0) or 0.0)
+    under_pressure = (
+        rate_limited_count >= rate_limit_threshold
+        or throttle_sleep >= throttle_sleep_threshold
+    )
+    effective_cap = max(min_cap, base_cap // 2) if under_pressure else base_cap
+    market_data_cfg["max_sync_requests_per_tick"] = int(effective_cap)
+    return {
+        "base_cap": int(base_cap),
+        "effective_cap": int(effective_cap),
+        "under_pressure": bool(under_pressure),
+        "window_seconds": float(window_seconds),
+        "rate_limit_threshold": int(rate_limit_threshold),
+        "throttle_sleep_threshold": float(throttle_sleep_threshold),
+        "pressure": pressure,
+    }
+
+
+def _persist_market_sync_health(payload: dict):
+    try:
+        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        line = _json_dumps_safe(payload)
+        MARKET_SYNC_HEALTH_PATH.write_text(
+            line,
+            encoding="utf-8",
+        )
+        with MARKET_SYNC_HEALTH_HISTORY_PATH.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+        return True
+    except Exception as exc:
+        logger.warning(f"Failed to persist market sync health: {exc}")
+        return False
+
+
+def _build_sync_slo(sync_summary: dict, coverage_summary: dict) -> dict:
+    fresh_counts = coverage_summary.get("fresh_counts_by_timeframe", {})
+    stale_symbol_timeframes = int(coverage_summary.get("stale_symbol_timeframes", 0) or 0)
+    errors = int(sync_summary.get("errors", 0) or 0)
+    degraded = int(sync_summary.get("degraded", 0) or 0)
+    requests = int(sync_summary.get("requests", 0) or 0)
+    inserted = int(sync_summary.get("new_inserted", 0) or 0)
+    fresh_1h = int(fresh_counts.get("1h", 0) or 0)
+    fresh_4h = int(fresh_counts.get("4h", 0) or 0)
+    fresh_1d = int(fresh_counts.get("1d", 0) or 0)
+    coverage_ok = fresh_1h > 0 and fresh_4h > 0
+    quality_ok = degraded == 0 and errors == 0
+    throughput_ok = requests > 0 and inserted >= 0
+    status = "OK" if (coverage_ok and quality_ok and throughput_ok) else "DEGRADED"
+    return {
+        "status": status,
+        "coverage_ok": bool(coverage_ok),
+        "quality_ok": bool(quality_ok),
+        "throughput_ok": bool(throughput_ok),
+        "fresh_1h": fresh_1h,
+        "fresh_4h": fresh_4h,
+        "fresh_24h": fresh_1d,
+        "stale_symbol_timeframes": stale_symbol_timeframes,
+        "requests": requests,
+        "new_inserted": inserted,
+        "errors": errors,
+        "degraded": degraded,
+    }
+
+
 def _log_candle_coverage():
     summary = summarize_core_timeframe_coverage()
     status_counts = summary.get("status_counts", {})
@@ -408,6 +1062,22 @@ def _run_startup_checks() -> dict:
             "failed_count": log_cleanup.get("failed_count", 0),
         }
     )
+
+    try:
+        cfg = load_config()
+        housekeeping = _run_housekeeping(cfg if isinstance(cfg, dict) else {})
+        checks.append(
+            {
+                "name": "housekeeping_cleanup",
+                "ok": True,
+                "removed_sync_history_lines": housekeeping.get("removed_sync_history_lines", 0),
+                "removed_decision_audit_lines": housekeeping.get("removed_decision_audit_lines", 0),
+                "removed_snapshots": housekeeping.get("removed_snapshots", 0),
+            }
+        )
+    except Exception as exc:
+        checks.append({"name": "housekeeping_cleanup", "ok": False, "detail": str(exc)})
+        ok = False
 
     disk = check_disk_space(STATE_DIR)
     checks.append(
@@ -517,6 +1187,8 @@ def main():
     last_account_sync_at = 0.0
     last_universe_sync_at = 0.0
     last_coverage_log_at = 0.0
+    last_db_maintenance_at = 0.0
+    last_housekeeping_at = 0.0
     symbol_last_polled_at: dict[str, float] = {}
     clean_shutdown = False
     shutdown_reason = "unknown"
@@ -581,6 +1253,41 @@ def main():
                 if (now - last_coverage_log_at) >= COVERAGE_LOG_INTERVAL_SECONDS:
                     _log_candle_coverage()
                     last_coverage_log_at = now
+                db_maintenance_interval = _as_positive_int(
+                    cfg.get("market_data", {}).get("db_maintenance_interval_seconds", 6 * 60 * 60),
+                    6 * 60 * 60,
+                ) if isinstance(cfg.get("market_data", {}), dict) else (6 * 60 * 60)
+                housekeeping_interval = _as_positive_int(
+                    cfg.get("market_data", {}).get("housekeeping_interval_seconds", 60 * 60),
+                    60 * 60,
+                ) if isinstance(cfg.get("market_data", {}), dict) else (60 * 60)
+                if (now - last_db_maintenance_at) >= db_maintenance_interval:
+                    try:
+                        maintenance = run_db_maintenance(cfg=cfg)
+                        logger.info(
+                            "DB maintenance: "
+                            f"trimmed_rows={maintenance.get('trimmed_rows', 0)} "
+                            f"rows_after={maintenance.get('rows_after', 0)} "
+                            f"duration_ms={maintenance.get('duration_ms', 0)}"
+                        )
+                    except Exception as exc:
+                        logger.warning(f"DB maintenance failed: {exc}")
+                    finally:
+                        last_db_maintenance_at = now
+                if (now - last_housekeeping_at) >= housekeeping_interval:
+                    try:
+                        housekeeping = _run_housekeeping(cfg)
+                        if any(int(housekeeping.get(key, 0) or 0) > 0 for key in housekeeping):
+                            logger.info(
+                                "Housekeeping: "
+                                f"sync_history_lines={housekeeping.get('removed_sync_history_lines', 0)} "
+                                f"audit_lines={housekeeping.get('removed_decision_audit_lines', 0)} "
+                                f"snapshots={housekeeping.get('removed_snapshots', 0)}"
+                            )
+                    except Exception as exc:
+                        logger.warning(f"Housekeeping failed: {exc}")
+                    finally:
+                        last_housekeeping_at = now
 
                 symbols = _symbols_for_scan(cfg, executor)
                 if not symbols:
@@ -606,7 +1313,44 @@ def main():
                     time.sleep(max(int(cfg.get("loop_sleep", 10)), 1))
                     continue
 
+                adaptive_budget = _apply_adaptive_sync_request_budget(cfg)
                 sync_summary = run_incremental_sync_tick(cfg=cfg, symbols=cycle_symbols, now_epoch=now)
+                coverage_summary = summarize_core_timeframe_coverage()
+                sync_health_payload = {
+                    "ts_epoch": now,
+                    "generated_at": _now_utc_iso(),
+                    "adaptive_budget": adaptive_budget,
+                    "sync": {
+                        "enabled": bool(sync_summary.get("enabled", False)),
+                        "attempted_jobs": int(sync_summary.get("attempted_jobs", 0) or 0),
+                        "requests": int(sync_summary.get("requests", 0) or 0),
+                        "inserted": int(sync_summary.get("inserted", 0) or 0),
+                        "new_inserted": int(sync_summary.get("new_inserted", 0) or 0),
+                        "updated_existing": int(sync_summary.get("updated_existing", 0) or 0),
+                        "candidate_new": int(sync_summary.get("candidate_new", 0) or 0),
+                        "eligible_closed": int(sync_summary.get("eligible_closed", 0) or 0),
+                        "skipped_existing": int(sync_summary.get("skipped_existing", 0) or 0),
+                        "skipped_partial": int(sync_summary.get("skipped_partial", 0) or 0),
+                        "errors": int(sync_summary.get("errors", 0) or 0),
+                        "degraded": int(sync_summary.get("degraded", 0) or 0),
+                    },
+                    "coverage": {
+                        "status_counts": coverage_summary.get("status_counts", {}),
+                        "fresh_counts_by_timeframe": coverage_summary.get("fresh_counts_by_timeframe", {}),
+                        "stale_symbol_timeframes": int(coverage_summary.get("stale_symbol_timeframes", 0) or 0),
+                        "total_rows": int(coverage_summary.get("total_rows", 0) or 0),
+                        "rows_updated_last_24h": int(coverage_summary.get("rows_updated_last_24h", 0) or 0),
+                    },
+                    "endpoint_telemetry": get_candle_fetch_telemetry(),
+                    "route_guard": {
+                        "exposure_cap_hits": dict(_route_guard_cap_hits),
+                        "cooldown_hits": dict(_route_guard_cooldown_hits),
+                        "confidence_tier_hits": dict(_route_guard_confidence_tier_hits),
+                        "cooldown_until_epoch": dict(_route_guard_cooldown_until),
+                    },
+                }
+                sync_health_payload["slo"] = _build_sync_slo(sync_summary, coverage_summary)
+                _persist_market_sync_health(sync_health_payload)
                 if sync_summary.get("enabled") and (
                     int(sync_summary.get("requests", 0) or 0) > 0
                     or int(sync_summary.get("errors", 0) or 0) > 0
@@ -614,8 +1358,17 @@ def main():
                 ):
                     logger.info(
                         "Candle incremental sync: "
+                        f"cap={adaptive_budget.get('effective_cap', 0)}/{adaptive_budget.get('base_cap', 0)} "
+                        f"pressure_rl={adaptive_budget.get('pressure', {}).get('rate_limited_count', 0)} "
+                        f"pressure_sleep_s={round(float(adaptive_budget.get('pressure', {}).get('throttle_sleep_seconds_sum', 0.0) or 0.0), 2)} "
                         f"requests={sync_summary.get('requests', 0)} "
                         f"inserted={sync_summary.get('inserted', 0)} "
+                        f"new_inserted={sync_summary.get('new_inserted', 0)} "
+                        f"updated_existing={sync_summary.get('updated_existing', 0)} "
+                        f"candidate_new={sync_summary.get('candidate_new', 0)} "
+                        f"eligible_closed={sync_summary.get('eligible_closed', 0)} "
+                        f"skipped_existing={sync_summary.get('skipped_existing', 0)} "
+                        f"skipped_partial={sync_summary.get('skipped_partial', 0)} "
                         f"errors={sync_summary.get('errors', 0)} "
                         f"degraded={sync_summary.get('degraded', 0)}"
                     )
@@ -625,13 +1378,29 @@ def main():
                     market = fetch_market_snapshot(symbol, cfg)
                     if market is None:
                         continue
+                    health = _update_symbol_health(symbol, market, cfg, now)
+                    if health.get("watchlisted") and health.get("reasons"):
+                        logger.info(
+                            f"{symbol} health watchlist | score={health.get('score')} "
+                            f"reasons={','.join(health.get('reasons', []))}"
+                        )
 
                     decision = evaluate_symbol(market, cfg)
                     action = decision.get("action")
+                    executed = False
+                    blocked_reason = None
                     if action != "HOLD":
                         if action == "BUY" and not trading_enabled:
                             logger.info(
                                 f"{symbol} -> BUY blocked (trading disabled)"
+                            )
+                            blocked_reason = "trading_disabled"
+                            _append_decision_audit(
+                                symbol=symbol,
+                                market=market,
+                                decision=decision,
+                                executed=executed,
+                                blocked_reason=blocked_reason,
                             )
                             time.sleep(0.2)
                             continue
@@ -645,6 +1414,34 @@ def main():
                                     f"{symbol} -> BUY blocked "
                                     f"(signal confirmation {streak}/{required_cycles})"
                                 )
+                                blocked_reason = "signal_confirmation"
+                                _append_decision_audit(
+                                    symbol=symbol,
+                                    market=market,
+                                    decision=decision,
+                                    executed=executed,
+                                    blocked_reason=blocked_reason,
+                                )
+                                time.sleep(0.2)
+                                continue
+                            guard_ok, guard_reason = _non_mr_route_guard(
+                                symbol=symbol,
+                                decision=decision,
+                                market=market,
+                                cfg=cfg,
+                                now_epoch=now,
+                                pressure=adaptive_budget.get("pressure", {}),
+                            )
+                            if not guard_ok:
+                                logger.info(f"{symbol} -> BUY blocked ({guard_reason})")
+                                blocked_reason = str(guard_reason or "route_guard")
+                                _append_decision_audit(
+                                    symbol=symbol,
+                                    market=market,
+                                    decision=decision,
+                                    executed=executed,
+                                    blocked_reason=blocked_reason,
+                                )
                                 time.sleep(0.2)
                                 continue
                         else:
@@ -654,12 +1451,28 @@ def main():
                             logger.info(
                                 f"{symbol} -> {action} blocked (symbol {action} toggle off)"
                             )
+                            blocked_reason = f"{action.lower()}_toggle_off"
+                            _append_decision_audit(
+                                symbol=symbol,
+                                market=market,
+                                decision=decision,
+                                executed=executed,
+                                blocked_reason=blocked_reason,
+                            )
                             time.sleep(0.2)
                             continue
                         executor.handle_decision(decision)
+                        executed = True
                     else:
                         _buy_signal_streak.pop(symbol, None)
 
+                    _append_decision_audit(
+                        symbol=symbol,
+                        market=market,
+                        decision=decision,
+                        executed=executed,
+                        blocked_reason=blocked_reason,
+                    )
                     time.sleep(0.2)
 
                 time.sleep(max(int(cfg.get("loop_sleep", 10)), 1))

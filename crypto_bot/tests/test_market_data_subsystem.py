@@ -176,6 +176,124 @@ def test_fetch_candles_falls_back_to_public_on_auth_401(monkeypatch):
     assert any((not auth) and path.startswith("/public/") for path, auth in calls)
 
 
+def test_fetch_candles_records_endpoint_telemetry(monkeypatch):
+    monkeypatch.setattr(revolut_candle_fetcher, "_WORKING_CANDLE_REQUEST", None)
+    monkeypatch.setattr(revolut_candle_fetcher, "_ENDPOINT_CAPABILITY_CACHE", {})
+    monkeypatch.setattr(
+        revolut_candle_fetcher,
+        "_CANDLE_TELEMETRY",
+        {
+            "fetch_calls": 0,
+            "success_calls": 0,
+            "failed_calls": 0,
+            "official_success_calls": 0,
+            "public_success_calls": 0,
+            "candidate_success": {},
+            "candidate_failures": {},
+        },
+    )
+
+    def fake_get(path, params=None, auth=False):
+        if auth:
+            return {
+                "data": [
+                    {"start": 1_000, "open": "1", "high": "2", "low": "0.5", "close": "1.5", "volume": "3"}
+                ]
+            }
+        raise RuntimeError("unexpected public call")
+
+    monkeypatch.setattr(revolut_candle_fetcher, "_get", fake_get)
+    rows = revolut_candle_fetcher.fetch_candles(
+        symbol="BTC-USD",
+        interval_minutes=60,
+        since_ms=1_000,
+        until_ms=60_000,
+    )
+    assert rows
+    telemetry = revolut_candle_fetcher.get_candle_fetch_telemetry()
+    assert telemetry["fetch_calls"] >= 1
+    assert telemetry["success_calls"] >= 1
+    assert telemetry["official_success_calls"] >= 1
+    assert telemetry["failed_calls"] == 0
+
+
+def test_fetch_candles_skips_blocked_capability_candidate(monkeypatch):
+    key_primary = "auth:/candles/BTC-USD:symbolless_primary"
+    key_seconds = "auth:/candles/BTC-USD:symbolless_seconds"
+    monkeypatch.setattr(
+        revolut_candle_fetcher,
+        "_ENDPOINT_CAPABILITY_CACHE",
+        {
+            key_primary: {
+                "status": "auth_unauthorized",
+                "updated_epoch": revolut_candle_fetcher.time.time(),
+                "success_count": 0,
+                "failure_count": 1,
+                "last_status_code": 401,
+            },
+            key_seconds: {
+                "status": "auth_unauthorized",
+                "updated_epoch": revolut_candle_fetcher.time.time(),
+                "success_count": 0,
+                "failure_count": 1,
+                "last_status_code": 401,
+            }
+        },
+    )
+    monkeypatch.setattr(revolut_candle_fetcher, "_WORKING_CANDLE_REQUEST", None)
+    calls: list[tuple[str, bool]] = []
+
+    def fake_get(path, params=None, auth=False):
+        calls.append((path, auth))
+        if auth and path.startswith("/market-data/candles/"):
+            return {
+                "data": [
+                    {"start": 1_000, "open": "1", "high": "2", "low": "0.5", "close": "1.5", "volume": "3"}
+                ]
+            }
+        raise RuntimeError("not found")
+
+    monkeypatch.setattr(revolut_candle_fetcher, "_get", fake_get)
+    rows = revolut_candle_fetcher.fetch_candles(
+        symbol="BTC-USD",
+        interval_minutes=60,
+        since_ms=1_000,
+        until_ms=60_000,
+    )
+    assert rows
+    assert all(path != "/candles/BTC-USD" for path, _auth in calls)
+
+
+def test_fetch_candles_does_not_reuse_symbol_bound_cached_candidate_across_symbols(monkeypatch):
+    monkeypatch.setattr(
+        revolut_candle_fetcher,
+        "_WORKING_CANDLE_REQUEST",
+        {"path": "/candles/BTC-USD", "mode": "symbolless_primary", "auth": True, "symbol": "BTC-USD"},
+    )
+    calls: list[str] = []
+
+    def fake_get(path, params=None, auth=False):
+        calls.append(path)
+        if path == "/candles/AAVE-USD":
+            return {
+                "data": [
+                    {"start": 1_000, "open": "100", "high": "101", "low": "99", "close": "100.5", "volume": "3"}
+                ]
+            }
+        raise RuntimeError("not found")
+
+    monkeypatch.setattr(revolut_candle_fetcher, "_get", fake_get)
+    rows = revolut_candle_fetcher.fetch_candles(
+        symbol="AAVE-USD",
+        interval_minutes=60,
+        since_ms=1_000,
+        until_ms=60_000,
+    )
+    assert rows
+    assert "/candles/BTC-USD" not in calls
+    assert "/candles/AAVE-USD" in calls
+
+
 def test_fetch_candles_honors_auth_scope_cooldown(monkeypatch):
     monkeypatch.setattr(
         revolut_candle_fetcher,
@@ -359,6 +477,12 @@ def test_incremental_sync_only_new_and_closed_rows(tmp_path: Path, monkeypatch):
 
     assert result["fetched"] == 2
     assert result["inserted"] == 1
+    assert result["new_inserted"] == 1
+    assert result["updated_existing"] == 0
+    assert result["candidate_new"] == 2
+    assert result["eligible_closed"] == 1
+    assert result["skipped_existing"] == 0
+    assert result["skipped_partial"] == 1
     assert result["partial_count"] == 1
     assert result["requests"] == 1
     assert len(rows) == 2

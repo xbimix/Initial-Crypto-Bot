@@ -210,3 +210,17 @@ def test_order_book_falls_back_to_public_when_auth_unauthorized(monkeypatch):
     assert calls[0][0] == "/order-book/ETH-USD"
     assert calls[1][0] == "/public/order-book/ETH-USD"
     assert calls[1][1] == {"limit": 20}
+
+
+def test_public_api_health_rollup(monkeypatch):
+    now = 1_000.0
+    monkeypatch.setattr(revolut_api.time, "time", lambda: now)
+    revolut_api._PUBLIC_RATE_LIMIT_TIMES.clear()
+    revolut_api._PUBLIC_THROTTLE_EVENTS.clear()
+    revolut_api._PUBLIC_RATE_LIMIT_TIMES.extend([930.0, 970.0, 995.0])
+    revolut_api._PUBLIC_THROTTLE_EVENTS.extend([(971.0, 0.6), (998.0, 1.4)])
+
+    health = revolut_api.get_public_api_health(window_seconds=60.0)
+    assert health["rate_limited_count"] == 2
+    assert health["throttle_event_count"] == 2
+    assert health["throttle_sleep_seconds_sum"] == pytest.approx(2.0, rel=1e-6)

@@ -152,6 +152,12 @@ def sync_new_candles(
             "timeframe": timeframe,
             "fetched": 0,
             "inserted": 0,
+            "new_inserted": 0,
+            "updated_existing": 0,
+            "candidate_new": 0,
+            "eligible_closed": 0,
+            "skipped_existing": 0,
+            "skipped_partial": 0,
             "partial_count": 0,
             "requests": 0,
             "latest_open_time": latest_open_time,
@@ -207,6 +213,7 @@ def sync_new_candles(
             partial_rows.append(row)
 
     rows_to_store = new_rows if include_partial else closed_rows
+    pre_count = int(store.get_count(symbol, timeframe) or 0)
     inserted = store.upsert(
         symbol=symbol,
         timeframe=timeframe,
@@ -214,6 +221,11 @@ def sync_new_candles(
         source=effective_source,
     )
     latest_after = store.get_latest_open_time(symbol, timeframe)
+    post_count = int(store.get_count(symbol, timeframe) or 0)
+    new_inserted = max(0, post_count - pre_count)
+    updated_existing = max(0, int(inserted) - int(new_inserted))
+    skipped_existing = max(0, int(len(fetched)) - int(len(new_rows)))
+    skipped_partial = int(len(partial_rows)) if not include_partial else 0
     store.upsert_sync_state(
         symbol=symbol,
         timeframe=timeframe,
@@ -229,6 +241,12 @@ def sync_new_candles(
         "timeframe": timeframe,
         "fetched": len(fetched),
         "inserted": inserted,
+        "new_inserted": new_inserted,
+        "updated_existing": updated_existing,
+        "candidate_new": len(new_rows),
+        "eligible_closed": len(closed_rows),
+        "skipped_existing": skipped_existing,
+        "skipped_partial": skipped_partial,
         "partial_count": len(partial_rows),
         "requests": requests,
         "latest_open_time": latest_after,

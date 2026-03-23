@@ -178,3 +178,43 @@ def test_incremental_sync_scheduler_prefers_core_timeframes_when_equally_due(mon
     )
     assert calls
     assert calls[0][1] in {"1h", "4h"}
+
+
+def test_incremental_sync_scheduler_aggregates_extended_insert_metrics(monkeypatch):
+    def fake_sync_new_candles(*, symbol, timeframe, include_partial):
+        return {
+            "requests": 1,
+            "fetched": 10,
+            "inserted": 8,
+            "new_inserted": 3,
+            "updated_existing": 5,
+            "candidate_new": 8,
+            "eligible_closed": 7,
+            "skipped_existing": 2,
+            "skipped_partial": 1,
+            "status": "ok",
+        }
+
+    monkeypatch.setattr(live_sync_scheduler, "sync_new_candles", fake_sync_new_candles)
+    cfg = {
+        "market_data": {
+            "incremental_sync_enabled": True,
+            "sync_timeframes": ["1h"],
+            "sync_cadence_seconds": {"1h": 0},
+            "max_sync_requests_per_tick": 2,
+        }
+    }
+    summary = live_sync_scheduler.run_incremental_sync_tick(
+        cfg=cfg,
+        symbols=["BTC-USD", "ETH-USD"],
+        now_epoch=77_000.0,
+    )
+
+    assert summary["requests"] == 2
+    assert summary["inserted"] == 16
+    assert summary["new_inserted"] == 6
+    assert summary["updated_existing"] == 10
+    assert summary["candidate_new"] == 16
+    assert summary["eligible_closed"] == 14
+    assert summary["skipped_existing"] == 4
+    assert summary["skipped_partial"] == 2

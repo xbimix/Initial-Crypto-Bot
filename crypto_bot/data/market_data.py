@@ -36,6 +36,7 @@ DEFAULT_REGIME_STALE_AFTER_SECONDS = {"1h": 7200, "4h": 28800, "1d": 172800}
 
 _PRICE_HISTORY = defaultdict(deque)
 _LAST_CANDLE_SYNC_AT: dict[str, float] = {}
+_INDICATOR_CACHE: dict[str, dict] = {}
 
 
 def _core_readiness_payload(symbol: str, market_data_cfg: dict) -> dict:
@@ -150,6 +151,79 @@ def _ema(values, period):
         ema_val = price * k + ema_val * (1 - k)
 
     return ema_val
+
+
+def _indicator_cache_key(symbol: str, timeframe: str) -> str:
+    return f"{str(symbol).strip().upper()}:{str(timeframe).strip().lower()}"
+
+
+def _build_indicator_features(
+    prices: list[float],
+    weights: list[float],
+    *,
+    atr_floor: float,
+) -> dict:
+    deltas = [
+        abs(prices[i] - prices[i - 1]) / prices[i - 1]
+        for i in range(1, len(prices))
+        if prices[i - 1] > 0
+    ]
+    atr_raw = statistics.median(deltas) if deltas else 0.0
+    atr = max(atr_raw, atr_floor)
+    vwap = _weighted_average(prices, weights)
+    median_price = statistics.median(prices)
+    rsi = calculate_rsi(prices, period=14)
+    ema_50 = _ema(prices[-100:], 50)
+    ema_200 = _ema(prices[-250:], 200)
+    ema_50_prev = _ema(prices[-101:-1], 50) if len(prices) > 101 else None
+    ema_50_slope = None
+    if ema_50 is not None and ema_50_prev is not None:
+        ema_50_slope = ema_50 - ema_50_prev
+    return {
+        "first_price": prices[0],
+        "atr_raw": atr_raw,
+        "atr": atr,
+        "vwap": vwap,
+        "median_price": median_price,
+        "rsi": rsi,
+        "ema_50": ema_50,
+        "ema_200": ema_200,
+        "ema_50_slope": ema_50_slope,
+        "high_24h": max(prices),
+        "low_24h": min(prices),
+        "history_points": len(prices),
+        "recent_prices": prices[-60:],
+    }
+
+
+def _resolve_indicator_features(
+    *,
+    symbol: str,
+    timeframe: str,
+    history_source: str,
+    candle_meta: dict,
+    prices: list[float],
+    weights: list[float],
+    atr_floor: float,
+) -> dict:
+    cache_key = _indicator_cache_key(symbol, timeframe)
+    latest_open = None
+    if isinstance(candle_meta, dict):
+        latest_open = candle_meta.get("latest_open_time")
+    if history_source != "sqlite_candles" or latest_open is None:
+        return _build_indicator_features(prices, weights, atr_floor=atr_floor)
+
+    cached = _INDICATOR_CACHE.get(cache_key)
+    if isinstance(cached, dict):
+        if int(cached.get("latest_open_time", -1)) == int(latest_open):
+            return dict(cached.get("features", {}))
+
+    features = _build_indicator_features(prices, weights, atr_floor=atr_floor)
+    _INDICATOR_CACHE[cache_key] = {
+        "latest_open_time": int(latest_open),
+        "features": dict(features),
+    }
+    return features
 
 
 def _parse_size(trade: dict) -> float:
@@ -526,37 +600,32 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
                 if trade_gap_pct > max_book_trade_gap_pct:
                     quality_reasons.append("order_book_tape_mismatch")
 
-        deltas = [
-            abs(prices[i] - prices[i - 1]) / prices[i - 1]
-            for i in range(1, len(prices))
-            if prices[i - 1] > 0
-        ]
+        features = _resolve_indicator_features(
+            symbol=symbol,
+            timeframe=candle_timeframe,
+            history_source=history_source,
+            candle_meta=candle_meta,
+            prices=prices,
+            weights=weights,
+            atr_floor=atr_floor,
+        )
 
-        atr_raw = statistics.median(deltas) if deltas else 0.0
-        atr = max(atr_raw, atr_floor)
-
-        vwap = _weighted_average(prices, weights)
-        median_price = statistics.median(prices)
+        first_price = float(features.get("first_price", prices[0]))
+        atr_raw = float(features.get("atr_raw", 0.0))
+        atr = float(features.get("atr", atr_floor))
+        vwap = float(features.get("vwap", last_price))
+        median_price = float(features.get("median_price", prices[-1]))
+        rsi = features.get("rsi")
+        ema_50 = features.get("ema_50")
+        ema_200 = features.get("ema_200")
+        ema_50_slope = features.get("ema_50_slope")
+        high_24h = float(features.get("high_24h", max(prices)))
+        low_24h = float(features.get("low_24h", min(prices)))
+        recent_prices = list(features.get("recent_prices", prices[-60:]))
+        history_points = int(features.get("history_points", len(prices)))
 
         raw_momentum = (last_price - first_price) / (first_price + EPSILON)
         norm_momentum = raw_momentum / (atr + EPSILON)
-        rsi = calculate_rsi(prices, period=14)
-
-        ema_50 = _ema(prices[-100:], 50)
-        ema_200 = _ema(prices[-250:], 200)
-
-        ema_50_prev = (
-            _ema(prices[-101:-1], 50)
-            if len(prices) > 101
-            else None
-        )
-
-        ema_50_slope = None
-        if ema_50 is not None and ema_50_prev is not None:
-            ema_50_slope = ema_50 - ema_50_prev
-
-        high_24h = max(prices)
-        low_24h = min(prices)
         data_quality_ok = not quality_reasons
         data_quality_reason = ",".join(quality_reasons) if quality_reasons else "ok"
         data_quality_status = "GOOD"
@@ -595,9 +664,9 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             "median_price": median_price,
             "high_24h": high_24h,
             "low_24h": low_24h,
-            "trade_count": len(prices) if data_quality_ok else 0,
-            "history_points": len(prices),
-            "recent_prices": prices[-60:],
+            "trade_count": history_points if data_quality_ok else 0,
+            "history_points": history_points,
+            "recent_prices": recent_prices,
             "snapshot_ts_epoch": float(book["timestamp"]),
             "sampling_minutes": 1.0 if history_source == "sqlite_candles" else max(
                 1.0,

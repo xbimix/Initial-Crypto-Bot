@@ -1,20 +1,35 @@
 import time
 from pathlib import Path
 
-from strategy.breakout_momentum import evaluate_breakout_momentum_entry
 from strategy.diagnostics import (
     compute_buy_diagnostics as _compute_buy_diagnostics_impl,
     compute_scalper_diagnostics as _compute_scalper_diagnostics_impl,
     record_symbol_metrics as _record_symbol_metrics_impl,
 )
+from strategy.exits.breakout_exit import evaluate_breakout_exit
+from strategy.exits.mr_exit import evaluate_mr_exit
+from strategy.exits.trend_exit import evaluate_trend_exit
 from strategy.route_quality import load_route_quality_report_cached
 from strategy.regime_engine import normalize_shadow_state, update_regime_shadow_state
 from strategy.regime_engine_v2 import evaluate_regime_unified
 from strategy.regime_router import resolve_entry_route
 from strategy.regime import detect_regime
+from strategy.routes.breakout_momentum import evaluate_breakout_momentum_route_entry
+from strategy.routes.mean_reversion import evaluate_mean_reversion_entry
+from strategy.routes.trend_pullback import evaluate_trend_pullback_route_entry
+from strategy.route_scoring.breakout_score import compute_breakout_score_bundle
+from strategy.route_scoring.mr_score import compute_mr_score_bundle
+from strategy.route_scoring.trend_score import compute_trend_score_bundle
+from strategy.route_metadata import (
+    cleanup_symbol as _cleanup_route_metadata_symbol,
+    inject_payload as _inject_route_metadata_payload,
+    record_route_metadata as _record_route_metadata_impl,
+    state_map as _route_metadata_state_map,
+)
 from strategy.routing import (
     advisory_has_required_fields as _advisory_has_required_fields_impl,
     configured_regime_for_symbol as _configured_regime_for_symbol_impl,
+    router_cfg as _router_cfg_impl,
     resolve_scalper_config as _resolve_scalper_config_impl,
     router_flag as _router_flag_impl,
     strategy_for_symbol as _strategy_for_symbol_impl,
@@ -29,7 +44,6 @@ from strategy.state_io import (
     save_strategy_state as _save_strategy_state_impl,
     sync_with_broker_state as _sync_with_broker_state_impl,
 )
-from strategy.trend_pullback import evaluate_trend_pullback_entry
 from utils.logger import setup_logger
 from utils.state_io import read_json_file, write_json_file
 from utils.token_regimes import (
@@ -70,15 +84,67 @@ _last_route_eval_ts = {}
 _last_regime_eval_ts = {}
 _last_auto_fallback_reason = {}
 _last_fallback_reason = {}
+_last_ready_for_non_mr_route = {}
+_last_non_mr_ready_reason = {}
+_last_route_readiness_state = {}
+_last_route_timestamp_age_seconds = {}
+_last_route_timestamp_fresh = {}
+_last_shadow_continuity_state = {}
+_last_shadow_age_seconds = {}
+_last_failed_gates = {}
+_entry_route = {}
+_entry_regime = {}
+_exit_policy = {}
+_entry_confidence = {}
+_entry_timestamp = {}
+_entry_route_eval_ts = {}
+_entry_regime_eval_ts = {}
+_pending_entry_contract = {}
 _shadow_regime_state = {}
 _synced = False
 _last_paper_state_mtime = None
 _metrics_dirty = False
 _last_metrics_flush_at = 0.0
 
+EXIT_POLICY_MR = "mr_exit"
+EXIT_POLICY_TREND = "trend_exit"
+EXIT_POLICY_BREAKOUT = "breakout_exit"
+EXIT_POLICY_SCALPER = "scalper_exit"
+
+_route_metadata_maps = {
+    "last_configured_regime": _last_configured_regime,
+    "last_detected_regime": _last_detected_regime,
+    "last_detected_regime_confidence": _last_detected_regime_confidence,
+    "last_detected_regime_confidence_label": _last_detected_regime_confidence_label,
+    "last_detected_regime_stability": _last_detected_regime_stability,
+    "last_detected_regime_persistence": _last_detected_regime_persistence,
+    "last_detected_regime_stability_inferred": _last_detected_regime_stability_inferred,
+    "last_detected_regime_persistence_inferred": _last_detected_regime_persistence_inferred,
+    "last_regime_data_quality_status": _last_regime_data_quality_status,
+    "last_regime_key_windows_supported": _last_regime_key_windows_supported,
+    "last_suggested_regime_v2": _last_suggested_regime_v2,
+    "last_detection_source": _last_detection_source,
+    "last_detection_timestamp_epoch": _last_detection_timestamp_epoch,
+    "last_effective_strategy": _last_effective_strategy,
+    "last_effective_route": _last_effective_route,
+    "last_route_eval_ts": _last_route_eval_ts,
+    "last_regime_eval_ts": _last_regime_eval_ts,
+    "last_auto_fallback_reason": _last_auto_fallback_reason,
+    "last_fallback_reason": _last_fallback_reason,
+    "last_ready_for_non_mr_route": _last_ready_for_non_mr_route,
+    "last_non_mr_ready_reason": _last_non_mr_ready_reason,
+    "last_route_readiness_state": _last_route_readiness_state,
+    "last_route_timestamp_age_seconds": _last_route_timestamp_age_seconds,
+    "last_route_timestamp_fresh": _last_route_timestamp_fresh,
+    "last_shadow_continuity_state": _last_shadow_continuity_state,
+    "last_shadow_age_seconds": _last_shadow_age_seconds,
+    "last_failed_gates": _last_failed_gates,
+}
+
 METRICS_FLUSH_INTERVAL_SECONDS = 5.0
 SCORE_EPSILON = 0.01
 VOLATILITY_EPSILON = 1e-6
+DEFAULT_AUTO_MAX_ROUTE_AGE_SECONDS = 15 * 60
 
 STATE_DIR = Path(__file__).resolve().parent.parent / "state"
 STRATEGY_STATE_FILE = STATE_DIR / "strategy_state.json"
@@ -104,26 +170,15 @@ def _sync_with_broker_state():
             _last_regime,
             _last_score,
             _last_volatility,
-            _last_configured_regime,
-            _last_detected_regime,
-            _last_detected_regime_confidence,
-            _last_detected_regime_confidence_label,
-            _last_detected_regime_stability,
-            _last_detected_regime_persistence,
-            _last_detected_regime_stability_inferred,
-            _last_detected_regime_persistence_inferred,
-            _last_regime_data_quality_status,
-            _last_regime_key_windows_supported,
-            _last_suggested_regime_v2,
-            _last_detection_source,
-            _last_detection_timestamp_epoch,
-            _last_effective_strategy,
-            _last_effective_route,
-            _last_route_eval_ts,
-            _last_regime_eval_ts,
-            _last_auto_fallback_reason,
-            _last_fallback_reason,
+            *_route_metadata_maps.values(),
         ),
+        entry_route_state=_entry_route,
+        entry_regime_state=_entry_regime,
+        exit_policy_state=_exit_policy,
+        entry_confidence_state=_entry_confidence,
+        entry_timestamp_state=_entry_timestamp,
+        entry_route_eval_ts_state=_entry_route_eval_ts,
+        entry_regime_eval_ts_state=_entry_regime_eval_ts,
         save_strategy_state=_save_strategy_state,
         logger=logger,
     )
@@ -164,8 +219,99 @@ def _configured_regime_for_symbol(cfg: dict, symbol: str) -> str:
     return _configured_regime_for_symbol_impl(cfg, symbol)
 
 
+def _router_max_route_age_seconds(cfg: dict) -> float:
+    router = _router_cfg_impl(cfg)
+    raw = router.get("auto_max_route_age_seconds")
+    value = _parse_numeric(raw, fallback=DEFAULT_AUTO_MAX_ROUTE_AGE_SECONDS)
+    if value is None or value <= 0:
+        return float(DEFAULT_AUTO_MAX_ROUTE_AGE_SECONDS)
+    return max(float(value), 60.0)
+
+
 def _advisory_has_required_fields(advisory: dict) -> bool:
     return _advisory_has_required_fields_impl(advisory)
+
+
+def _normalize_strategy(value, fallback: str = "mean_reversion") -> str:
+    raw = str(value or "").strip().lower()
+    if raw in {"mean_reversion", "trend_pullback", "breakout_momentum", "observe_only", "volatility_scalper"}:
+        return raw
+    return fallback
+
+
+def _safe_confidence_value(value):
+    parsed = _parse_numeric(value, fallback=None)
+    if parsed is None:
+        return None
+    if 0 <= parsed <= 1.0:
+        parsed *= 100.0
+    return max(0.0, min(parsed, 100.0))
+
+
+def _exit_policy_for_route(route: str) -> str:
+    normalized = _normalize_strategy(route, fallback="mean_reversion")
+    if normalized == "trend_pullback":
+        return EXIT_POLICY_TREND
+    if normalized == "breakout_momentum":
+        return EXIT_POLICY_BREAKOUT
+    if normalized == "volatility_scalper":
+        return EXIT_POLICY_SCALPER
+    return EXIT_POLICY_MR
+
+
+def _active_route_for_position(symbol: str, fallback_route: str) -> str:
+    stored = _normalize_strategy(_entry_route.get(symbol), fallback="")
+    if stored:
+        return stored
+    return _normalize_strategy(fallback_route, fallback="mean_reversion")
+
+
+def _active_exit_policy_for_position(symbol: str, active_route: str) -> str:
+    existing = str(_exit_policy.get(symbol) or "").strip().lower()
+    if existing in {EXIT_POLICY_MR, EXIT_POLICY_TREND, EXIT_POLICY_BREAKOUT, EXIT_POLICY_SCALPER}:
+        return existing
+    return _exit_policy_for_route(active_route)
+
+
+def stage_entry_contract(symbol: str, contract: dict | None):
+    if not isinstance(contract, dict):
+        _pending_entry_contract.pop(symbol, None)
+        return
+    _pending_entry_contract[symbol] = {
+        "entry_route": contract.get("entry_route"),
+        "entry_regime": contract.get("entry_regime"),
+        "exit_policy": contract.get("exit_policy"),
+        "entry_confidence": contract.get("entry_confidence"),
+        "entry_timestamp": contract.get("entry_timestamp"),
+        "route_eval_ts": contract.get("route_eval_ts"),
+        "regime_eval_ts": contract.get("regime_eval_ts"),
+    }
+
+
+def clear_entry_contract(symbol: str):
+    _pending_entry_contract.pop(symbol, None)
+
+
+def _attach_entry_contract_candidate(
+    *,
+    decision: dict,
+    active_strategy: str,
+    route: dict,
+) -> dict:
+    if not isinstance(decision, dict) or decision.get("action") != "BUY":
+        return decision
+    now_epoch = time.time()
+    decision.setdefault("entry_route", _normalize_strategy(active_strategy, fallback="mean_reversion"))
+    decision.setdefault(
+        "entry_regime",
+        str(route.get("suggested_regime_v2") or route.get("detected_regime") or "MIXED_OR_UNCLEAR"),
+    )
+    decision.setdefault("exit_policy", _exit_policy_for_route(decision.get("entry_route")))
+    decision.setdefault("entry_confidence", _safe_confidence_value(route.get("detected_regime_confidence")))
+    decision.setdefault("entry_timestamp", now_epoch)
+    decision.setdefault("entry_route_eval_ts", _parse_numeric(route.get("route_eval_ts"), fallback=now_epoch) or now_epoch)
+    decision.setdefault("entry_regime_eval_ts", _parse_numeric(route.get("regime_eval_ts"), fallback=now_epoch) or now_epoch)
+    return decision
 
 
 # ============================================================
@@ -173,6 +319,7 @@ def _advisory_has_required_fields(advisory: dict) -> bool:
 # ============================================================
 
 def generate_decision(snapshot: dict, cfg: dict) -> dict:
+    global _metrics_dirty
 
     symbol = snapshot["symbol"]
     price = snapshot["price"]
@@ -233,7 +380,19 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             else:
                 route_snapshot["regime_eval_ts"] = route_eval_ts
 
-        if _router_flag(cfg, "auto_use_current_cycle_shadow", False):
+        force_shadow_refresh = _router_flag(cfg, "auto_use_current_cycle_shadow", False)
+        if not force_shadow_refresh:
+            symbol_key = str(symbol or "").strip().upper()
+            shadow_row = _shadow_regime_state.get(symbol_key, {})
+            last_update_ts = _parse_numeric(
+                shadow_row.get("last_update_ts") if isinstance(shadow_row, dict) else None,
+                fallback=0.0,
+            ) or 0.0
+            max_route_age_seconds = _router_max_route_age_seconds(cfg)
+            if last_update_ts <= 0 or (route_eval_ts - last_update_ts) > max_route_age_seconds:
+                force_shadow_refresh = True
+
+        if force_shadow_refresh:
             pre_route_candidate_regime = detect_regime(snapshot, regime_cfg)
             _record_shadow_regime_metrics(
                 symbol=symbol,
@@ -262,8 +421,27 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         default_strategy=strategy_mode,
         shadow_state=_shadow_regime_state,
     )
-    effective_strategy = entry_route.get("effective_strategy", strategy_mode)
+    route_strategy = _normalize_strategy(
+        entry_route.get("effective_strategy", strategy_mode),
+        fallback=_normalize_strategy(strategy_mode, fallback="mean_reversion"),
+    )
+    effective_strategy = route_strategy
     _record_route_metadata(symbol, entry_route)
+    in_position = entry is not None
+    active_exit_policy = _exit_policy_for_route(effective_strategy)
+    if in_position:
+        # Open positions keep their entry route + exit policy; do not remap each cycle.
+        effective_strategy = _active_route_for_position(symbol, "mean_reversion")
+        active_exit_policy = _active_exit_policy_for_position(symbol, effective_strategy)
+        if _last_effective_strategy.get(symbol) != effective_strategy:
+            _last_effective_strategy[symbol] = effective_strategy
+            _metrics_dirty = True
+        if _last_effective_route.get(symbol) != effective_strategy:
+            _last_effective_route[symbol] = effective_strategy
+            _metrics_dirty = True
+        if _last_fallback_reason.get(symbol) != "open_position_exit_policy_locked":
+            _last_fallback_reason[symbol] = "open_position_exit_policy_locked"
+            _metrics_dirty = True
     min_atr = volatility_cfg.get(
         "min_atr",
         regime_cfg.get("min_atr", cfg.get("min_atr", 0.003)),
@@ -285,6 +463,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             regime_cfg.get("blocked_regimes", ["unknown"]),
         )
     )
+    route_blocked_regimes = blocked_regimes if effective_strategy == "mean_reversion" else set()
 
     if effective_strategy == "volatility_scalper":
         regime, score, range_pos, volatility = _compute_scalper_diagnostics(
@@ -298,8 +477,26 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             regime_cfg=regime_cfg,
             scalper_cfg=scalper_cfg,
         )
+    elif effective_strategy == "trend_pullback":
+        regime, score, range_pos, volatility = compute_trend_score_bundle(
+            snapshot=snapshot,
+            price=price,
+            momentum=momentum,
+            high_24h=high_24h,
+            low_24h=low_24h,
+            atr=atr,
+        )
+    elif effective_strategy == "breakout_momentum":
+        regime, score, range_pos, volatility = compute_breakout_score_bundle(
+            snapshot=snapshot,
+            price=price,
+            momentum=momentum,
+            high_24h=high_24h,
+            low_24h=low_24h,
+            atr=atr,
+        )
     else:
-        regime, score, range_pos, volatility = _compute_buy_diagnostics(
+        regime, score, range_pos, volatility = compute_mr_score_bundle(
             snapshot=snapshot,
             price=price,
             momentum=momentum,
@@ -308,6 +505,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             atr=atr,
             z_score=z_score,
             regime_cfg=regime_cfg,
+            parse_numeric=_parse_numeric,
         )
     _record_symbol_metrics(symbol, regime, score, volatility)
     if not shadow_updated_pre_route or regime != pre_route_candidate_regime:
@@ -319,7 +517,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         )
     _flush_metrics_state_if_due()
 
-    if effective_strategy == "volatility_scalper":
+    if active_exit_policy == EXIT_POLICY_SCALPER:
         sell_signal = _evaluate_scalper_sell(
             symbol=symbol,
             price=price,
@@ -330,8 +528,8 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             z_score=z_score,
             scalper_cfg=scalper_cfg,
         )
-    else:
-        sell_signal = _evaluate_sell(
+    elif active_exit_policy == EXIT_POLICY_TREND:
+        sell_signal = evaluate_trend_exit(
             symbol=symbol,
             price=price,
             momentum=momentum,
@@ -352,6 +550,70 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             trailing_gap=profit_cfg.get("trailing_gap", 0.02),
             reset_below_activation=profit_cfg.get("reset_below_activation", True),
             max_negative_z_score=max_negative_z_score,
+            profit_lock_state=_profit_lock,
+            peak_pnl_state=_peak_pnl,
+            entry_price_state=_entry_price,
+            save_strategy_state=_save_strategy_state,
+            decision=_decision,
+            logger=logger,
+        )
+    elif active_exit_policy == EXIT_POLICY_BREAKOUT:
+        sell_signal = evaluate_breakout_exit(
+            symbol=symbol,
+            price=price,
+            momentum=momentum,
+            entry=entry,
+            z_score=z_score,
+            first_activation=profit_cfg.get("first_activation", 0.02),
+            initial_lock=profit_cfg.get("initial_lock", 0.01),
+            profit_levels=profit_cfg.get(
+                "levels",
+                [
+                    [0.04, 0.03],
+                    [0.05, 0.04],
+                    [0.06, 0.05],
+                    [0.08, 0.06],
+                ],
+            ),
+            trailing_activation=profit_cfg.get("trailing_activation", 0.10),
+            trailing_gap=profit_cfg.get("trailing_gap", 0.02),
+            reset_below_activation=profit_cfg.get("reset_below_activation", True),
+            max_negative_z_score=max_negative_z_score,
+            profit_lock_state=_profit_lock,
+            peak_pnl_state=_peak_pnl,
+            entry_price_state=_entry_price,
+            save_strategy_state=_save_strategy_state,
+            decision=_decision,
+            logger=logger,
+        )
+    else:
+        sell_signal = evaluate_mr_exit(
+            symbol=symbol,
+            price=price,
+            momentum=momentum,
+            entry=entry,
+            z_score=z_score,
+            first_activation=profit_cfg.get("first_activation", 0.02),
+            initial_lock=profit_cfg.get("initial_lock", 0.01),
+            profit_levels=profit_cfg.get(
+                "levels",
+                [
+                    [0.04, 0.03],
+                    [0.05, 0.04],
+                    [0.06, 0.05],
+                    [0.08, 0.06],
+                ],
+            ),
+            trailing_activation=profit_cfg.get("trailing_activation", 0.10),
+            trailing_gap=profit_cfg.get("trailing_gap", 0.02),
+            reset_below_activation=profit_cfg.get("reset_below_activation", True),
+            max_negative_z_score=max_negative_z_score,
+            profit_lock_state=_profit_lock,
+            peak_pnl_state=_peak_pnl,
+            entry_price_state=_entry_price,
+            save_strategy_state=_save_strategy_state,
+            decision=_decision,
+            logger=logger,
         )
 
     # SELL is always allowed to fire while in a position.
@@ -362,7 +624,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         return _decision(symbol, "HOLD", price, momentum, "observe_only_mode")
 
     if effective_strategy == "volatility_scalper":
-        return _evaluate_scalper_buy(
+        decision = _evaluate_scalper_buy(
             snapshot=snapshot,
             symbol=symbol,
             price=price,
@@ -378,9 +640,14 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             min_trades=min_trades,
             scalper_cfg=scalper_cfg,
         )
+        return _attach_entry_contract_candidate(
+            decision=decision,
+            active_strategy=effective_strategy,
+            route=entry_route,
+        )
 
     if effective_strategy == "trend_pullback":
-        return _evaluate_trend_pullback_buy(
+        decision = _evaluate_trend_pullback_buy(
             snapshot=snapshot,
             symbol=symbol,
             price=price,
@@ -395,15 +662,20 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             min_trades=min_trades,
             min_atr=effective_min_atr,
             min_score_to_buy=min_score_to_buy,
-            blocked_regimes=blocked_regimes,
+            blocked_regimes=route_blocked_regimes,
             regime=regime,
             score=score,
             range_pos=range_pos,
             cfg=cfg,
+        )
+        return _attach_entry_contract_candidate(
+            decision=decision,
+            active_strategy=effective_strategy,
+            route=entry_route,
         )
 
     if effective_strategy == "breakout_momentum":
-        return _evaluate_breakout_momentum_buy(
+        decision = _evaluate_breakout_momentum_buy(
             snapshot=snapshot,
             symbol=symbol,
             price=price,
@@ -418,14 +690,19 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             min_trades=min_trades,
             min_atr=effective_min_atr,
             min_score_to_buy=min_score_to_buy,
-            blocked_regimes=blocked_regimes,
+            blocked_regimes=route_blocked_regimes,
             regime=regime,
             score=score,
             range_pos=range_pos,
             cfg=cfg,
         )
+        return _attach_entry_contract_candidate(
+            decision=decision,
+            active_strategy=effective_strategy,
+            route=entry_route,
+        )
 
-    return _evaluate_buy(
+    decision = _evaluate_buy(
         snapshot=snapshot,
         symbol=symbol,
         price=price,
@@ -443,218 +720,26 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
         buy_zone_high=buy_zone_high,
         min_z_score=min_z_score,
         min_score_to_buy=min_score_to_buy,
-        blocked_regimes=blocked_regimes,
+        blocked_regimes=route_blocked_regimes,
         regime=regime,
         score=score,
         range_pos=range_pos,
+    )
+    return _attach_entry_contract_candidate(
+        decision=decision,
+        active_strategy=effective_strategy,
+        route=entry_route,
     )
 
 
 def _record_route_metadata(symbol: str, route: dict):
     global _metrics_dirty
-
-    configured = route.get("configured_regime")
-    detected = route.get("detected_regime")
-    detected_confidence = _parse_numeric(
-        route.get("detected_regime_confidence"),
-        fallback=None,
-    )
-    detected_confidence_label = route.get("detected_regime_confidence_label")
-    detected_stability = _parse_numeric(route.get("detected_regime_stability"), fallback=None)
-    detected_persistence = _parse_numeric(route.get("detected_regime_persistence"), fallback=None)
-    detected_stability_inferred = route.get("detected_regime_stability_inferred")
-    detected_persistence_inferred = route.get("detected_regime_persistence_inferred")
-    regime_data_quality_status = route.get("regime_data_quality_status")
-    regime_key_windows_supported = route.get("regime_key_windows_supported")
-    suggested_regime_v2 = route.get("suggested_regime_v2")
-    detection_source = route.get("detection_source")
-    detection_timestamp_epoch = _parse_numeric(
-        route.get("detection_timestamp_epoch"),
-        fallback=None,
-    )
-    effective = route.get("effective_strategy")
-    effective_route = route.get("effective_route")
-    route_eval_ts = _parse_numeric(route.get("route_eval_ts"), fallback=None)
-    regime_eval_ts = _parse_numeric(route.get("regime_eval_ts"), fallback=None)
-    fallback_reason = route.get("auto_fallback_reason")
-    fallback_reason_v2 = route.get("fallback_reason")
-    changed = False
-
-    if isinstance(configured, str) and configured:
-        if _last_configured_regime.get(symbol) != configured:
-            _last_configured_regime[symbol] = configured
-            changed = True
-    if isinstance(detected, str) and detected:
-        if _last_detected_regime.get(symbol) != detected:
-            _last_detected_regime[symbol] = detected
-            changed = True
-    else:
-        if symbol in _last_detected_regime:
-            _last_detected_regime.pop(symbol, None)
-            changed = True
-
-    if detected_confidence is None:
-        if symbol in _last_detected_regime_confidence:
-            _last_detected_regime_confidence.pop(symbol, None)
-            changed = True
-    else:
-        if _last_detected_regime_confidence.get(symbol) != detected_confidence:
-            _last_detected_regime_confidence[symbol] = detected_confidence
-            changed = True
-
-    if isinstance(detected_confidence_label, str) and detected_confidence_label:
-        if _last_detected_regime_confidence_label.get(symbol) != detected_confidence_label:
-            _last_detected_regime_confidence_label[symbol] = detected_confidence_label
-            changed = True
-    else:
-        if symbol in _last_detected_regime_confidence_label:
-            _last_detected_regime_confidence_label.pop(symbol, None)
-            changed = True
-
-    if detected_stability is None:
-        if symbol in _last_detected_regime_stability:
-            _last_detected_regime_stability.pop(symbol, None)
-            changed = True
-    else:
-        if _last_detected_regime_stability.get(symbol) != detected_stability:
-            _last_detected_regime_stability[symbol] = detected_stability
-            changed = True
-
-    if detected_persistence is None:
-        if symbol in _last_detected_regime_persistence:
-            _last_detected_regime_persistence.pop(symbol, None)
-            changed = True
-    else:
-        if _last_detected_regime_persistence.get(symbol) != detected_persistence:
-            _last_detected_regime_persistence[symbol] = detected_persistence
-            changed = True
-
-    if isinstance(detected_stability_inferred, bool):
-        if _last_detected_regime_stability_inferred.get(symbol) != detected_stability_inferred:
-            _last_detected_regime_stability_inferred[symbol] = detected_stability_inferred
-            changed = True
-    else:
-        if symbol in _last_detected_regime_stability_inferred:
-            _last_detected_regime_stability_inferred.pop(symbol, None)
-            changed = True
-
-    if isinstance(detected_persistence_inferred, bool):
-        if _last_detected_regime_persistence_inferred.get(symbol) != detected_persistence_inferred:
-            _last_detected_regime_persistence_inferred[symbol] = detected_persistence_inferred
-            changed = True
-    else:
-        if symbol in _last_detected_regime_persistence_inferred:
-            _last_detected_regime_persistence_inferred.pop(symbol, None)
-            changed = True
-
-    if isinstance(regime_data_quality_status, str) and regime_data_quality_status:
-        if _last_regime_data_quality_status.get(symbol) != regime_data_quality_status:
-            _last_regime_data_quality_status[symbol] = regime_data_quality_status
-            changed = True
-    else:
-        if symbol in _last_regime_data_quality_status:
-            _last_regime_data_quality_status.pop(symbol, None)
-            changed = True
-
-    if isinstance(regime_key_windows_supported, bool):
-        if _last_regime_key_windows_supported.get(symbol) != regime_key_windows_supported:
-            _last_regime_key_windows_supported[symbol] = regime_key_windows_supported
-            changed = True
-    else:
-        if symbol in _last_regime_key_windows_supported:
-            _last_regime_key_windows_supported.pop(symbol, None)
-            changed = True
-
-    if isinstance(suggested_regime_v2, str) and suggested_regime_v2:
-        if _last_suggested_regime_v2.get(symbol) != suggested_regime_v2:
-            _last_suggested_regime_v2[symbol] = suggested_regime_v2
-            changed = True
-    else:
-        if symbol in _last_suggested_regime_v2:
-            _last_suggested_regime_v2.pop(symbol, None)
-            changed = True
-
-    if isinstance(detection_source, str) and detection_source:
-        if _last_detection_source.get(symbol) != detection_source:
-            _last_detection_source[symbol] = detection_source
-            changed = True
-    else:
-        if symbol in _last_detection_source:
-            _last_detection_source.pop(symbol, None)
-            changed = True
-
-    if detection_timestamp_epoch is None:
-        if symbol in _last_detection_timestamp_epoch:
-            _last_detection_timestamp_epoch.pop(symbol, None)
-            changed = True
-    else:
-        if _last_detection_timestamp_epoch.get(symbol) != detection_timestamp_epoch:
-            _last_detection_timestamp_epoch[symbol] = detection_timestamp_epoch
-            changed = True
-
-    if isinstance(effective, str) and effective:
-        if _last_effective_strategy.get(symbol) != effective:
-            _last_effective_strategy[symbol] = effective
-            changed = True
-    else:
-        if symbol in _last_effective_strategy:
-            _last_effective_strategy.pop(symbol, None)
-            changed = True
-
-    if isinstance(effective_route, str) and effective_route:
-        if _last_effective_route.get(symbol) != effective_route:
-            _last_effective_route[symbol] = effective_route
-            changed = True
-    elif isinstance(effective, str) and effective:
-        if _last_effective_route.get(symbol) != effective:
-            _last_effective_route[symbol] = effective
-            changed = True
-    else:
-        if symbol in _last_effective_route:
-            _last_effective_route.pop(symbol, None)
-            changed = True
-
-    if route_eval_ts is None:
-        if symbol in _last_route_eval_ts:
-            _last_route_eval_ts.pop(symbol, None)
-            changed = True
-    else:
-        if _last_route_eval_ts.get(symbol) != route_eval_ts:
-            _last_route_eval_ts[symbol] = route_eval_ts
-            changed = True
-
-    if regime_eval_ts is None:
-        if symbol in _last_regime_eval_ts:
-            _last_regime_eval_ts.pop(symbol, None)
-            changed = True
-    else:
-        if _last_regime_eval_ts.get(symbol) != regime_eval_ts:
-            _last_regime_eval_ts[symbol] = regime_eval_ts
-            changed = True
-
-    if isinstance(fallback_reason, str) and fallback_reason:
-        if _last_auto_fallback_reason.get(symbol) != fallback_reason:
-            _last_auto_fallback_reason[symbol] = fallback_reason
-            changed = True
-    else:
-        if symbol in _last_auto_fallback_reason:
-            _last_auto_fallback_reason.pop(symbol, None)
-            changed = True
-
-    if isinstance(fallback_reason_v2, str) and fallback_reason_v2:
-        if _last_fallback_reason.get(symbol) != fallback_reason_v2:
-            _last_fallback_reason[symbol] = fallback_reason_v2
-            changed = True
-    elif isinstance(fallback_reason, str) and fallback_reason:
-        if _last_fallback_reason.get(symbol) != fallback_reason:
-            _last_fallback_reason[symbol] = fallback_reason
-            changed = True
-    else:
-        if symbol in _last_fallback_reason:
-            _last_fallback_reason.pop(symbol, None)
-            changed = True
-
-    if changed:
+    if _record_route_metadata_impl(
+        symbol=symbol,
+        route=route,
+        route_maps=_route_metadata_maps,
+        parse_numeric=_parse_numeric,
+    ):
         _metrics_dirty = True
 
 
@@ -679,7 +764,7 @@ def _evaluate_trend_pullback_buy(
     range_pos,
     cfg,
 ):
-    action, reason = evaluate_trend_pullback_entry(
+    action, reason = evaluate_trend_pullback_route_entry(
         snapshot=snapshot,
         price=price,
         momentum=momentum,
@@ -725,7 +810,7 @@ def _evaluate_breakout_momentum_buy(
     range_pos,
     cfg,
 ):
-    action, reason = evaluate_breakout_momentum_entry(
+    action, reason = evaluate_breakout_momentum_route_entry(
         snapshot=snapshot,
         price=price,
         momentum=momentum,
@@ -915,54 +1000,31 @@ def _evaluate_buy(
     score,
     range_pos,
 ):
-    if not snapshot.get("data_quality_ok", True):
-        return _decision(
-            symbol,
-            "HOLD",
-            price,
-            momentum,
-            snapshot.get("data_quality_reason", "data_quality_failed"),
-        )
-
-    if (
-        trades < min_trades
-        or high_24h <= low_24h
-        or vwap is None
-        or atr is None
-        or atr <= 0
-    ):
-        return _decision(symbol, "HOLD", price, momentum, "insufficient_data")
-
-    if atr < min_atr:
-        return _decision(symbol, "HOLD", price, momentum, "atr_too_low")
-
-    if z_score is None:
-        z_score = (price - vwap) / atr
-
-    if regime in blocked_regimes:
-        return _decision(symbol, "HOLD", price, momentum, f"regime_{regime}")
-
-    if range_pos is None:
-        return _decision(symbol, "HOLD", price, momentum, "insufficient_range_data")
-
-    if range_pos > buy_zone_high:
-        return _decision(symbol, "HOLD", price, momentum, "price_above_buy_zone")
-
-    if range_pos < buy_zone_low:
-        return _decision(symbol, "HOLD", price, momentum, "price_below_buy_zone")
-
-    if z_score > min_z_score:
-        return _decision(symbol, "HOLD", price, momentum, "insufficient_volatility_stretch")
-
-    if score < min_score_to_buy:
-        return _decision(symbol, "HOLD", price, momentum, "score_below_threshold")
-
-    if prev_mom is not None and momentum < prev_mom:
-        _last_momentum[symbol] = momentum
-        return _decision(symbol, "HOLD", price, momentum, "momentum_still_falling")
-
-    _last_momentum[symbol] = momentum
-    return _decision(symbol, "BUY", price, momentum, "bear_market_mean_reversion_buy")
+    return evaluate_mean_reversion_entry(
+        snapshot=snapshot,
+        symbol=symbol,
+        price=price,
+        momentum=momentum,
+        trades=trades,
+        high_24h=high_24h,
+        low_24h=low_24h,
+        atr=atr,
+        vwap=vwap,
+        z_score=z_score,
+        prev_mom=prev_mom,
+        min_trades=min_trades,
+        min_atr=min_atr,
+        buy_zone_low=buy_zone_low,
+        buy_zone_high=buy_zone_high,
+        min_z_score=min_z_score,
+        min_score_to_buy=min_score_to_buy,
+        blocked_regimes=blocked_regimes,
+        regime=regime,
+        score=score,
+        range_pos=range_pos,
+        last_momentum_state=_last_momentum,
+        decision=_decision,
+    )
 
 
 # ============================================================
@@ -978,6 +1040,13 @@ def _save_strategy_state():
         state_maps={
             "entry_price": _entry_price,
             "entry_time": _entry_time,
+            "entry_route": _entry_route,
+            "entry_regime": _entry_regime,
+            "exit_policy": _exit_policy,
+            "entry_confidence": _entry_confidence,
+            "entry_timestamp": _entry_timestamp,
+            "entry_route_eval_ts": _entry_route_eval_ts,
+            "entry_regime_eval_ts": _entry_regime_eval_ts,
             "profit_lock": _profit_lock,
             "peak_pnl": _peak_pnl,
             "last_signal": _last_signal,
@@ -985,25 +1054,7 @@ def _save_strategy_state():
             "last_regime": _last_regime,
             "last_score": _last_score,
             "last_volatility": _last_volatility,
-            "last_configured_regime": _last_configured_regime,
-            "last_detected_regime": _last_detected_regime,
-            "last_detected_regime_confidence": _last_detected_regime_confidence,
-            "last_detected_regime_confidence_label": _last_detected_regime_confidence_label,
-            "last_detected_regime_stability": _last_detected_regime_stability,
-            "last_detected_regime_persistence": _last_detected_regime_persistence,
-            "last_detected_regime_stability_inferred": _last_detected_regime_stability_inferred,
-            "last_detected_regime_persistence_inferred": _last_detected_regime_persistence_inferred,
-            "last_regime_data_quality_status": _last_regime_data_quality_status,
-            "last_regime_key_windows_supported": _last_regime_key_windows_supported,
-            "last_suggested_regime_v2": _last_suggested_regime_v2,
-            "last_detection_source": _last_detection_source,
-            "last_detection_timestamp_epoch": _last_detection_timestamp_epoch,
-            "last_effective_strategy": _last_effective_strategy,
-            "last_effective_route": _last_effective_route,
-            "last_route_eval_ts": _last_route_eval_ts,
-            "last_regime_eval_ts": _last_regime_eval_ts,
-            "last_auto_fallback_reason": _last_auto_fallback_reason,
-            "last_fallback_reason": _last_fallback_reason,
+            **_route_metadata_state_map(_route_metadata_maps),
         },
         shadow_regime_state=_shadow_regime_state,
     )
@@ -1018,6 +1069,13 @@ def _load_strategy_state():
         state_maps={
             "entry_price": _entry_price,
             "entry_time": _entry_time,
+            "entry_route": _entry_route,
+            "entry_regime": _entry_regime,
+            "exit_policy": _exit_policy,
+            "entry_confidence": _entry_confidence,
+            "entry_timestamp": _entry_timestamp,
+            "entry_route_eval_ts": _entry_route_eval_ts,
+            "entry_regime_eval_ts": _entry_regime_eval_ts,
             "profit_lock": _profit_lock,
             "peak_pnl": _peak_pnl,
             "last_signal": _last_signal,
@@ -1025,25 +1083,7 @@ def _load_strategy_state():
             "last_regime": _last_regime,
             "last_score": _last_score,
             "last_volatility": _last_volatility,
-            "last_configured_regime": _last_configured_regime,
-            "last_detected_regime": _last_detected_regime,
-            "last_detected_regime_confidence": _last_detected_regime_confidence,
-            "last_detected_regime_confidence_label": _last_detected_regime_confidence_label,
-            "last_detected_regime_stability": _last_detected_regime_stability,
-            "last_detected_regime_persistence": _last_detected_regime_persistence,
-            "last_detected_regime_stability_inferred": _last_detected_regime_stability_inferred,
-            "last_detected_regime_persistence_inferred": _last_detected_regime_persistence_inferred,
-            "last_regime_data_quality_status": _last_regime_data_quality_status,
-            "last_regime_key_windows_supported": _last_regime_key_windows_supported,
-            "last_suggested_regime_v2": _last_suggested_regime_v2,
-            "last_detection_source": _last_detection_source,
-            "last_detection_timestamp_epoch": _last_detection_timestamp_epoch,
-            "last_effective_strategy": _last_effective_strategy,
-            "last_effective_route": _last_effective_route,
-            "last_route_eval_ts": _last_route_eval_ts,
-            "last_regime_eval_ts": _last_regime_eval_ts,
-            "last_auto_fallback_reason": _last_auto_fallback_reason,
-            "last_fallback_reason": _last_fallback_reason,
+            **_route_metadata_state_map(_route_metadata_maps),
         },
         shadow_regime_state=_shadow_regime_state,
         logger=logger,
@@ -1053,9 +1093,63 @@ def _load_strategy_state():
 # ============================================================
 # HELPERS
 # ============================================================
-def confirm_entry(symbol: str, price: float):
+def confirm_entry(
+    symbol: str,
+    price: float,
+    *,
+    entry_route: str | None = None,
+    entry_regime: str | None = None,
+    exit_policy: str | None = None,
+    entry_confidence: float | None = None,
+    entry_timestamp: float | None = None,
+    route_eval_ts: float | None = None,
+    regime_eval_ts: float | None = None,
+):
+    staged = _pending_entry_contract.pop(symbol, None)
+    if isinstance(staged, dict):
+        if entry_route is None:
+            entry_route = staged.get("entry_route")
+        if entry_regime is None:
+            entry_regime = staged.get("entry_regime")
+        if exit_policy is None:
+            exit_policy = staged.get("exit_policy")
+        if entry_confidence is None:
+            entry_confidence = staged.get("entry_confidence")
+        if entry_timestamp is None:
+            entry_timestamp = staged.get("entry_timestamp")
+        if route_eval_ts is None:
+            route_eval_ts = staged.get("route_eval_ts")
+        if regime_eval_ts is None:
+            regime_eval_ts = staged.get("regime_eval_ts")
+
+    now = time.time()
+    resolved_route = _normalize_strategy(
+        entry_route or _last_effective_route.get(symbol) or _last_effective_strategy.get(symbol),
+        fallback="mean_reversion",
+    )
+    resolved_exit_policy = str(exit_policy or _exit_policy_for_route(resolved_route)).strip().lower()
+    if resolved_exit_policy not in {EXIT_POLICY_MR, EXIT_POLICY_TREND, EXIT_POLICY_BREAKOUT, EXIT_POLICY_SCALPER}:
+        resolved_exit_policy = _exit_policy_for_route(resolved_route)
+    resolved_timestamp = _parse_numeric(entry_timestamp, fallback=now) or now
+    resolved_route_eval_ts = _parse_numeric(route_eval_ts, fallback=resolved_timestamp) or resolved_timestamp
+    resolved_regime_eval_ts = _parse_numeric(regime_eval_ts, fallback=resolved_timestamp) or resolved_timestamp
+    resolved_confidence = _safe_confidence_value(entry_confidence)
+    resolved_regime = str(
+        entry_regime
+        or _last_suggested_regime_v2.get(symbol)
+        or _last_detected_regime.get(symbol)
+        or "MIXED_OR_UNCLEAR"
+    )
+
     _entry_price[symbol] = price
-    _entry_time[symbol] = time.time()
+    _entry_time[symbol] = resolved_timestamp
+    _entry_route[symbol] = resolved_route
+    _entry_regime[symbol] = resolved_regime
+    _exit_policy[symbol] = resolved_exit_policy
+    _entry_confidence[symbol] = resolved_confidence
+    _entry_timestamp[symbol] = resolved_timestamp
+    _entry_route_eval_ts[symbol] = resolved_route_eval_ts
+    _entry_regime_eval_ts[symbol] = resolved_regime_eval_ts
     _profit_lock[symbol] = None
     _peak_pnl[symbol] = 0.0
     _last_signal[symbol] = "BUY"
@@ -1069,8 +1163,16 @@ def confirm_exit(symbol: str, price: float):
 
 def _cleanup(symbol, price):
     _last_sell_price[symbol] = price
+    _pending_entry_contract.pop(symbol, None)
     _entry_price.pop(symbol, None)
     _entry_time.pop(symbol, None)
+    _entry_route.pop(symbol, None)
+    _entry_regime.pop(symbol, None)
+    _exit_policy.pop(symbol, None)
+    _entry_confidence.pop(symbol, None)
+    _entry_timestamp.pop(symbol, None)
+    _entry_route_eval_ts.pop(symbol, None)
+    _entry_regime_eval_ts.pop(symbol, None)
     _profit_lock.pop(symbol, None)
     _peak_pnl.pop(symbol, None)
     _last_signal.pop(symbol, None)
@@ -1078,25 +1180,7 @@ def _cleanup(symbol, price):
     _last_regime.pop(symbol, None)
     _last_score.pop(symbol, None)
     _last_volatility.pop(symbol, None)
-    _last_configured_regime.pop(symbol, None)
-    _last_detected_regime.pop(symbol, None)
-    _last_detected_regime_confidence.pop(symbol, None)
-    _last_detected_regime_confidence_label.pop(symbol, None)
-    _last_detected_regime_stability.pop(symbol, None)
-    _last_detected_regime_persistence.pop(symbol, None)
-    _last_detected_regime_stability_inferred.pop(symbol, None)
-    _last_detected_regime_persistence_inferred.pop(symbol, None)
-    _last_regime_data_quality_status.pop(symbol, None)
-    _last_regime_key_windows_supported.pop(symbol, None)
-    _last_suggested_regime_v2.pop(symbol, None)
-    _last_detection_source.pop(symbol, None)
-    _last_detection_timestamp_epoch.pop(symbol, None)
-    _last_effective_strategy.pop(symbol, None)
-    _last_effective_route.pop(symbol, None)
-    _last_route_eval_ts.pop(symbol, None)
-    _last_regime_eval_ts.pop(symbol, None)
-    _last_auto_fallback_reason.pop(symbol, None)
-    _last_fallback_reason.pop(symbol, None)
+    _cleanup_route_metadata_symbol(symbol, _route_metadata_maps)
 
 
 def _decision(symbol, action, price, momentum, reason):
@@ -1114,44 +1198,21 @@ def _decision(symbol, action, price, momentum, reason):
         payload["score"] = _last_score[symbol]
     if symbol in _last_volatility:
         payload["volatility"] = _last_volatility[symbol]
-    if symbol in _last_configured_regime:
-        payload["configured_regime"] = _last_configured_regime[symbol]
-    if symbol in _last_detected_regime:
-        payload["detected_regime"] = _last_detected_regime[symbol]
-    if symbol in _last_detected_regime_confidence:
-        payload["detected_regime_confidence"] = _last_detected_regime_confidence[symbol]
-    if symbol in _last_detected_regime_confidence_label:
-        payload["detected_regime_confidence_label"] = _last_detected_regime_confidence_label[symbol]
-    if symbol in _last_detected_regime_stability:
-        payload["detected_regime_stability"] = _last_detected_regime_stability[symbol]
-    if symbol in _last_detected_regime_persistence:
-        payload["detected_regime_persistence"] = _last_detected_regime_persistence[symbol]
-    if symbol in _last_detected_regime_stability_inferred:
-        payload["detected_regime_stability_inferred"] = _last_detected_regime_stability_inferred[symbol]
-    if symbol in _last_detected_regime_persistence_inferred:
-        payload["detected_regime_persistence_inferred"] = _last_detected_regime_persistence_inferred[symbol]
-    if symbol in _last_regime_data_quality_status:
-        payload["regime_data_quality_status"] = _last_regime_data_quality_status[symbol]
-    if symbol in _last_regime_key_windows_supported:
-        payload["regime_key_windows_supported"] = _last_regime_key_windows_supported[symbol]
-    if symbol in _last_suggested_regime_v2:
-        payload["suggested_regime_v2"] = _last_suggested_regime_v2[symbol]
-    if symbol in _last_detection_source:
-        payload["detection_source"] = _last_detection_source[symbol]
-    if symbol in _last_detection_timestamp_epoch:
-        payload["detection_timestamp_epoch"] = _last_detection_timestamp_epoch[symbol]
-    if symbol in _last_effective_strategy:
-        payload["effective_strategy"] = _last_effective_strategy[symbol]
-    if symbol in _last_effective_route:
-        payload["effective_route"] = _last_effective_route[symbol]
-    if symbol in _last_route_eval_ts:
-        payload["route_eval_ts"] = _last_route_eval_ts[symbol]
-    if symbol in _last_regime_eval_ts:
-        payload["regime_eval_ts"] = _last_regime_eval_ts[symbol]
-    if symbol in _last_auto_fallback_reason:
-        payload["auto_fallback_reason"] = _last_auto_fallback_reason[symbol]
-    if symbol in _last_fallback_reason:
-        payload["fallback_reason"] = _last_fallback_reason[symbol]
+    if symbol in _entry_route:
+        payload["entry_route"] = _entry_route[symbol]
+    if symbol in _entry_regime:
+        payload["entry_regime"] = _entry_regime[symbol]
+    if symbol in _exit_policy:
+        payload["exit_policy"] = _exit_policy[symbol]
+    if symbol in _entry_confidence:
+        payload["entry_confidence"] = _entry_confidence[symbol]
+    if symbol in _entry_timestamp:
+        payload["entry_timestamp"] = _entry_timestamp[symbol]
+    if symbol in _entry_route_eval_ts:
+        payload["entry_route_eval_ts"] = _entry_route_eval_ts[symbol]
+    if symbol in _entry_regime_eval_ts:
+        payload["entry_regime_eval_ts"] = _entry_regime_eval_ts[symbol]
+    _inject_route_metadata_payload(symbol, payload, _route_metadata_maps)
     return payload
 
 

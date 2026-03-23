@@ -230,6 +230,24 @@ def trim_candles_to_lookback_days(
     )
 
 
+def delete_candles_for_symbol_timeframe(
+    symbol: str,
+    timeframe: str,
+    *,
+    db_path: str | Path | None = None,
+) -> int:
+    ensure_schema(db_path)
+    with connect(db_path) as conn:
+        deleted = conn.execute(
+            """
+            DELETE FROM candles
+            WHERE symbol = ? AND timeframe = ?
+            """,
+            (symbol, timeframe),
+        ).rowcount
+    return int(deleted or 0)
+
+
 def get_latest_open_time(
     symbol: str,
     timeframe: str,
@@ -396,6 +414,24 @@ def upsert_sync_state(
                 updated_at,
             ),
         )
+
+
+def delete_sync_state(
+    symbol: str,
+    timeframe: str,
+    *,
+    db_path: str | Path | None = None,
+) -> int:
+    ensure_schema(db_path)
+    with connect(db_path) as conn:
+        deleted = conn.execute(
+            """
+            DELETE FROM sync_state
+            WHERE symbol = ? AND timeframe = ?
+            """,
+            (symbol, timeframe),
+        ).rowcount
+    return int(deleted or 0)
 
 
 def find_missing_ranges(

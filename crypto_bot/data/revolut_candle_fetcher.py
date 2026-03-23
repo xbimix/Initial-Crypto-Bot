@@ -26,6 +26,16 @@ SUPPORTED_INTERVALS_MINUTES = {
 
 _WORKING_CANDLE_REQUEST: dict[str, Any] | None = None
 _CANDLE_SCOPE_UNAUTHORIZED_UNTIL_EPOCH: float = 0.0
+_ENDPOINT_CAPABILITY_CACHE: dict[str, dict[str, Any]] = {}
+_CANDLE_TELEMETRY: dict[str, Any] = {
+    "fetch_calls": 0,
+    "success_calls": 0,
+    "failed_calls": 0,
+    "official_success_calls": 0,
+    "public_success_calls": 0,
+    "candidate_success": {},
+    "candidate_failures": {},
+}
 
 
 def _scope_cooldown_seconds() -> float:
@@ -35,6 +45,117 @@ def _scope_cooldown_seconds() -> float:
     except (TypeError, ValueError):
         value = 900.0
     return max(60.0, value)
+
+
+def _capability_ttl_seconds() -> float:
+    raw = os.getenv("REVBOT_CANDLE_CAPABILITY_TTL_SECONDS", "3600")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = 3600.0
+    return max(60.0, value)
+
+
+def _candidate_key(path: str, mode: str, auth: bool) -> str:
+    return f"{'auth' if auth else 'public'}:{path}:{mode}"
+
+
+def _normalize_symbol(raw: Any) -> str:
+    if not isinstance(raw, str):
+        return ""
+    token = raw.strip().upper()
+    if not token:
+        return ""
+    return token.replace("/", "-").replace("_", "-")
+
+
+def _candidate_targets_symbol(path: str, symbol: str) -> bool:
+    symbol_norm = _normalize_symbol(symbol)
+    if not symbol_norm:
+        return False
+    return f"/{symbol_norm}" in str(path or "").upper()
+
+
+def _candidate_is_stale(entry: dict[str, Any], now_epoch: float) -> bool:
+    ttl = _capability_ttl_seconds()
+    updated = float(entry.get("updated_epoch", 0.0) or 0.0)
+    return updated <= 0 or (now_epoch - updated) > ttl
+
+
+def _candidate_is_blocked(path: str, mode: str, auth: bool, now_epoch: float) -> bool:
+    key = _candidate_key(path, mode, auth)
+    entry = _ENDPOINT_CAPABILITY_CACHE.get(key)
+    if not isinstance(entry, dict) or _candidate_is_stale(entry, now_epoch):
+        return False
+    status = str(entry.get("status", "")).strip().lower()
+    return status in {"unsupported", "auth_unauthorized"}
+
+
+def _record_candidate_success(path: str, mode: str, auth: bool):
+    now_epoch = time.time()
+    key = _candidate_key(path, mode, auth)
+    entry = _ENDPOINT_CAPABILITY_CACHE.get(key, {})
+    success_count = int(entry.get("success_count", 0) or 0) + 1
+    _ENDPOINT_CAPABILITY_CACHE[key] = {
+        "status": "ok",
+        "updated_epoch": now_epoch,
+        "success_count": success_count,
+        "failure_count": int(entry.get("failure_count", 0) or 0),
+        "last_status_code": 200,
+    }
+    counts = _CANDLE_TELEMETRY.setdefault("candidate_success", {})
+    counts[key] = int(counts.get(key, 0) or 0) + 1
+
+
+def _record_candidate_failure(path: str, mode: str, auth: bool, status_code: int | None):
+    now_epoch = time.time()
+    key = _candidate_key(path, mode, auth)
+    entry = _ENDPOINT_CAPABILITY_CACHE.get(key, {})
+    failure_count = int(entry.get("failure_count", 0) or 0) + 1
+    status = "retryable"
+    if auth and status_code == 401:
+        status = "auth_unauthorized"
+    elif status_code in {400, 403, 404}:
+        status = "unsupported"
+    _ENDPOINT_CAPABILITY_CACHE[key] = {
+        "status": status,
+        "updated_epoch": now_epoch,
+        "success_count": int(entry.get("success_count", 0) or 0),
+        "failure_count": failure_count,
+        "last_status_code": status_code,
+    }
+    counts = _CANDLE_TELEMETRY.setdefault("candidate_failures", {})
+    counts[key] = int(counts.get(key, 0) or 0) + 1
+
+
+def get_candle_fetch_telemetry() -> dict[str, Any]:
+    now_epoch = time.time()
+    ttl = _capability_ttl_seconds()
+    active_capabilities: dict[str, Any] = {}
+    for key, entry in _ENDPOINT_CAPABILITY_CACHE.items():
+        if not isinstance(entry, dict):
+            continue
+        updated = float(entry.get("updated_epoch", 0.0) or 0.0)
+        if updated <= 0 or (now_epoch - updated) > ttl:
+            continue
+        active_capabilities[key] = {
+            "status": str(entry.get("status", "unknown")),
+            "updated_epoch": updated,
+            "success_count": int(entry.get("success_count", 0) or 0),
+            "failure_count": int(entry.get("failure_count", 0) or 0),
+            "last_status_code": entry.get("last_status_code"),
+        }
+    return {
+        "fetch_calls": int(_CANDLE_TELEMETRY.get("fetch_calls", 0) or 0),
+        "success_calls": int(_CANDLE_TELEMETRY.get("success_calls", 0) or 0),
+        "failed_calls": int(_CANDLE_TELEMETRY.get("failed_calls", 0) or 0),
+        "official_success_calls": int(_CANDLE_TELEMETRY.get("official_success_calls", 0) or 0),
+        "public_success_calls": int(_CANDLE_TELEMETRY.get("public_success_calls", 0) or 0),
+        "candidate_success": dict(_CANDLE_TELEMETRY.get("candidate_success", {})),
+        "candidate_failures": dict(_CANDLE_TELEMETRY.get("candidate_failures", {})),
+        "active_capabilities": active_capabilities,
+        "capability_ttl_seconds": ttl,
+    }
 
 
 class RevolutCandleFetchError(RuntimeError):
@@ -193,6 +314,7 @@ def fetch_candles(
     global _CANDLE_SCOPE_UNAUTHORIZED_UNTIL_EPOCH
 
     interval = int(interval_minutes)
+    _CANDLE_TELEMETRY["fetch_calls"] = int(_CANDLE_TELEMETRY.get("fetch_calls", 0) or 0) + 1
     if interval not in SUPPORTED_INTERVALS_MINUTES:
         raise ValueError(f"Unsupported interval minutes: {interval}")
     if int(until_ms) <= int(since_ms):
@@ -338,6 +460,9 @@ def fetch_candles(
             auth = bool(candidate.get("auth", False))
             if not path or not isinstance(params, dict):
                 continue
+            now_epoch = time.time()
+            if _candidate_is_blocked(path, mode, auth, now_epoch):
+                continue
 
             signature = (path, auth, mode, tuple(sorted(params.items())))
             if signature in seen:
@@ -353,12 +478,28 @@ def fetch_candles(
                     for row in rows
                     if int(row.get("ts", 0)) >= int(since_ms) and int(row.get("ts", 0)) <= int(until_ms)
                 ]
-                _WORKING_CANDLE_REQUEST = {"path": path, "mode": mode, "auth": auth}
+                _WORKING_CANDLE_REQUEST = {
+                    "path": path,
+                    "mode": mode,
+                    "auth": auth,
+                    "symbol": symbol if _candidate_targets_symbol(path, symbol) else None,
+                }
+                _record_candidate_success(path, mode, auth)
+                _CANDLE_TELEMETRY["success_calls"] = int(_CANDLE_TELEMETRY.get("success_calls", 0) or 0) + 1
+                if auth:
+                    _CANDLE_TELEMETRY["official_success_calls"] = int(
+                        _CANDLE_TELEMETRY.get("official_success_calls", 0) or 0
+                    ) + 1
+                else:
+                    _CANDLE_TELEMETRY["public_success_calls"] = int(
+                        _CANDLE_TELEMETRY.get("public_success_calls", 0) or 0
+                    ) + 1
                 return rows, any_retryable_local, all_not_found_or_unsupported_local, auth_401_local
             except Exception as exc:
                 response = getattr(exc, "response", None)
                 status_code = getattr(response, "status_code", None)
                 failures.append(f"{path} auth={auth} status={status_code} err={exc}")
+                _record_candidate_failure(path, mode, auth, status_code)
                 err_text = str(exc).lower()
                 auth_missing = auth and (
                     "api key unavailable" in err_text
@@ -382,7 +523,17 @@ def fetch_candles(
         base_candidates.extend(public_candidates)
     request_candidates: list[dict[str, Any]] = []
     if isinstance(_WORKING_CANDLE_REQUEST, dict):
-        request_candidates.append(_WORKING_CANDLE_REQUEST)
+        cached_path = str(_WORKING_CANDLE_REQUEST.get("path") or "")
+        cached_symbol = _normalize_symbol(_WORKING_CANDLE_REQUEST.get("symbol"))
+        requested_symbol = _normalize_symbol(symbol)
+        can_reuse_cached = False
+        if cached_symbol and requested_symbol:
+            can_reuse_cached = cached_symbol == requested_symbol
+        elif not cached_symbol:
+            # Generic endpoint candidates are reusable across symbols.
+            can_reuse_cached = not _candidate_targets_symbol(cached_path, requested_symbol)
+        if can_reuse_cached:
+            request_candidates.append(_WORKING_CANDLE_REQUEST)
     request_candidates.extend(base_candidates)
 
     seen: set[tuple[Any, ...]] = set()
@@ -411,6 +562,7 @@ def fetch_candles(
             return rows_public
 
     if any_retryable:
+        _CANDLE_TELEMETRY["failed_calls"] = int(_CANDLE_TELEMETRY.get("failed_calls", 0) or 0) + 1
         raise RevolutCandleFetchError(
             "Revolut candle endpoint temporarily unavailable; retry later",
             permanent=False,
@@ -420,12 +572,14 @@ def fetch_candles(
         scope_hint = "auth_scope_unauthorized" if auth_401_count > 0 else "not_found_or_unsupported"
         if auth_401_count > 0:
             _CANDLE_SCOPE_UNAUTHORIZED_UNTIL_EPOCH = time.time() + _scope_cooldown_seconds()
+        _CANDLE_TELEMETRY["failed_calls"] = int(_CANDLE_TELEMETRY.get("failed_calls", 0) or 0) + 1
         raise RevolutCandleFetchError(
             "No supported Revolut candle endpoint available for this runtime/auth scope "
             f"(hint={scope_hint} attempts={len(failures)} sample_failures={'; '.join(failures[:3])})",
             permanent=True,
         )
 
+    _CANDLE_TELEMETRY["failed_calls"] = int(_CANDLE_TELEMETRY.get("failed_calls", 0) or 0) + 1
     raise RevolutCandleFetchError(
         "Failed to fetch Revolut candles after trying endpoint variants",
         permanent=False,

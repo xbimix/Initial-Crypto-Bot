@@ -192,7 +192,22 @@
     "top_opportunity_count": 6,
     "mid_tier_count": 14,
     "max_symbols_per_cycle": 4,
-    "max_sync_requests_per_tick": 2
+    "max_sync_requests_per_tick": 2,
+    "dynamic_tiering_enabled": true,
+    "dynamic_tier_promotion_count": 2,
+    "min_sync_requests_per_tick_under_pressure": 1,
+    "sync_pressure_window_seconds": 60,
+    "sync_pressure_rate_limit_threshold": 3,
+    "sync_pressure_throttle_sleep_seconds": 5,
+    "db_maintenance_interval_seconds": 21600,
+    "watchlist_poll_seconds": 300,
+    "symbol_health_min_score": 45,
+    "symbol_health_watchlist_seconds": 86400,
+    "route_quality_guard_enabled": true,
+    "route_quality_min_confidence": 75,
+    "route_quality_min_stability": 60,
+    "route_quality_min_persistence": 60,
+    "route_quality_max_rate_limited": 2
   },
   "loop_sleep": 12,
   "log_level": "INFO",
@@ -414,17 +429,17 @@
   },
   "emergency_stop": false,
   "symbol_strategies": {
-    "GST-USD": "volatility_scalper",
-    "XCN-USD": "volatility_scalper",
-    "VTHO-USD": "volatility_scalper",
-    "ASM-USD": "volatility_scalper",
-    "BONK-USD": "volatility_scalper",
-    "SPELL-USD": "volatility_scalper",
-    "SWFTC-USD": "volatility_scalper",
-    "HYPE-USD": "volatility_scalper",
-    "API3-USD": "volatility_scalper",
-    "GODS-USD": "volatility_scalper",
-    "ETH-USD": "volatility_scalper"
+    "GST-USD": "mean_reversion",
+    "XCN-USD": "mean_reversion",
+    "VTHO-USD": "mean_reversion",
+    "ASM-USD": "mean_reversion",
+    "BONK-USD": "mean_reversion",
+    "SPELL-USD": "mean_reversion",
+    "SWFTC-USD": "mean_reversion",
+    "HYPE-USD": "mean_reversion",
+    "API3-USD": "mean_reversion",
+    "GODS-USD": "mean_reversion",
+    "ETH-USD": "mean_reversion"
   },
   "token_regimes": {
     "ACH-USD": "AUTO",
@@ -525,19 +540,7 @@
     "AAVE-USD": "AUTO"
   },
   "volatility_scalper": {
-    "symbols": [
-      "XCN-USD",
-      "VTHO-USD",
-      "ASM-USD",
-      "BONK-USD",
-      "GST-USD",
-      "SPELL-USD",
-      "SWFTC-USD",
-      "HYPE-USD",
-      "API3-USD",
-      "GODS-USD",
-      "ETH-USD"
-    ]
+    "symbols": []
   },
   "config_version": 1,
   "trading_enabled": true,

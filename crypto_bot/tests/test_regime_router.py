@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 
 import pytest
 
@@ -83,6 +84,22 @@ def reset_strategy_globals(monkeypatch, tmp_path: Path):
         "_last_regime_eval_ts",
         "_last_auto_fallback_reason",
         "_last_fallback_reason",
+        "_last_ready_for_non_mr_route",
+        "_last_non_mr_ready_reason",
+        "_last_route_readiness_state",
+        "_last_route_timestamp_age_seconds",
+        "_last_route_timestamp_fresh",
+        "_last_shadow_continuity_state",
+        "_last_shadow_age_seconds",
+        "_last_failed_gates",
+        "_pending_entry_contract",
+        "_entry_route",
+        "_entry_regime",
+        "_exit_policy",
+        "_entry_confidence",
+        "_entry_timestamp",
+        "_entry_route_eval_ts",
+        "_entry_regime_eval_ts",
         "_shadow_regime_state",
     ):
         getattr(se, mapping_name).clear()
@@ -122,6 +139,53 @@ def test_missing_token_regime_defaults_to_mean_reversion():
     assert decision["action"] == "BUY"
     assert decision["reason"] == "bear_market_mean_reversion_buy"
     assert decision["configured_regime"] == "MEAN_REVERSION"
+
+
+def test_auto_refreshes_stale_shadow_before_route_resolution(monkeypatch):
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_current_cycle_shadow": False,
+            "auto_max_route_age_seconds": 120,
+        }
+    }
+
+    # Simulate stale/missing shadow state before this decision cycle.
+    se._shadow_regime_state.clear()
+
+    observed: dict[str, float | bool] = {
+        "shadow_present_pre_route": False,
+        "shadow_age_seconds_pre_route": 999999.0,
+    }
+
+    def fake_resolve_entry_route(*, cfg, symbol, snapshot, default_strategy, shadow_state):
+        row = shadow_state.get(symbol)
+        last_update = float(row.get("last_update_ts", 0.0)) if isinstance(row, dict) else 0.0
+        observed["shadow_present_pre_route"] = bool(last_update > 0.0)
+        observed["shadow_age_seconds_pre_route"] = max(0.0, time.time() - last_update) if last_update else 999999.0
+        return {
+            "configured_regime": "AUTO",
+            "detected_regime": "MEAN_REVERSION_FRIENDLY",
+            "effective_strategy": "mean_reversion",
+            "effective_route": "mean_reversion",
+            "route_eval_ts": time.time(),
+            "regime_eval_ts": time.time(),
+            "ready_for_non_mr_route": False,
+            "non_mr_ready_reason": "core_timeframe_not_ready:test",
+        }
+
+    monkeypatch.setattr(se, "resolve_entry_route", fake_resolve_entry_route)
+    monkeypatch.setattr(se, "evaluate_regime_unified", lambda **kwargs: {})
+    monkeypatch.setattr(se, "detect_regime", lambda snapshot, regime_cfg: "range")
+    monkeypatch.setattr(se, "_evaluate_sell", lambda **kwargs: None)
+    monkeypatch.setattr(se, "_evaluate_buy", lambda **kwargs: se._decision("TEST-USD", "HOLD", 0.12, 0.0, "test_hold"))
+    monkeypatch.setattr(se, "_compute_buy_diagnostics", lambda **kwargs: ("range", 50.0, 0.5, 0.01))
+
+    decision = se.generate_decision(_snapshot(), cfg)
+    assert decision["action"] == "HOLD"
+    assert observed["shadow_present_pre_route"] is True
+    assert float(observed["shadow_age_seconds_pre_route"]) < 5.0
 
 
 def test_observe_only_blocks_buys_but_keeps_sell_path():
@@ -226,6 +290,7 @@ def test_auto_low_confidence_falls_back_to_default():
             regime_advisory={
                 "suggestedRegime": "TREND_CONTINUATION",
                 "confidenceScore": 40,
+                "dataQuality": {"status": "GOOD", "supportedKeyWindows": True},
             },
         ),
         cfg,
@@ -234,6 +299,8 @@ def test_auto_low_confidence_falls_back_to_default():
     assert decision["reason"] == "bear_market_mean_reversion_buy"
     assert decision["effective_strategy"] == "mean_reversion"
     assert decision["auto_fallback_reason"] == "low_confidence"
+    assert decision["ready_for_non_mr_route"] is False
+    assert decision["non_mr_ready_reason"] == "low_confidence"
 
 
 def test_auto_low_confidence_falls_back_to_mean_reversion_even_with_strategy_override():
@@ -247,6 +314,7 @@ def test_auto_low_confidence_falls_back_to_mean_reversion_even_with_strategy_ove
             regime_advisory={
                 "suggestedRegime": "TREND_CONTINUATION",
                 "confidenceScore": 35,
+                "dataQuality": {"status": "GOOD", "supportedKeyWindows": True},
             },
         ),
         cfg,
@@ -282,6 +350,45 @@ def test_manual_scalper_override_takes_precedence_over_auto_regime():
     assert decision["effective_strategy"] == "volatility_scalper"
     assert decision["effective_route"] == "volatility_scalper"
     assert decision["fallback_reason"] == "manual_scalper_override"
+
+
+def test_scalper_symbol_membership_alone_does_not_force_scalper_route():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["volatility_scalper"] = {"enabled": True, "symbols": ["TEST-USD"]}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "auto_use_route_quality_gates": False,
+        }
+    }
+
+    decision = se.generate_decision(
+        _snapshot(
+            price=101.4,
+            momentum_norm=0.42,
+            trade_count=30,
+            high_24h=110.0,
+            low_24h=90.0,
+            atr=1.0,
+            vwap=101.3,
+            ema_50=101.2,
+            ema_200=95.0,
+            ema_50_slope=0.08,
+            recent_prices=[96.0, 97.8, 99.2, 100.4, 101.6, 100.8, 101.2, 101.4],
+            regime_advisory={
+                "suggestedRegime": "TREND_CONTINUATION",
+                "confidenceScore": 82,
+                "stabilityScore": 79,
+                "persistenceScore": 78,
+                "dataQuality": {"status": "GOOD", "supportedKeyWindows": True},
+            },
+        ),
+        cfg,
+    )
+    assert decision["effective_strategy"] == "trend_pullback"
+    assert decision["effective_route"] == "trend_pullback"
+    assert decision.get("fallback_reason") != "manual_scalper_override"
 
 
 def test_auto_high_confidence_routes_to_trend_pullback():
@@ -321,6 +428,8 @@ def test_auto_high_confidence_routes_to_trend_pullback():
     assert decision["action"] == "BUY"
     assert decision["reason"] == "trend_pullback_entry"
     assert decision["effective_strategy"] == "trend_pullback"
+    assert decision["ready_for_non_mr_route"] is True
+    assert decision["non_mr_ready_reason"] == "auto_quality_gates_passed"
 
 
 def test_auto_uses_shadow_high_confidence_when_snapshot_advisory_missing():
@@ -780,3 +889,32 @@ def test_auto_distribution_regime_stays_mean_reversion():
     )
     assert decision["effective_route"] == "mean_reversion"
     assert decision["fallback_reason"] == "distribution_defensive"
+
+
+def test_auto_falls_back_when_key_window_support_flag_missing():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "auto_use_route_quality_gates": False,
+            "auto_min_confidence": 60,
+            "auto_min_stability": 50,
+            "auto_min_persistence": 50,
+        }
+    }
+    decision = se.generate_decision(
+        _snapshot(
+            regime_advisory={
+                "suggestedRegime": "TREND_CONTINUATION",
+                "confidenceScore": 88,
+                "stabilityScore": 84,
+                "persistenceScore": 82,
+                # intentionally missing supportedKeyWindows
+                "dataQuality": {"status": "GOOD"},
+            },
+        ),
+        cfg,
+    )
+    assert decision["effective_strategy"] == "mean_reversion"
+    assert decision["fallback_reason"] == "unsupported_key_windows"

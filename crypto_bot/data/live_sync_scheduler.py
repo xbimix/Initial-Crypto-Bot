@@ -102,6 +102,12 @@ def run_incremental_sync_tick(
     attempted_jobs = 0
     requests = 0
     inserted = 0
+    new_inserted = 0
+    updated_existing = 0
+    candidate_new = 0
+    eligible_closed = 0
+    skipped_existing = 0
+    skipped_partial = 0
     errors = 0
     degraded = 0
     unique_symbols = []
@@ -145,6 +151,12 @@ def run_incremental_sync_tick(
             result_status = str(result.get("status", "ok")).strip().lower()
             requests += int(result.get("requests", 0) or 0)
             inserted += int(result.get("inserted", 0) or 0)
+            new_inserted += int(result.get("new_inserted", 0) or 0)
+            updated_existing += int(result.get("updated_existing", 0) or 0)
+            candidate_new += int(result.get("candidate_new", 0) or 0)
+            eligible_closed += int(result.get("eligible_closed", 0) or 0)
+            skipped_existing += int(result.get("skipped_existing", 0) or 0)
+            skipped_partial += int(result.get("skipped_partial", 0) or 0)
             if result_status in {"degraded", "unsupported"}:
                 degraded += 1
             jobs.append(
@@ -154,6 +166,12 @@ def run_incremental_sync_tick(
                     "status": result_status or "ok",
                     "fetched": int(result.get("fetched", 0) or 0),
                     "inserted": int(result.get("inserted", 0) or 0),
+                    "new_inserted": int(result.get("new_inserted", 0) or 0),
+                    "updated_existing": int(result.get("updated_existing", 0) or 0),
+                    "candidate_new": int(result.get("candidate_new", 0) or 0),
+                    "eligible_closed": int(result.get("eligible_closed", 0) or 0),
+                    "skipped_existing": int(result.get("skipped_existing", 0) or 0),
+                    "skipped_partial": int(result.get("skipped_partial", 0) or 0),
                     "source": result.get("source"),
                     "note": result.get("note"),
                 }
@@ -177,6 +195,12 @@ def run_incremental_sync_tick(
         "attempted_jobs": attempted_jobs,
         "requests": requests,
         "inserted": inserted,
+        "new_inserted": new_inserted,
+        "updated_existing": updated_existing,
+        "candidate_new": candidate_new,
+        "eligible_closed": eligible_closed,
+        "skipped_existing": skipped_existing,
+        "skipped_partial": skipped_partial,
         "errors": errors,
         "degraded": degraded,
         "jobs": jobs,

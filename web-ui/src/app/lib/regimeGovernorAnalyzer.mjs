@@ -701,6 +701,15 @@ function analyzeRegimeGovernor({
   const stabilityScore = aggregateStability.weight > 0
     ? Number((aggregateStability.weightedTotal / aggregateStability.weight).toFixed(3))
     : 0;
+  const topShare = totalWeight > 0 ? clamp(topWeight / totalWeight, 0, 1) : 0;
+  const dominanceNorm = totalWeight > 0 ? clamp(dominanceDelta / totalWeight, 0, 1) : 0;
+  const persistenceScore = Number(
+    clamp(
+      (0.55 * (topShare * 100)) + (0.25 * (dominanceNorm * 100)) + (0.20 * stabilityScore),
+      0,
+      100,
+    ).toFixed(3),
+  );
   const analysisAnchorAt = new Date(anchorNow * 1000).toISOString();
 
   return {
@@ -720,6 +729,12 @@ function analyzeRegimeGovernor({
     },
     stabilityScore,
     stability_score: stabilityScore,
+    persistenceScore,
+    persistence_score: persistenceScore,
+    stabilityInferred: false,
+    stability_inferred: false,
+    persistenceInferred: false,
+    persistence_inferred: false,
     explanation: buildExplanation({
       suggestedRegime,
       structureBias,

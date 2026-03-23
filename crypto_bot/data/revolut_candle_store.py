@@ -131,3 +131,17 @@ class RevolutCandleStore:
             target_end_ms=target_end_ms,
             db_path=self.db_path,
         )
+
+    def delete_symbol_timeframe(self, *, symbol: str, timeframe: str) -> int:
+        return revolut_market_db.delete_candles_for_symbol_timeframe(
+            symbol=symbol,
+            timeframe=timeframe,
+            db_path=self.db_path,
+        )
+
+    def delete_sync_state(self, *, symbol: str, timeframe: str) -> int:
+        return revolut_market_db.delete_sync_state(
+            symbol=symbol,
+            timeframe=timeframe,
+            db_path=self.db_path,
+        )

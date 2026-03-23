@@ -69,3 +69,29 @@ def test_route_quality_report_builds_and_promotes_when_thresholds_met(tmp_path: 
     assert report["manual_vs_auto_comparison"]["symbol_counts"]["MANUAL"] == 0
     assert report["per_token_route_history"]["AAA-USD"]["count"] == 1
     assert report["per_token_route_history"]["BBB-USD"]["route_counts"]["breakout_momentum"] == 1
+
+
+def test_route_quality_prefers_explicit_effective_route_over_reason(tmp_path: Path):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    now = 1_000_000.0
+    write_json_file(
+        state_dir / "trades.json",
+        [
+            {
+                "time": now - 1200,
+                "symbol": "AAA-USD",
+                "side": "SELL",
+                "reason": "trend_pullback_exit",
+                "effective_route": "mean_reversion",
+                "pnl": 0.7,
+            },
+        ],
+    )
+    write_json_file(state_dir / "strategy_state.json", {"last_effective_route": {"AAA-USD": "mean_reversion"}})
+    write_json_file(state_dir / "config.json", {})
+
+    report = build_route_quality_report(state_dir=state_dir, cfg={"token_regimes": {}}, now_epoch=now)
+    assert "mean_reversion" in report["windows"]["30d"]
+    assert "trend_pullback" not in report["windows"]["30d"]
+    assert report["per_token_route_history"]["AAA-USD"]["route_counts"]["mean_reversion"] == 1

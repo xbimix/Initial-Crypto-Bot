@@ -418,6 +418,24 @@ function friendlyRegime(value: string | null | undefined) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function formatFailedGates(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  if (!raw) {
+    return "None";
+  }
+  const [gateRaw, detailRaw] = raw.split(":", 2);
+  const gate = friendlyRegime(gateRaw ?? raw);
+  if (!detailRaw) {
+    return gate;
+  }
+  const detail = detailRaw
+    .split(",")
+    .map((item) => item.trim().replace(/_/g, " "))
+    .filter(Boolean)
+    .join(", ");
+  return detail ? `${gate} (${detail})` : gate;
+}
+
 function friendlyInsufficientReason(code: string | null, message: string | null) {
   if (message) {
     return message;
@@ -997,7 +1015,16 @@ export default function TokenDetailPage() {
                 </span>
               </div>
               <p className="mt-3 text-sm text-slate-300">
-                Suggested: <span className="font-semibold text-sky-100">{friendlyRegime(advisory.detectedRegime)}</span>
+                Detected (Legacy/Shadow): <span className="font-semibold text-sky-100">{friendlyRegime(advisory.detectedRegime)}</span>
+              </p>
+              <p className="mt-1 text-sm text-slate-300">
+                Suggested Regime V2: <span className="font-semibold text-sky-100">{friendlyRegime(advisory.suggestedRegimeV2 ?? advisory.detectedRegime)}</span>
+              </p>
+              <p className="mt-1 text-sm text-slate-300">
+                Effective Route (After Gates): <span className="font-semibold text-sky-100">{friendlyRegime(advisory.effectiveRoute ?? advisory.effectiveStrategy ?? "mean_reversion")}</span>
+              </p>
+              <p className="mt-1 text-sm text-slate-300">
+                Failed Gates: <span className="font-semibold text-amber-200">{formatFailedGates(advisory.fallbackReason ?? advisory.autoFallbackReason)}</span>
               </p>
               <p className="mt-1 text-[12px] text-slate-400">
                 Confidence Score: {advisory.detectedRegimeConfidenceScore === null ? "N/A" : advisory.detectedRegimeConfidenceScore.toFixed(1)}
@@ -1143,13 +1170,13 @@ export default function TokenDetailPage() {
               <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">Execution Diagnostics</p>
               <p className="mt-2">Regime: {advisory.regime ?? "N/A"}</p>
               <p>Configured Regime: {advisory.configuredRegime}</p>
-              <p>Detected Regime: {friendlyRegime(advisory.detectedRegime)}</p>
+              <p>Detected (Legacy/Shadow): {friendlyRegime(advisory.detectedRegime)}</p>
               <p>Suggested Regime V2: {friendlyRegime(advisory.suggestedRegimeV2 ?? advisory.detectedRegime)}</p>
               <p>Detection Source: {friendlyRegime(advisory.detectionSource ?? "advisory_multitimeframe")}</p>
               <p>Detection Time: {advisory.detectionTimestampAt ? new Date(advisory.detectionTimestampAt).toLocaleString() : "N/A"}</p>
               <p>Effective Strategy: {friendlyRegime(advisory.effectiveStrategy)}</p>
-              <p>Effective Route: {friendlyRegime(advisory.effectiveRoute ?? advisory.effectiveStrategy ?? "mean_reversion")}</p>
-              <p>Fallback Reason: {advisory.fallbackReason ?? advisory.autoFallbackReason ?? "N/A"}</p>
+              <p>Effective Route (After Gates): {friendlyRegime(advisory.effectiveRoute ?? advisory.effectiveStrategy ?? "mean_reversion")}</p>
+              <p>Failed Gates: {formatFailedGates(advisory.fallbackReason ?? advisory.autoFallbackReason)}</p>
               <p>Route Eval Time: {advisory.routeEvalTimestampEpoch ? new Date(advisory.routeEvalTimestampEpoch * 1000).toLocaleString() : "N/A"}</p>
               <p>Regime Eval Time: {advisory.regimeEvalTimestampEpoch ? new Date(advisory.regimeEvalTimestampEpoch * 1000).toLocaleString() : "N/A"}</p>
               <p>

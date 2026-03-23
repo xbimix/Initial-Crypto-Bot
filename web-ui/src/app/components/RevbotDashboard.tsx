@@ -511,6 +511,24 @@ function formatDetectedRegime(value: string | null) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function formatFailedGates(value: string | null | undefined) {
+  const raw = String(value ?? "").trim();
+  if (!raw) {
+    return "None";
+  }
+  const [gateRaw, detailRaw] = raw.split(":", 2);
+  const gate = formatDetectedRegime(gateRaw ?? raw);
+  if (!detailRaw) {
+    return gate;
+  }
+  const detail = detailRaw
+    .split(",")
+    .map((item) => item.trim().replace(/_/g, " "))
+    .filter(Boolean)
+    .join(", ");
+  return detail ? `${gate} (${detail})` : gate;
+}
+
 function opportunityStyle(value: number | null) {
   if (value === null) {
     return {
@@ -2075,7 +2093,7 @@ export default function RevbotDashboard() {
                           }))
                         }
                       >
-                        Regime Suggestion
+                        Regime Routing
                       </button>
                     </th>
                     <th className="px-3 py-2">
@@ -2209,8 +2227,11 @@ export default function RevbotDashboard() {
                         </td>
                         <td className="px-3 py-2.5">
                           <div className="flex flex-col items-start gap-1">
+                            <span className="text-[10px] uppercase tracking-[0.12em] text-slate-500">
+                              Detected (Legacy/Shadow)
+                            </span>
                             <span
-                              className="inline-flex min-w-[120px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                              className="inline-flex min-w-[160px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
                               style={detectedRegimeChipStyle}
                               title={control.detectedRegimeExplanation}
                             >
@@ -2218,27 +2239,22 @@ export default function RevbotDashboard() {
                             </span>
                             <span
                               className="text-[10px] uppercase tracking-[0.12em] text-slate-500"
-                              title={(control.fallbackReason ?? control.autoFallbackReason) ?? undefined}
-                            >
-                              Route {(control.effectiveRoute ?? control.effectiveStrategy).replace(/_/g, " ")}
-                            </span>
-                            <span
-                              className="text-[10px] uppercase tracking-[0.12em] text-slate-500"
                               title={control.detectedRegimeExplanation}
                             >
-                              V2 {formatDetectedRegime(control.suggestedRegimeV2 ?? control.detectedRegime)}
+                              Suggested Regime V2: {formatDetectedRegime(control.suggestedRegimeV2 ?? control.detectedRegime)}
                             </span>
                             <span
                               className="text-[10px] uppercase tracking-[0.12em] text-slate-500"
-                              title={control.detectionTimestampAt ?? undefined}
+                              title={(control.fallbackReason ?? control.autoFallbackReason) ?? undefined}
                             >
-                              Source {control.detectionSource.replace(/_/g, " ")}
+                              Effective Route (After Gates): {formatDetectedRegime(control.effectiveRoute ?? control.effectiveStrategy)}
                             </span>
-                            {(control.fallbackReason ?? control.autoFallbackReason) ? (
-                              <span className="text-[10px] uppercase tracking-[0.12em] text-amber-300">
-                                Fallback {(control.fallbackReason ?? control.autoFallbackReason ?? "").replace(/_/g, " ")}
-                              </span>
-                            ) : null}
+                            <span
+                              className="text-[10px] uppercase tracking-[0.12em] text-amber-300"
+                              title={(control.fallbackReason ?? control.autoFallbackReason) ?? undefined}
+                            >
+                              Failed Gates: {formatFailedGates(control.fallbackReason ?? control.autoFallbackReason)}
+                            </span>
                           </div>
                         </td>
                         <td className="px-3 py-2.5">

@@ -57,6 +57,21 @@ def _infer_route_from_reason(reason: str | None) -> str:
     return ROUTE_UNKNOWN
 
 
+def _route_from_trade_row(trade: dict[str, Any]) -> str:
+    # Prefer explicit route written at execution time.
+    for key in ("effective_route", "entry_route", "route", "effective_strategy", "strategy"):
+        value = _normalize_route_name(trade.get(key))
+        if value in {
+            ROUTE_MEAN_REVERSION,
+            ROUTE_TREND_PULLBACK,
+            ROUTE_BREAKOUT_MOMENTUM,
+            ROUTE_VOLATILITY_SCALPER,
+            ROUTE_OBSERVE_ONLY,
+        }:
+            return value
+    return _infer_route_from_reason(str(trade.get("reason", "")))
+
+
 def _empty_route_row() -> dict[str, Any]:
     return {
         "buy_count": 0,
@@ -107,7 +122,7 @@ def _aggregate_window(trades: list[dict[str, Any]], now_epoch: float, window_sec
         if window_seconds is not None and ts < (now_epoch - window_seconds):
             continue
 
-        route = _infer_route_from_reason(str(trade.get("reason", "")))
+        route = _route_from_trade_row(trade)
         side = str(trade.get("side", "")).upper()
         row = output.setdefault(route, _empty_route_row())
 
@@ -179,7 +194,7 @@ def _build_per_token_route_history(
             {
                 "time": ts,
                 "side": str(trade.get("side", "")).strip().upper(),
-                "route": _infer_route_from_reason(str(trade.get("reason", ""))),
+                "route": _route_from_trade_row(trade),
                 "reason": str(trade.get("reason", "")).strip(),
                 "pnl": _safe_float(trade.get("pnl"), default=0.0),
             }
@@ -199,6 +214,44 @@ def _build_per_token_route_history(
             "history": trimmed,
         }
     return result
+
+
+def _count_values(payload: Any) -> dict[str, int]:
+    if not isinstance(payload, dict):
+        return {}
+    out: dict[str, int] = {}
+    for value in payload.values():
+        key = str(value).strip()
+        if not key:
+            continue
+        out[key] = int(out.get(key, 0) or 0) + 1
+    return out
+
+
+def _summarize_failed_gates(payload: Any) -> dict[str, int]:
+    if not isinstance(payload, dict):
+        return {}
+    out: dict[str, int] = {}
+    for value in payload.values():
+        if isinstance(value, list):
+            for gate in value:
+                key = str(gate).strip()
+                if not key:
+                    continue
+                out[key] = int(out.get(key, 0) or 0) + 1
+    return out
+
+
+def _summarize_timestamp_fresh(payload: Any) -> dict[str, int]:
+    if not isinstance(payload, dict):
+        return {}
+    out = {"fresh": 0, "stale_or_missing": 0}
+    for value in payload.values():
+        if isinstance(value, bool) and value:
+            out["fresh"] += 1
+        else:
+            out["stale_or_missing"] += 1
+    return out
 
 
 def _router_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -300,6 +353,12 @@ def build_route_quality_report(*, state_dir: Path, cfg: dict[str, Any], now_epoc
             continue
         auto_fallback_counts[value] = auto_fallback_counts.get(value, 0) + 1
 
+    readiness_counts = _count_values(strategy_state.get("last_route_readiness_state", {}))
+    shadow_continuity_counts = _count_values(strategy_state.get("last_shadow_continuity_state", {}))
+    failed_gate_counts = _summarize_failed_gates(strategy_state.get("last_failed_gates", {}))
+    timestamp_fresh_counts = _summarize_timestamp_fresh(strategy_state.get("last_route_timestamp_fresh", {}))
+    non_mr_ready_reason_counts = _count_values(strategy_state.get("last_non_mr_ready_reason", {}))
+
     stats_30d = windows.get("30d", {})
     promoted_routes: dict[str, bool] = {}
     promotion_reasons: dict[str, str] = {}
@@ -323,6 +382,11 @@ def build_route_quality_report(*, state_dir: Path, cfg: dict[str, Any], now_epoc
         "route_usage_summary": route_usage_current,
         "fallback_reason_summary": fallback_counts,
         "auto_fallback_reason_summary": auto_fallback_counts,
+        "route_readiness_summary": readiness_counts,
+        "shadow_continuity_summary": shadow_continuity_counts,
+        "failed_gate_summary": failed_gate_counts,
+        "route_timestamp_fresh_summary": timestamp_fresh_counts,
+        "non_mr_ready_reason_summary": non_mr_ready_reason_counts,
         "performance_by_effective_route": windows,
         "manual_vs_auto_comparison": manual_vs_auto,
         "per_token_route_history": per_token_history,

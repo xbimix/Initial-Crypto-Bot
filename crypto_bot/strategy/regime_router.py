@@ -430,7 +430,7 @@ def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(data_quality_status, str):
         data_quality_status = "UNKNOWN"
     data_quality_status = data_quality_status.strip().upper() or "UNKNOWN"
-    supported_key_windows = _as_bool(data_quality.get("supportedKeyWindows"), True)
+    supported_key_windows = _as_bool(data_quality.get("supportedKeyWindows"), False)
     if "supported_key_windows" in data_quality:
         supported_key_windows = _as_bool(data_quality.get("supported_key_windows"), supported_key_windows)
 
@@ -567,6 +567,20 @@ def _normalize_default_strategy(value: Any) -> str:
     return STRATEGY_MEAN_REVERSION
 
 
+def _is_manual_scalper_toggle_enabled(cfg: dict[str, Any], symbol: str) -> bool:
+    symbol_key = normalize_symbol(symbol)
+    if not symbol_key:
+        return False
+
+    symbol_strategies = cfg.get("symbol_strategies", {})
+    if isinstance(symbol_strategies, dict):
+        for raw_symbol, raw_strategy in symbol_strategies.items():
+            if normalize_symbol(raw_symbol) != symbol_key:
+                continue
+            return _normalize_default_strategy(raw_strategy) == STRATEGY_VOLATILITY_SCALPER
+    return False
+
+
 def resolve_entry_route(
     *,
     cfg: dict[str, Any],
@@ -576,7 +590,9 @@ def resolve_entry_route(
     shadow_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     configured_regime = _configured_regime(cfg, symbol)
-    normalized_default_strategy = _normalize_default_strategy(default_strategy)
+    manual_scalper_toggle = _is_manual_scalper_toggle_enabled(cfg, symbol)
+    max_route_age_seconds = _auto_max_route_age_seconds(cfg)
+    route_eval_ts = _as_float(snapshot.get("router_eval_ts")) or time.time()
 
     result = {
         "configured_regime": configured_regime,
@@ -595,48 +611,105 @@ def resolve_entry_route(
         # AUTO and unclear cases must degrade to frozen mean reversion by default.
         "effective_strategy": STRATEGY_MEAN_REVERSION,
         "effective_route": STRATEGY_MEAN_REVERSION,
-        "route_eval_ts": _as_float(snapshot.get("router_eval_ts")) or time.time(),
+        "route_eval_ts": route_eval_ts,
         "regime_eval_ts": _as_float(snapshot.get("regime_eval_ts")),
         "auto_fallback_reason": None,
         "fallback_reason": None,
+        "ready_for_non_mr_route": False,
+        "non_mr_ready_reason": "mean_reversion_default",
+        "route_readiness_state": "FALLBACK",
+        "failed_gates": [],
+        "route_timestamp_age_seconds": None,
+        "route_timestamp_fresh": False,
+        "shadow_continuity_state": "missing",
+        "shadow_age_seconds": None,
+        "fallback_gate": None,
     }
+
+    symbol_key = normalize_symbol(symbol)
+    shadow_row = None
+    if isinstance(shadow_state, dict) and symbol_key:
+        row = shadow_state.get(symbol_key)
+        shadow_row = row if isinstance(row, dict) else None
+    shadow_last_update = _as_float(shadow_row.get("last_update_ts")) if isinstance(shadow_row, dict) else None
+    if shadow_last_update is not None and shadow_last_update > 0:
+        shadow_age = max(0.0, route_eval_ts - shadow_last_update)
+        result["shadow_age_seconds"] = shadow_age
+        result["shadow_continuity_state"] = "healthy" if shadow_age <= max_route_age_seconds else "stale"
+    else:
+        result["shadow_continuity_state"] = "missing"
+        result["shadow_age_seconds"] = None
+
+    def _mark_not_ready(reason: str, gate: str | None = None):
+        result["ready_for_non_mr_route"] = False
+        result["non_mr_ready_reason"] = str(reason or "not_ready")
+        result["route_readiness_state"] = "FALLBACK"
+        if isinstance(gate, str) and gate:
+            gates = result.get("failed_gates")
+            if not isinstance(gates, list):
+                gates = []
+            if gate not in gates:
+                gates.append(gate)
+            result["failed_gates"] = gates
+            result["fallback_gate"] = gate
+
+    def _mark_ready(reason: str):
+        result["ready_for_non_mr_route"] = True
+        result["non_mr_ready_reason"] = str(reason or "ready")
+        result["route_readiness_state"] = "READY"
+        result["failed_gates"] = []
+        result["fallback_gate"] = None
 
     # Manual scalper mode must not clash with AUTO/manual regime routing.
     # When explicitly selected per-symbol, force scalper route.
-    if normalized_default_strategy == STRATEGY_VOLATILITY_SCALPER:
+    if manual_scalper_toggle:
         result["detection_source"] = "configured_manual_scalper"
         result["effective_strategy"] = STRATEGY_VOLATILITY_SCALPER
         result["effective_route"] = STRATEGY_VOLATILITY_SCALPER
         result["auto_fallback_reason"] = "manual_scalper_override"
         result["fallback_reason"] = "manual_scalper_override"
+        result["route_timestamp_age_seconds"] = 0.0
+        result["route_timestamp_fresh"] = True
+        _mark_ready("manual_scalper_override")
         return result
 
     if configured_regime == TOKEN_REGIME_OBSERVE_ONLY:
         result["effective_strategy"] = STRATEGY_OBSERVE_ONLY
         result["effective_route"] = STRATEGY_OBSERVE_ONLY
+        result["route_timestamp_age_seconds"] = 0.0
+        result["route_timestamp_fresh"] = True
+        _mark_not_ready("observe_only", gate="observe_only")
         return result
 
     if configured_regime == TOKEN_REGIME_TREND_PULLBACK:
         result["effective_strategy"] = STRATEGY_TREND_PULLBACK
         result["effective_route"] = STRATEGY_TREND_PULLBACK
+        result["route_timestamp_age_seconds"] = 0.0
+        result["route_timestamp_fresh"] = True
+        _mark_ready("manual_forced_route")
         return result
 
     if configured_regime == TOKEN_REGIME_BREAKOUT_MOMENTUM:
         result["effective_strategy"] = STRATEGY_BREAKOUT_MOMENTUM
         result["effective_route"] = STRATEGY_BREAKOUT_MOMENTUM
+        result["route_timestamp_age_seconds"] = 0.0
+        result["route_timestamp_fresh"] = True
+        _mark_ready("manual_forced_route")
         return result
 
     # Preserve default behavior for explicit manual mean-reversion mode.
     if configured_regime == TOKEN_REGIME_MEAN_REVERSION:
         result["effective_strategy"] = STRATEGY_MEAN_REVERSION
         result["effective_route"] = STRATEGY_MEAN_REVERSION
+        result["route_timestamp_age_seconds"] = 0.0
+        result["route_timestamp_fresh"] = True
+        _mark_not_ready("manual_mean_reversion", gate="manual_mean_reversion")
         return result
 
     min_confidence_score = _auto_min_confidence_score(cfg)
     min_stability_score = _auto_min_stability_score(cfg)
     min_persistence_score = _auto_min_persistence_score(cfg)
     min_confirmations = _auto_min_confirmations(cfg)
-    max_route_age_seconds = _auto_max_route_age_seconds(cfg)
     use_multitimeframe_advisory = _auto_use_multitimeframe_advisory(cfg)
     advisory = {
         "suggested_regime": None,
@@ -689,6 +762,8 @@ def resolve_entry_route(
         else:
             result["auto_fallback_reason"] = "advisory_unavailable"
         result["fallback_reason"] = result["auto_fallback_reason"]
+        gate = "insufficient_shadow_state" if result["auto_fallback_reason"] == "insufficient_shadow_state" else "advisory_unavailable"
+        _mark_not_ready(result["fallback_reason"], gate=gate)
         return result
 
     if advisory["insufficient_data"]:
@@ -700,17 +775,20 @@ def resolve_entry_route(
         else:
             result["auto_fallback_reason"] = "insufficient_advisory_data"
         result["fallback_reason"] = result["auto_fallback_reason"]
+        _mark_not_ready(result["fallback_reason"], gate=result["auto_fallback_reason"])
         return result
 
     if not _as_bool(advisory.get("supported_key_windows"), False):
         result["auto_fallback_reason"] = "unsupported_key_windows"
         result["fallback_reason"] = result["auto_fallback_reason"]
+        _mark_not_ready(result["fallback_reason"], gate="unsupported_key_windows")
         return result
 
     data_quality_status = str(advisory.get("data_quality_status") or "UNKNOWN").upper()
     if data_quality_status in {"STALE", "INSUFFICIENT", "UNSUPPORTED_WINDOW"}:
         result["auto_fallback_reason"] = "data_quality_not_acceptable"
         result["fallback_reason"] = result["auto_fallback_reason"]
+        _mark_not_ready(result["fallback_reason"], gate="data_quality_not_acceptable")
         return result
 
     if _auto_require_core_candle_readiness(cfg):
@@ -718,19 +796,29 @@ def resolve_entry_route(
         if not readiness_ok:
             result["auto_fallback_reason"] = "core_timeframe_not_ready"
             result["fallback_reason"] = f"core_timeframe_not_ready:{readiness_reason}"
+            _mark_not_ready(result["fallback_reason"], gate="core_timeframe_not_ready")
             return result
 
     detection_timestamp = _as_float(advisory.get("detection_timestamp_epoch"))
-    route_eval_ts = _as_float(result.get("route_eval_ts")) or time.time()
+    route_eval_ts = _as_float(result.get("route_eval_ts")) or route_eval_ts
+    if detection_timestamp is not None:
+        route_age = max(0.0, route_eval_ts - detection_timestamp)
+        result["route_timestamp_age_seconds"] = route_age
+        result["route_timestamp_fresh"] = route_age <= max_route_age_seconds
+    else:
+        result["route_timestamp_age_seconds"] = None
+        result["route_timestamp_fresh"] = False
     if detection_timestamp is not None and (route_eval_ts - detection_timestamp) > max_route_age_seconds:
         result["auto_fallback_reason"] = "route_timestamp_stale"
         result["fallback_reason"] = result["auto_fallback_reason"]
+        _mark_not_ready(result["fallback_reason"], gate="route_timestamp_stale")
         return result
 
     mapped_strategy = SUGGESTED_REGIME_TO_STRATEGY.get(str(advisory["suggested_regime"]))
     if mapped_strategy is None:
         result["auto_fallback_reason"] = "mixed_or_unclear_regime"
         result["fallback_reason"] = result["auto_fallback_reason"]
+        _mark_not_ready(result["fallback_reason"], gate="mixed_or_unclear_regime")
         return result
 
     min_confidence_score = _auto_strategy_min_confidence_score(cfg, mapped_strategy)
@@ -741,18 +829,21 @@ def resolve_entry_route(
     if confidence_score is None or confidence_score < min_confidence_score:
         result["auto_fallback_reason"] = "low_confidence"
         result["fallback_reason"] = result["auto_fallback_reason"]
+        _mark_not_ready(result["fallback_reason"], gate="low_confidence")
         return result
 
     stability_score = _normalize_confidence_score(advisory.get("stability_score"))
     if stability_score is None or stability_score < min_stability_score:
         result["auto_fallback_reason"] = "low_stability"
         result["fallback_reason"] = result["auto_fallback_reason"]
+        _mark_not_ready(result["fallback_reason"], gate="low_stability")
         return result
 
     persistence_score = _normalize_confidence_score(advisory.get("persistence_score"))
     if persistence_score is None or persistence_score < min_persistence_score:
         result["auto_fallback_reason"] = "low_persistence"
         result["fallback_reason"] = result["auto_fallback_reason"]
+        _mark_not_ready(result["fallback_reason"], gate="low_persistence")
         return result
 
     if _auto_use_route_quality_gates(cfg) and mapped_strategy in {STRATEGY_TREND_PULLBACK, STRATEGY_BREAKOUT_MOMENTUM}:
@@ -760,6 +851,7 @@ def resolve_entry_route(
         if not promoted:
             result["auto_fallback_reason"] = "route_not_promoted"
             result["fallback_reason"] = f"route_not_promoted:{promotion_reason}"
+            _mark_not_ready(result["fallback_reason"], gate="route_not_promoted")
             return result
 
         max_share_pct = _auto_strategy_max_route_share_pct(cfg, mapped_strategy)
@@ -768,6 +860,7 @@ def resolve_entry_route(
             if current_share is not None and current_share >= max_share_pct:
                 result["auto_fallback_reason"] = "route_share_cap"
                 result["fallback_reason"] = f"route_share_cap:{current_share:.2f}%>={max_share_pct:.2f}%"
+                _mark_not_ready(result["fallback_reason"], gate="route_share_cap")
                 return result
 
     suggested_regime = str(advisory["suggested_regime"])
@@ -804,4 +897,12 @@ def resolve_entry_route(
 
     result["effective_strategy"] = mapped_strategy
     result["effective_route"] = mapped_strategy
+    if detection_timestamp is not None and result["route_timestamp_age_seconds"] is None:
+        route_age = max(0.0, route_eval_ts - detection_timestamp)
+        result["route_timestamp_age_seconds"] = route_age
+        result["route_timestamp_fresh"] = route_age <= max_route_age_seconds
+    if mapped_strategy in {STRATEGY_TREND_PULLBACK, STRATEGY_BREAKOUT_MOMENTUM}:
+        _mark_ready("auto_quality_gates_passed")
+    else:
+        _mark_not_ready(result.get("fallback_reason") or "mean_reversion_fallback", gate="mean_reversion_fallback")
     return result

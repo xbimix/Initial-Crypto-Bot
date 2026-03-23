@@ -1,7 +1,12 @@
 from utils.logger import setup_logger
 from paper.paper_broker import PaperBroker
 from risk.risk_manager import RiskManager
-from strategy.strategy_engine import confirm_entry, confirm_exit
+from strategy.strategy_engine import (
+    clear_entry_contract,
+    confirm_entry,
+    confirm_exit,
+    stage_entry_contract,
+)
 logger = setup_logger("executor")
 
 
@@ -121,6 +126,22 @@ class Executor:
         price = decision.get("price")
         reason = decision.get("reason")
         volatility = decision.get("volatility")
+        trade_meta = {
+            "effective_route": decision.get("effective_route"),
+            "effective_strategy": decision.get("effective_strategy"),
+            "configured_regime": decision.get("configured_regime"),
+            "detected_regime": decision.get("detected_regime"),
+            "suggested_regime_v2": decision.get("suggested_regime_v2"),
+            "fallback_reason": decision.get("fallback_reason"),
+            "auto_fallback_reason": decision.get("auto_fallback_reason"),
+            "entry_route": decision.get("entry_route") or decision.get("effective_route"),
+            "entry_regime": decision.get("entry_regime") or decision.get("suggested_regime_v2") or decision.get("detected_regime"),
+            "exit_policy": decision.get("exit_policy"),
+            "entry_confidence": decision.get("entry_confidence") or decision.get("detected_regime_confidence"),
+            "entry_timestamp": decision.get("entry_timestamp"),
+            "route_eval_ts": decision.get("entry_route_eval_ts") or decision.get("route_eval_ts"),
+            "regime_eval_ts": decision.get("entry_regime_eval_ts") or decision.get("regime_eval_ts"),
+        }
 
         if not symbol or action not in {"BUY", "SELL", "HOLD"}:
             logger.warning(f"Invalid decision payload: {decision}")
@@ -135,10 +156,10 @@ class Executor:
         logger.info(f"Executor: {symbol} -> {action} @ {price} | {reason}")
 
         if action == "BUY":
-            return self._handle_buy(symbol, price, reason, volatility)
+            return self._handle_buy(symbol, price, reason, volatility, trade_meta)
 
         elif action == "SELL":
-            return self._handle_sell(symbol, price, reason)
+            return self._handle_sell(symbol, price, reason, trade_meta)
 
         return False
     def _sync_risk_with_broker(self):
@@ -160,92 +181,124 @@ class Executor:
     # BUY HANDLER
     # --------------------------------------------------
 
-    def _handle_buy(self, symbol: str, price: float, reason: str, volatility=None) -> bool:
+    def _handle_buy(
+        self,
+        symbol: str,
+        price: float,
+        reason: str,
+        volatility=None,
+        trade_meta: dict | None = None,
+    ) -> bool:
+        staged = isinstance(trade_meta, dict)
+        if staged:
+            stage_entry_contract(symbol, trade_meta)
+        executed = False
 
-        # UTC trade window control (entries only).
-        if not self.risk.is_within_trade_window():
-            logger.info(f"BUY blocked for {symbol} (outside UTC trade window)")
-            return False
+        try:
+            # UTC trade window control (entries only).
+            if not self.risk.is_within_trade_window():
+                logger.info(f"BUY blocked for {symbol} (outside UTC trade window)")
+                return False
 
-        # Daily loss guard with buy auto-pause.
-        daily_loss_state = self.risk.daily_loss_state()
-        if daily_loss_state.get("buy_paused", False):
-            logger.info(
-                f"BUY blocked for {symbol} (daily loss limit reached: "
-                f"{daily_loss_state.get('realized_usd', 0.0):.2f} <= "
-                f"-{daily_loss_state.get('limit_usd', 0.0):.2f})"
+            # Daily loss guard with buy auto-pause.
+            daily_loss_state = self.risk.daily_loss_state()
+            if daily_loss_state.get("buy_paused", False):
+                logger.info(
+                    f"BUY blocked for {symbol} (daily loss limit reached: "
+                    f"{daily_loss_state.get('realized_usd', 0.0):.2f} <= "
+                    f"-{daily_loss_state.get('limit_usd', 0.0):.2f})"
+                )
+                return False
+
+            # Cooldown protection
+            if not self.risk.can_trade(symbol, volatility=volatility):
+                logger.info(f"Cooldown active for {symbol}")
+                return False
+
+            # Maximum open trades protection
+            if not self.risk.can_open_position(self.open_positions_count()):
+                logger.info("Max concurrent trades reached")
+                return False
+
+            symbol_open_positions = 1 if self.paper.has_position(symbol) else 0
+            if not self.risk.can_open_position_for_symbol(symbol_open_positions):
+                logger.info(f"Max concurrent trades reached for {symbol}")
+                return False
+
+            # Already holding protection
+            if self.paper.has_position(symbol):
+                logger.info(f"Position already open for {symbol}")
+                return False
+
+            # Position sizing
+            balance = self.paper.get_balance()
+            size = self.risk.position_size(balance, price, volatility=volatility)
+
+            if size <= 0:
+                logger.warning("Invalid position size")
+                return False
+
+            trade_cost = price * size
+            current_allocated, per_symbol_allocated = self._current_allocated_usd()
+            current_symbol_allocated = per_symbol_allocated.get(symbol, 0.0)
+            equity = max(balance, 0.0) + max(current_allocated, 0.0)
+
+            if not self.risk.can_open_under_max_trade_amount(current_allocated, trade_cost):
+                logger.info("Max trade amount reached")
+                return False
+
+            exposure_block_reason = self.risk.exposure_block_reason(
+                current_open_value_usd=current_allocated,
+                current_symbol_value_usd=current_symbol_allocated,
+                next_trade_cost_usd=trade_cost,
+                equity_usd=equity,
             )
+            if exposure_block_reason:
+                logger.info(f"BUY blocked for {symbol} ({exposure_block_reason})")
+                return False
+
+            # Execute buy
+            if self.paper.buy(symbol, price, size, reason, trade_meta=trade_meta):
+                self.risk.mark_trade(symbol)
+                self.risk.register_position(
+                    symbol,
+                    {
+                        "entry": price,
+                        "size": size,
+                    },
+                )
+                meta = trade_meta if isinstance(trade_meta, dict) else {}
+                # --- NEW: confirm entry to strategy ---
+                confirm_entry(
+                    symbol,
+                    price,
+                    entry_route=meta.get("entry_route"),
+                    entry_regime=meta.get("entry_regime"),
+                    exit_policy=meta.get("exit_policy"),
+                    entry_confidence=meta.get("entry_confidence"),
+                    entry_timestamp=meta.get("entry_timestamp"),
+                    route_eval_ts=meta.get("route_eval_ts"),
+                    regime_eval_ts=meta.get("regime_eval_ts"),
+                )
+                executed = True
+                return True
+
             return False
-
-        # Cooldown protection
-        if not self.risk.can_trade(symbol, volatility=volatility):
-            logger.info(f"Cooldown active for {symbol}")
-            return False
-
-        # Maximum open trades protection
-        if not self.risk.can_open_position(self.open_positions_count()):
-            logger.info("Max concurrent trades reached")
-            return False
-
-        symbol_open_positions = 1 if self.paper.has_position(symbol) else 0
-        if not self.risk.can_open_position_for_symbol(symbol_open_positions):
-            logger.info(f"Max concurrent trades reached for {symbol}")
-            return False
-
-        # Already holding protection
-        if self.paper.has_position(symbol):
-            logger.info(f"Position already open for {symbol}")
-            return False
-
-        # Position sizing
-        balance = self.paper.get_balance()
-        size = self.risk.position_size(balance, price, volatility=volatility)
-
-        if size <= 0:
-            logger.warning("Invalid position size")
-            return False
-
-        trade_cost = price * size
-        current_allocated, per_symbol_allocated = self._current_allocated_usd()
-        current_symbol_allocated = per_symbol_allocated.get(symbol, 0.0)
-        equity = max(balance, 0.0) + max(current_allocated, 0.0)
-
-        if not self.risk.can_open_under_max_trade_amount(current_allocated, trade_cost):
-            logger.info("Max trade amount reached")
-            return False
-
-        exposure_block_reason = self.risk.exposure_block_reason(
-            current_open_value_usd=current_allocated,
-            current_symbol_value_usd=current_symbol_allocated,
-            next_trade_cost_usd=trade_cost,
-            equity_usd=equity,
-        )
-        if exposure_block_reason:
-            logger.info(f"BUY blocked for {symbol} ({exposure_block_reason})")
-            return False
-
-        # Execute buy
-        if self.paper.buy(symbol, price, size, reason):
-            self.risk.mark_trade(symbol)
-            self.risk.register_position(
-                symbol,
-                {
-                    "entry": price,
-                    "size": size,
-                },
-            )
-            # --- NEW: confirm entry to strategy ---
-            confirm_entry(symbol, price)
-
-            return True
-
-        return False
+        finally:
+            if staged and not executed:
+                clear_entry_contract(symbol)
 
     # --------------------------------------------------
     # SELL HANDLER
     # --------------------------------------------------
 
-    def _handle_sell(self, symbol: str, price: float, reason: str) -> bool:
+    def _handle_sell(
+        self,
+        symbol: str,
+        price: float,
+        reason: str,
+        trade_meta: dict | None = None,
+    ) -> bool:
 
         # Must have position
         if not self.paper.has_position(symbol):
@@ -254,8 +307,20 @@ class Executor:
             confirm_exit(symbol, price)
             return False
 
+        position = self.paper.get_position(symbol) or {}
+        if isinstance(trade_meta, dict):
+            trade_meta.setdefault("entry_route", position.get("entry_route"))
+            trade_meta.setdefault("entry_regime", position.get("entry_regime"))
+            trade_meta.setdefault("exit_policy", position.get("exit_policy"))
+            trade_meta.setdefault("entry_confidence", position.get("entry_confidence"))
+            trade_meta.setdefault("entry_timestamp", position.get("entry_timestamp"))
+            trade_meta.setdefault("route_eval_ts", position.get("route_eval_ts"))
+            trade_meta.setdefault("regime_eval_ts", position.get("regime_eval_ts"))
+            trade_meta.setdefault("effective_route", position.get("entry_route"))
+            trade_meta.setdefault("exit_policy_used", position.get("exit_policy"))
+
         # Execute sell
-        if self.paper.sell(symbol, price, reason):
+        if self.paper.sell(symbol, price, reason, trade_meta=trade_meta):
             self.risk.mark_trade(symbol)
             self.risk.close_position(symbol)
             confirm_exit(symbol, price)

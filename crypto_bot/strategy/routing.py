@@ -153,7 +153,7 @@ def strategy_for_symbol(cfg, symbol, scalper_cfg):
                 mode = override.get("strategy", override.get("mode"))
             return normalize_strategy_name(mode)
 
-    if scalper_cfg.get("enabled") and symbol_key in scalper_cfg.get("symbols", set()):
-        return "volatility_scalper"
-
+    # Scalper routing is manual-only and must be keyed to explicit per-symbol
+    # strategy toggle state (`symbol_strategies` / `strategy_overrides`).
+    # Do not implicitly force scalper via volatility_scalper.symbols membership.
     return "mean_reversion"

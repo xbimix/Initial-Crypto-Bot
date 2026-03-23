@@ -107,7 +107,14 @@ class PaperBroker:
         except Exception as exc:
             logger.error(f"Failed to save paper state: {exc}")
 
-    def buy(self, symbol: str, price: float, size: float, reason: str):
+    def buy(
+        self,
+        symbol: str,
+        price: float,
+        size: float,
+        reason: str,
+        trade_meta: dict | None = None,
+    ):
         with self.storage.transaction(STATE_DIR):
             self._load_state()
 
@@ -117,32 +124,79 @@ class PaperBroker:
                 return False
 
             self.balance -= cost
+            entry_metadata = {}
+            if isinstance(trade_meta, dict):
+                for key in (
+                    "entry_route",
+                    "entry_regime",
+                    "exit_policy",
+                    "entry_confidence",
+                    "entry_timestamp",
+                    "route_eval_ts",
+                    "regime_eval_ts",
+                    "effective_route",
+                    "effective_strategy",
+                    "configured_regime",
+                    "detected_regime",
+                    "suggested_regime_v2",
+                    "fallback_reason",
+                    "auto_fallback_reason",
+                ):
+                    value = trade_meta.get(key)
+                    if value is not None:
+                        entry_metadata[key] = value
+
             self.positions[symbol] = {
                 "price": price,
                 "size": size,
-                "entry_time": time.time(),
+                "entry_time": float(entry_metadata.get("entry_timestamp") or time.time()),
                 "reason": reason,
+                **entry_metadata,
             }
 
-            self._record_trade(
-                {
-                    "time": time.time(),
-                    "symbol": symbol,
-                    "side": "BUY",
-                    "price": price,
-                    "size": size,
-                    "balance": self.balance,
-                    "reason": reason,
-                },
-                use_lock=False,
-            )
+            trade_row = {
+                "time": time.time(),
+                "symbol": symbol,
+                "side": "BUY",
+                "price": price,
+                "size": size,
+                "balance": self.balance,
+                "reason": reason,
+            }
+            if isinstance(trade_meta, dict):
+                for key in (
+                    "effective_route",
+                    "effective_strategy",
+                    "configured_regime",
+                    "detected_regime",
+                    "suggested_regime_v2",
+                    "fallback_reason",
+                    "auto_fallback_reason",
+                    "entry_route",
+                    "entry_regime",
+                    "exit_policy",
+                    "entry_confidence",
+                    "entry_timestamp",
+                    "route_eval_ts",
+                    "regime_eval_ts",
+                ):
+                    value = trade_meta.get(key)
+                    if value is not None:
+                        trade_row[key] = value
+            self._record_trade(trade_row, use_lock=False)
 
             self._save_state(use_lock=False)
 
         logger.info(f"Paper BUY {symbol} @ {price} size={size}")
         return True
 
-    def sell(self, symbol: str, price: float, reason: str):
+    def sell(
+        self,
+        symbol: str,
+        price: float,
+        reason: str,
+        trade_meta: dict | None = None,
+    ):
         with self.storage.transaction(STATE_DIR):
             self._load_state()
 
@@ -158,19 +212,47 @@ class PaperBroker:
             self.balance += price * size
             del self.positions[symbol]
 
-            self._record_trade(
-                {
-                    "time": time.time(),
-                    "symbol": symbol,
-                    "side": "SELL",
-                    "price": price,
-                    "size": size,
-                    "pnl": pnl,
-                    "balance": self.balance,
-                    "reason": reason,
-                },
-                use_lock=False,
-            )
+            trade_row = {
+                "time": time.time(),
+                "symbol": symbol,
+                "side": "SELL",
+                "price": price,
+                "size": size,
+                "pnl": pnl,
+                "balance": self.balance,
+                "reason": reason,
+            }
+            trade_row["entry_route"] = pos.get("entry_route")
+            trade_row["entry_regime"] = pos.get("entry_regime")
+            trade_row["exit_policy_used"] = pos.get("exit_policy")
+            trade_row["entry_confidence"] = pos.get("entry_confidence")
+            trade_row["entry_timestamp"] = pos.get("entry_timestamp")
+            trade_row["route_eval_ts"] = pos.get("route_eval_ts")
+            trade_row["regime_eval_ts"] = pos.get("regime_eval_ts")
+            if trade_row.get("entry_route") is not None:
+                trade_row.setdefault("effective_route", trade_row.get("entry_route"))
+            if isinstance(trade_meta, dict):
+                for key in (
+                    "effective_route",
+                    "effective_strategy",
+                    "configured_regime",
+                    "detected_regime",
+                    "suggested_regime_v2",
+                    "fallback_reason",
+                    "auto_fallback_reason",
+                    "entry_route",
+                    "entry_regime",
+                    "exit_policy",
+                    "exit_policy_used",
+                    "entry_confidence",
+                    "entry_timestamp",
+                    "route_eval_ts",
+                    "regime_eval_ts",
+                ):
+                    value = trade_meta.get(key)
+                    if value is not None:
+                        trade_row[key] = value
+            self._record_trade(trade_row, use_lock=False)
 
             self._save_state(use_lock=False)
 

@@ -140,9 +140,11 @@ def evaluate_regime_v2(
     weakening_votes = 0.0
     weighted_agreement = 0.0
     total_weight = 0.0
+    weighted_amplitude_sum = 0.0
+    weighted_amplitude_weight = 0.0
     supported_count = 0
-    supported_key_windows = False
     key_windows = {"4h", "24h"}
+    supported_key_windows_seen: set[str] = set()
 
     for window_label, minutes in WINDOWS_MINUTES:
         points = int(round(minutes / sampling_minutes))
@@ -235,7 +237,7 @@ def evaluate_regime_v2(
         quality = "GOOD"
         supported_count += 1
         if window_label in key_windows:
-            supported_key_windows = True
+            supported_key_windows_seen.add(window_label)
 
         trend_component = 0.0
         if structure == "UPTREND":
@@ -260,6 +262,8 @@ def evaluate_regime_v2(
         breakout_votes += breakout_component * weight
         weighted_agreement += agreement * weight
         total_weight += weight
+        weighted_amplitude_sum += amplitude_pct * weight
+        weighted_amplitude_weight += weight
 
         timeframe_summary.append(
             {
@@ -325,6 +329,12 @@ def evaluate_regime_v2(
     breakout_score = _clamp((breakout_votes / total_weight) * 100.0, 0.0, 100.0)
     weakening_score = _clamp((weakening_votes / total_weight) * 100.0, 0.0, 100.0)
     agreement_score = _clamp((weighted_agreement / total_weight) * 100.0, 0.0, 100.0)
+    weighted_amplitude_pct = (
+        weighted_amplitude_sum / weighted_amplitude_weight
+        if weighted_amplitude_weight > 0
+        else 0.0
+    )
+    supported_key_windows = key_windows.issubset(supported_key_windows_seen)
 
     returns = []
     for idx in range(1, len(prices)):
@@ -551,7 +561,7 @@ def evaluate_regime_v2(
             "source_strength": 1.0,
         },
         "volatilityAnalytics": {
-            "atr_norm": round((amplitude_pct / 100.0), 8),
+            "atr_norm": round((weighted_amplitude_pct / 100.0), 8),
             "expansion_ratio": round(_clamp(breakout_score_norm * 1.3, 0.0, 1.0), 6),
             "compression_score": round(compression_score_norm, 6),
             "impulse_strength": round(_clamp(trend_score_norm, 0.0, 1.0), 6),

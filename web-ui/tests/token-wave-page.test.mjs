@@ -73,7 +73,7 @@ await run("token API payload includes waveZoneAnalyzer advisory block", async ()
   assert.match(dashboardRouteSource, /volatilityOpportunityScore|highOpportunitySymbolCount|topVolatilityOpportunitySymbols/);
   assert.match(dashboardPageSource, /Rolling Symbol Rotation|rotationStatusStyle|Trap Risk/);
   assert.match(dashboardPageSource, /Volatility Opportunity Radar|Sort Volatility|volatilityOpportunityScore/);
-  assert.match(dashboardPageSource, /Regime Suggestion/);
+  assert.match(dashboardPageSource, /Regime Routing|Suggested Regime V2|Detected \(Legacy\/Shadow\)/);
   assert.match(dashboardPageSource, /Volatility State/);
   assert.match(dashboardPageSource, /Data Quality/);
   assert.match(dashboardPageSource, /setControlSort/);

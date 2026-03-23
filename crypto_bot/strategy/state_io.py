@@ -1,6 +1,28 @@
 import time
 
 
+def _sanitize_symbol_map(raw_map, *, key_name, logger):
+    if not isinstance(raw_map, dict):
+        if raw_map is not None:
+            logger.warning(f"Strategy state key '{key_name}' malformed; expected object, got {type(raw_map).__name__}")
+        return {}
+
+    sanitized = {}
+    dropped = 0
+    for raw_key, value in raw_map.items():
+        if not isinstance(raw_key, str):
+            dropped += 1
+            continue
+        symbol = raw_key.strip().upper()
+        if (not symbol) or ("-" not in symbol):
+            dropped += 1
+            continue
+        sanitized[symbol] = value
+    if dropped > 0:
+        logger.warning(f"Strategy state key '{key_name}' dropped {dropped} malformed symbol entries")
+    return sanitized
+
+
 def paper_state_mtime(paper_state_file):
     try:
         return paper_state_file.stat().st_mtime
@@ -41,7 +63,7 @@ def load_strategy_state(
             state = {}
 
         for key, mapping in state_maps.items():
-            mapping.update(state.get(key, {}))
+            mapping.update(_sanitize_symbol_map(state.get(key, {}), key_name=key, logger=logger))
 
         shadow_regime_state.update(
             normalize_shadow_state(state.get("shadow_regime_state", {}))
@@ -63,6 +85,13 @@ def sync_with_broker_state(
     last_momentum,
     last_signal,
     metadata_maps,
+    entry_route_state=None,
+    entry_regime_state=None,
+    exit_policy_state=None,
+    entry_confidence_state=None,
+    entry_timestamp_state=None,
+    entry_route_eval_ts_state=None,
+    entry_regime_eval_ts_state=None,
     save_strategy_state,
     logger,
 ):
@@ -75,6 +104,9 @@ def sync_with_broker_state(
             data = {}
 
         positions = data.get("positions", {})
+        if not isinstance(positions, dict):
+            logger.warning("Strategy sync: paper positions malformed; expected object")
+            positions = {}
         broker_symbols = set(positions)
         state_changed = False
 
@@ -121,7 +153,28 @@ def sync_with_broker_state(
                 mapping.pop(symbol, None)
                 state_changed = True
 
+        position_policy_maps = (
+            entry_route_state,
+            entry_regime_state,
+            exit_policy_state,
+            entry_confidence_state,
+            entry_timestamp_state,
+            entry_route_eval_ts_state,
+            entry_regime_eval_ts_state,
+        )
+        for mapping in position_policy_maps:
+            if not isinstance(mapping, dict):
+                continue
+            for symbol in list(mapping.keys()):
+                if symbol in broker_symbols:
+                    continue
+                mapping.pop(symbol, None)
+                state_changed = True
+
         for symbol, pos in positions.items():
+            if not isinstance(pos, dict):
+                logger.warning(f"Strategy sync: skipping malformed position row for {symbol}")
+                continue
             restored_entry_price = pos.get("price")
             restored_entry_time = parse_numeric(pos.get("entry_time"), fallback=None)
             if restored_entry_time is None:
@@ -151,6 +204,49 @@ def sync_with_broker_state(
                 state_changed = True
             if last_signal.get(symbol) != "BUY":
                 last_signal[symbol] = "BUY"
+                state_changed = True
+
+            # Route/exit contract restore (for open positions).
+            stored_route = str(pos.get("entry_route") or "").strip().lower()
+            if stored_route not in {"mean_reversion", "trend_pullback", "breakout_momentum", "observe_only", "volatility_scalper"}:
+                stored_route = "mean_reversion"
+            stored_exit_policy = str(pos.get("exit_policy") or "").strip().lower()
+            if stored_exit_policy not in {"mr_exit", "trend_exit", "breakout_exit", "scalper_exit"}:
+                if stored_route == "trend_pullback":
+                    stored_exit_policy = "trend_exit"
+                elif stored_route == "breakout_momentum":
+                    stored_exit_policy = "breakout_exit"
+                elif stored_route == "volatility_scalper":
+                    stored_exit_policy = "scalper_exit"
+                else:
+                    stored_exit_policy = "mr_exit"
+            stored_regime = str(pos.get("entry_regime") or "MIXED_OR_UNCLEAR")
+            stored_confidence = parse_numeric(pos.get("entry_confidence"), fallback=None)
+            stored_entry_timestamp = parse_numeric(pos.get("entry_timestamp"), fallback=restored_entry_time) or restored_entry_time
+            stored_route_eval_ts = parse_numeric(pos.get("route_eval_ts"), fallback=stored_entry_timestamp) or stored_entry_timestamp
+            stored_regime_eval_ts = parse_numeric(pos.get("regime_eval_ts"), fallback=stored_entry_timestamp) or stored_entry_timestamp
+
+            if isinstance(entry_route_state, dict) and entry_route_state.get(symbol) != stored_route:
+                entry_route_state[symbol] = stored_route
+                state_changed = True
+            if isinstance(entry_regime_state, dict) and entry_regime_state.get(symbol) != stored_regime:
+                entry_regime_state[symbol] = stored_regime
+                state_changed = True
+            if isinstance(exit_policy_state, dict) and exit_policy_state.get(symbol) != stored_exit_policy:
+                exit_policy_state[symbol] = stored_exit_policy
+                state_changed = True
+            if isinstance(entry_confidence_state, dict):
+                if entry_confidence_state.get(symbol) != stored_confidence:
+                    entry_confidence_state[symbol] = stored_confidence
+                    state_changed = True
+            if isinstance(entry_timestamp_state, dict) and entry_timestamp_state.get(symbol) != stored_entry_timestamp:
+                entry_timestamp_state[symbol] = stored_entry_timestamp
+                state_changed = True
+            if isinstance(entry_route_eval_ts_state, dict) and entry_route_eval_ts_state.get(symbol) != stored_route_eval_ts:
+                entry_route_eval_ts_state[symbol] = stored_route_eval_ts
+                state_changed = True
+            if isinstance(entry_regime_eval_ts_state, dict) and entry_regime_eval_ts_state.get(symbol) != stored_regime_eval_ts:
+                entry_regime_eval_ts_state[symbol] = stored_regime_eval_ts
                 state_changed = True
 
         if state_changed:

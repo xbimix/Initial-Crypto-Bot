@@ -117,6 +117,8 @@ type StrategyState = {
   last_regime_eval_ts?: Record<string, number>;
   last_auto_fallback_reason?: Record<string, string>;
   last_fallback_reason?: Record<string, string>;
+  last_ready_for_non_mr_route?: Record<string, boolean>;
+  last_non_mr_ready_reason?: Record<string, string>;
 };
 
 type TradeEntry = {
@@ -203,6 +205,8 @@ type SymbolControl = {
   effectiveRoute: string;
   autoFallbackReason: string | null;
   fallbackReason: string | null;
+  readyForNonMrRoute: boolean;
+  nonMrReadyReason: string | null;
   buyEnabled: boolean;
   sellEnabled: boolean;
   hasOpenPosition: boolean;
@@ -305,6 +309,69 @@ type RotationWindowMetrics = {
   avgMaxDrawdownPct: number | null;
 };
 
+type MarketSyncHealth = {
+  generated_at?: string;
+  adaptive_budget?: {
+    base_cap?: number;
+    effective_cap?: number;
+    under_pressure?: boolean;
+    pressure?: {
+      rate_limited_count?: number;
+      throttle_sleep_seconds_sum?: number;
+      throttle_event_count?: number;
+      window_seconds?: number;
+    };
+  };
+  sync?: {
+    enabled?: boolean;
+    attempted_jobs?: number;
+    requests?: number;
+    inserted?: number;
+    new_inserted?: number;
+    updated_existing?: number;
+    candidate_new?: number;
+    eligible_closed?: number;
+    skipped_existing?: number;
+    skipped_partial?: number;
+    errors?: number;
+    degraded?: number;
+  };
+  coverage?: {
+    fresh_counts_by_timeframe?: Record<string, number>;
+    stale_symbol_timeframes?: number;
+    total_rows?: number;
+    rows_updated_last_24h?: number;
+    status_counts?: Record<string, number>;
+  };
+  endpoint_telemetry?: {
+    fetch_calls?: number;
+    success_calls?: number;
+    failed_calls?: number;
+    official_success_calls?: number;
+    public_success_calls?: number;
+    active_capabilities?: Record<string, {
+      status?: string;
+      success_count?: number;
+      failure_count?: number;
+      last_status_code?: number;
+    }>;
+  };
+  slo?: {
+    status?: string;
+    coverage_ok?: boolean;
+    quality_ok?: boolean;
+    throughput_ok?: boolean;
+    fresh_1h?: number;
+    fresh_4h?: number;
+    fresh_24h?: number;
+    stale_symbol_timeframes?: number;
+    requests?: number;
+    new_inserted?: number;
+    errors?: number;
+    degraded?: number;
+  };
+};
+
 type SymbolRotationAdvisory = {
   shortTermScore: number | null;
   mediumTermScore: number | null;
@@ -322,6 +389,7 @@ const STRATEGY_STATE_PATH = path.join(STATE_DIR, "strategy_state.json");
 const TRADES_PATH = path.join(STATE_DIR, "trades.json");
 const LOG_PATH = path.join(STATE_DIR, "bot.log");
 const PRICE_HISTORY_PATH = path.join(STATE_DIR, "revolut_universe_price_history.json");
+const MARKET_SYNC_HEALTH_PATH = path.join(STATE_DIR, "market_sync_health.json");
 const LOG_TAIL_BYTES = 256 * 1024;
 
 async function readJson<T>(filePath: string, fallback: T): Promise<T> {
@@ -1793,11 +1861,12 @@ function buildEquityCurve(
 }
 
 export async function GET() {
-  const [config, paper, strategy, trades] = await Promise.all([
+  const [config, paper, strategy, trades, marketSyncHealth] = await Promise.all([
     readJson<ConfigState>(CONFIG_PATH, {}),
     readJson<PaperState>(PAPER_STATE_PATH, {}),
     readJson<StrategyState>(STRATEGY_STATE_PATH, {}),
     readJson<TradeEntry[]>(TRADES_PATH, []),
+    readJson<MarketSyncHealth>(MARKET_SYNC_HEALTH_PATH, {}),
   ]);
 
   const positions = paper.positions ?? {};
@@ -1832,6 +1901,8 @@ export async function GET() {
   const runtimeRegimeEvalTimestampEpochMap = parseNumberMap(strategy.last_regime_eval_ts);
   const runtimeAutoFallbackReasonMap = parseTextMap(strategy.last_auto_fallback_reason);
   const runtimeFallbackReasonMap = parseTextMap(strategy.last_fallback_reason);
+  const runtimeReadyForNonMrRouteMap = parseEnabledMap(strategy.last_ready_for_non_mr_route);
+  const runtimeNonMrReadyReasonMap = parseTextMap(strategy.last_non_mr_ready_reason);
   const allSymbols = uniqueSymbols(
     configuredSymbols,
     Object.keys(legacyMap),
@@ -2039,6 +2110,8 @@ export async function GET() {
     );
     const autoFallbackReason = runtimeAutoFallbackReasonMap[symbol] ?? null;
     const fallbackReason = runtimeFallbackReasonMap[symbol] ?? autoFallbackReason;
+    const readyForNonMrRoute = runtimeReadyForNonMrRouteMap[symbol] ?? false;
+    const nonMrReadyReason = runtimeNonMrReadyReasonMap[symbol] ?? fallbackReason ?? null;
     const detectionSource = (
       runtimeDetectionSourceMap[symbol]
       ?? regimeAdvisory?.detectionSource
@@ -2085,9 +2158,17 @@ export async function GET() {
         runtimeDetectedRegimeStability ?? regimeAdvisory?.stability_score ?? regimeAdvisory?.stabilityScore ?? null,
       detectedRegimePersistenceScore:
         runtimeDetectedRegimePersistence
+        ?? regimeAdvisory?.persistence_score
+        ?? regimeAdvisory?.persistenceScore
         ?? null,
-      detectedRegimeStabilityInferred: runtimeDetectedRegimeStabilityInferred,
-      detectedRegimePersistenceInferred: runtimeDetectedRegimePersistenceInferred,
+      detectedRegimeStabilityInferred:
+        runtimeDetectedRegimeStabilityInferred
+        || (regimeAdvisory?.stability_inferred === true)
+        || (regimeAdvisory?.stabilityInferred === true),
+      detectedRegimePersistenceInferred:
+        runtimeDetectedRegimePersistenceInferred
+        || (regimeAdvisory?.persistence_inferred === true)
+        || (regimeAdvisory?.persistenceInferred === true),
       detectedRegimeDataQualityStatus:
         (runtimeDetectedRegimeDataQualityStatus ?? regimeAdvisory?.data_quality?.status ?? "UNKNOWN").toUpperCase(),
       detectedRegimeKeyWindowsSupported:
@@ -2110,6 +2191,8 @@ export async function GET() {
       effectiveRoute,
       autoFallbackReason,
       fallbackReason,
+      readyForNonMrRoute,
+      nonMrReadyReason,
       buyEnabled,
       sellEnabled: sellMap[symbol] ?? legacyMap[symbol] ?? true,
       hasOpenPosition,
@@ -2612,6 +2695,72 @@ export async function GET() {
           : round(highestVolatilityOpportunityScore, 1),
       highOpportunitySymbolCount,
       symbolCooldownOverrides: cooldownOverrideMap,
+      marketDataSyncHealth: {
+        generatedAt: marketSyncHealth?.generated_at ?? null,
+        adaptiveBudget: {
+          baseCap: Number(marketSyncHealth?.adaptive_budget?.base_cap ?? 0),
+          effectiveCap: Number(marketSyncHealth?.adaptive_budget?.effective_cap ?? 0),
+          underPressure: marketSyncHealth?.adaptive_budget?.under_pressure === true,
+          rateLimitedCount: Number(
+            marketSyncHealth?.adaptive_budget?.pressure?.rate_limited_count ?? 0,
+          ),
+          throttleSleepSeconds: round(
+            Number(marketSyncHealth?.adaptive_budget?.pressure?.throttle_sleep_seconds_sum ?? 0),
+            2,
+          ),
+          throttleEventCount: Number(
+            marketSyncHealth?.adaptive_budget?.pressure?.throttle_event_count ?? 0,
+          ),
+          windowSeconds: Number(
+            marketSyncHealth?.adaptive_budget?.pressure?.window_seconds ?? 60,
+          ),
+        },
+        sync: {
+          enabled: marketSyncHealth?.sync?.enabled === true,
+          attemptedJobs: Number(marketSyncHealth?.sync?.attempted_jobs ?? 0),
+          requests: Number(marketSyncHealth?.sync?.requests ?? 0),
+          inserted: Number(marketSyncHealth?.sync?.inserted ?? 0),
+          newInserted: Number(marketSyncHealth?.sync?.new_inserted ?? 0),
+          updatedExisting: Number(marketSyncHealth?.sync?.updated_existing ?? 0),
+          candidateNew: Number(marketSyncHealth?.sync?.candidate_new ?? 0),
+          eligibleClosed: Number(marketSyncHealth?.sync?.eligible_closed ?? 0),
+          skippedExisting: Number(marketSyncHealth?.sync?.skipped_existing ?? 0),
+          skippedPartial: Number(marketSyncHealth?.sync?.skipped_partial ?? 0),
+          errors: Number(marketSyncHealth?.sync?.errors ?? 0),
+          degraded: Number(marketSyncHealth?.sync?.degraded ?? 0),
+        },
+        coverage: {
+          fresh1h: Number(marketSyncHealth?.coverage?.fresh_counts_by_timeframe?.["1h"] ?? 0),
+          fresh4h: Number(marketSyncHealth?.coverage?.fresh_counts_by_timeframe?.["4h"] ?? 0),
+          fresh24h: Number(marketSyncHealth?.coverage?.fresh_counts_by_timeframe?.["1d"] ?? 0),
+          staleSymbolTimeframes: Number(marketSyncHealth?.coverage?.stale_symbol_timeframes ?? 0),
+          totalRows: Number(marketSyncHealth?.coverage?.total_rows ?? 0),
+          rowsUpdatedLast24h: Number(marketSyncHealth?.coverage?.rows_updated_last_24h ?? 0),
+          statusCounts: marketSyncHealth?.coverage?.status_counts ?? {},
+        },
+        endpointTelemetry: {
+          fetchCalls: Number(marketSyncHealth?.endpoint_telemetry?.fetch_calls ?? 0),
+          successCalls: Number(marketSyncHealth?.endpoint_telemetry?.success_calls ?? 0),
+          failedCalls: Number(marketSyncHealth?.endpoint_telemetry?.failed_calls ?? 0),
+          officialSuccessCalls: Number(marketSyncHealth?.endpoint_telemetry?.official_success_calls ?? 0),
+          publicSuccessCalls: Number(marketSyncHealth?.endpoint_telemetry?.public_success_calls ?? 0),
+          activeCapabilities: marketSyncHealth?.endpoint_telemetry?.active_capabilities ?? {},
+        },
+        slo: {
+          status: String(marketSyncHealth?.slo?.status ?? "UNKNOWN"),
+          coverageOk: marketSyncHealth?.slo?.coverage_ok === true,
+          qualityOk: marketSyncHealth?.slo?.quality_ok === true,
+          throughputOk: marketSyncHealth?.slo?.throughput_ok === true,
+          fresh1h: Number(marketSyncHealth?.slo?.fresh_1h ?? 0),
+          fresh4h: Number(marketSyncHealth?.slo?.fresh_4h ?? 0),
+          fresh24h: Number(marketSyncHealth?.slo?.fresh_24h ?? 0),
+          staleSymbolTimeframes: Number(marketSyncHealth?.slo?.stale_symbol_timeframes ?? 0),
+          requests: Number(marketSyncHealth?.slo?.requests ?? 0),
+          newInserted: Number(marketSyncHealth?.slo?.new_inserted ?? 0),
+          errors: Number(marketSyncHealth?.slo?.errors ?? 0),
+          degraded: Number(marketSyncHealth?.slo?.degraded ?? 0),
+        },
+      },
     },
     symbolControls: symbolControls.map((control) => ({
       ...control,
@@ -2684,6 +2833,8 @@ export async function GET() {
       effectiveRoute: control.effectiveRoute,
       autoFallbackReason: control.autoFallbackReason,
       fallbackReason: control.fallbackReason,
+      readyForNonMrRoute: control.readyForNonMrRoute,
+      nonMrReadyReason: control.nonMrReadyReason,
       buyOpportunityPct:
         control.buyOpportunityPct === null
           ? null

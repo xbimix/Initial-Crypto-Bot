@@ -6,6 +6,24 @@ try:
 except ModuleNotFoundError:
     from crypto_bot.analysis.data_analysis import calculate_support_resistance
 
+_structure_cache: dict[str, dict] = {}
+
+
+def _structure_fingerprint(symbol: str, prices: list[float]) -> tuple:
+    if not prices:
+        return (symbol, 0)
+    tail = prices[-64:]
+    rounded = tuple(round(value, 8) for value in tail)
+    return (
+        symbol,
+        len(prices),
+        round(prices[0], 8),
+        round(prices[-1], 8),
+        round(min(prices), 8),
+        round(max(prices), 8),
+        hash(rounded),
+    )
+
 
 def compute_buy_diagnostics(
     *,
@@ -47,17 +65,34 @@ def compute_buy_diagnostics(
             valid_prices.append(value)
 
         if len(valid_prices) >= 5:
-            try:
-                support, resistance = calculate_support_resistance(
-                    valid_prices,
-                    window=min(14, len(valid_prices)),
-                )
-                if price <= support * 1.01:
-                    structure = 1.0
-                elif price >= resistance * 0.995:
-                    structure = -1.0
-            except Exception:
-                structure = 0.0
+            symbol = str(snapshot.get("symbol", "")).strip().upper()
+            fingerprint = _structure_fingerprint(symbol, valid_prices)
+            cached = _structure_cache.get(symbol)
+            if (
+                isinstance(cached, dict)
+                and cached.get("fingerprint") == fingerprint
+                and isinstance(cached.get("structure"), (int, float))
+            ):
+                structure = float(cached.get("structure"))
+            else:
+                try:
+                    support, resistance = calculate_support_resistance(
+                        valid_prices,
+                        window=min(14, len(valid_prices)),
+                    )
+                    if price <= support * 1.01:
+                        structure = 1.0
+                    elif price >= resistance * 0.995:
+                        structure = -1.0
+                    else:
+                        structure = 0.0
+                except Exception:
+                    structure = 0.0
+                if symbol:
+                    _structure_cache[symbol] = {
+                        "fingerprint": fingerprint,
+                        "structure": structure,
+                    }
 
     indicators = {
         "rsi": rsi,
