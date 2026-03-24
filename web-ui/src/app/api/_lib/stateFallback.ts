@@ -209,6 +209,41 @@ function parseTokenRegimeMap(value: unknown): Record<string, (typeof TOKEN_REGIM
   return output;
 }
 
+function removeStrategySymbolState(state: JsonMap, symbol: string): JsonMap {
+  for (const key of [
+    "entry_price",
+    "entry_time",
+    "profit_lock",
+    "peak_pnl",
+    "last_signal",
+    "last_momentum",
+    "last_regime",
+    "last_score",
+    "last_volatility",
+    "last_configured_regime",
+    "last_detected_regime",
+    "last_detected_regime_confidence",
+    "last_detected_regime_confidence_label",
+    "last_detection_source",
+    "last_detection_timestamp_epoch",
+    "last_effective_strategy",
+    "last_effective_route",
+    "last_route_eval_ts",
+    "last_regime_eval_ts",
+    "last_fallback_reason",
+    "last_non_mr_ready_reason",
+    "last_ready_for_non_mr_route",
+    "last_auto_fallback_reason",
+  ] as const) {
+    const section = toObject(state[key]);
+    if (Object.keys(section).length > 0 && Object.prototype.hasOwnProperty.call(section, symbol)) {
+      delete section[symbol];
+      state[key] = section;
+    }
+  }
+  return state;
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -552,12 +587,25 @@ export async function updateUniverseTrackLocal(body: UniverseTrackBody) {
   }
   const tracked = body.tracked;
 
-  return withFileLock(CONFIG_PATH, async () => {
+  return withStateTransaction(async () => {
     const cfg = toObject(await readJson<ConfigState>(CONFIG_PATH, {}));
+    const paperState = toObject(await readJson<JsonMap>(PAPER_STATE_PATH, {}));
+    const positions = toObject(paperState.positions);
+    const openPosition = toObject(positions[symbol]);
+    const openPositionSize = asFiniteNumber(openPosition.size) ?? 0;
+    if (!tracked && openPositionSize > 0) {
+      throw new RouteError(409, `Cannot remove ${symbol} while an open position exists`);
+    }
+
     let symbols = normalizeSymbols(cfg.symbols);
     const buyMap = parseEnabledMap(cfg.symbol_buy_enabled);
     const sellMap = parseEnabledMap(cfg.symbol_sell_enabled);
     const legacyMap = parseEnabledMap(cfg.symbol_enabled);
+    const tokenRegimes = parseTokenRegimeMap(cfg.token_regimes);
+    const symbolStrategies = toObject(cfg.symbol_strategies);
+    const strategyOverrides = toObject(cfg.strategy_overrides);
+    const risk = toObject(cfg.risk);
+    const symbolCooldownSeconds = toObject(risk.symbol_cooldown_seconds);
 
     if (tracked) {
       if (!symbols.includes(symbol)) {
@@ -568,16 +616,29 @@ export async function updateUniverseTrackLocal(body: UniverseTrackBody) {
       legacyMap[symbol] = true;
     } else {
       symbols = symbols.filter((value) => value !== symbol);
-      buyMap[symbol] = false;
-      sellMap[symbol] = true;
-      legacyMap[symbol] = false;
+      delete buyMap[symbol];
+      delete sellMap[symbol];
+      delete legacyMap[symbol];
+      delete tokenRegimes[symbol];
+      delete symbolStrategies[symbol];
+      delete strategyOverrides[symbol];
+      delete symbolCooldownSeconds[symbol];
     }
 
     cfg.symbols = symbols;
     cfg.symbol_buy_enabled = buyMap;
     cfg.symbol_sell_enabled = sellMap;
     cfg.symbol_enabled = legacyMap;
+    cfg.token_regimes = tokenRegimes;
+    cfg.symbol_strategies = symbolStrategies;
+    cfg.strategy_overrides = strategyOverrides;
+    risk.symbol_cooldown_seconds = symbolCooldownSeconds;
+    cfg.risk = risk;
     await writeJsonAtomic(CONFIG_PATH, cfg);
+    if (!tracked) {
+      const strategyState = toObject(await readJson<JsonMap>(STRATEGY_STATE_PATH, {}));
+      await writeJsonAtomic(STRATEGY_STATE_PATH, removeStrategySymbolState(strategyState, symbol));
+    }
 
     const payload = {
       symbol,

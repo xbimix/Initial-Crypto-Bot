@@ -599,6 +599,120 @@ def normalize_config(
         "market_data.db_maintenance_interval_seconds",
         min_value=300,
     )
+    source_map = ensure_dict(market_data, "source_map", "market_data.source_map")
+    candles_source = ensure_dict(source_map, "candles", "market_data.source_map.candles")
+    orderbook_source = ensure_dict(source_map, "orderbook", "market_data.source_map.orderbook")
+    tickers_source = ensure_dict(source_map, "tickers", "market_data.source_map.tickers")
+
+    def normalize_authoritative_source(section: dict[str, Any], path: str):
+        nonlocal changed
+        allowed = {"official_signed", "public"}
+        raw = str(section.get("authoritative", "official_signed") or "").strip().lower()
+        if raw not in allowed:
+            section["authoritative"] = "official_signed"
+            changed = True
+            warn(f"{path}.authoritative invalid; defaulted to 'official_signed'")
+            return
+        if section.get("authoritative") != raw:
+            section["authoritative"] = raw
+            changed = True
+
+    normalize_authoritative_source(candles_source, "market_data.source_map.candles")
+    normalize_authoritative_source(orderbook_source, "market_data.source_map.orderbook")
+    normalize_authoritative_source(tickers_source, "market_data.source_map.tickers")
+
+    normalize_bool(
+        candles_source,
+        "allow_public_fallback",
+        False,
+        "market_data.source_map.candles.allow_public_fallback",
+    )
+    normalize_bool(
+        candles_source,
+        "allow_snapshot_fallback",
+        False,
+        "market_data.source_map.candles.allow_snapshot_fallback",
+    )
+    normalize_bool(
+        candles_source,
+        "decision_use_public_fallback",
+        False,
+        "market_data.source_map.candles.decision_use_public_fallback",
+    )
+    normalize_bool(
+        candles_source,
+        "decision_use_snapshot_fallback",
+        False,
+        "market_data.source_map.candles.decision_use_snapshot_fallback",
+    )
+    normalize_bool(
+        orderbook_source,
+        "allow_public_fallback",
+        True,
+        "market_data.source_map.orderbook.allow_public_fallback",
+    )
+    normalize_bool(
+        orderbook_source,
+        "decision_use_public_fallback",
+        True,
+        "market_data.source_map.orderbook.decision_use_public_fallback",
+    )
+    normalize_bool(
+        tickers_source,
+        "allow_public_fallback",
+        True,
+        "market_data.source_map.tickers.allow_public_fallback",
+    )
+    normalize_bool(
+        tickers_source,
+        "decision_use_public_fallback",
+        True,
+        "market_data.source_map.tickers.decision_use_public_fallback",
+    )
+
+    freshness_slo = ensure_dict(market_data, "freshness_slo", "market_data.freshness_slo")
+    normalize_int(
+        freshness_slo,
+        "min_fresh_1h",
+        1,
+        "market_data.freshness_slo.min_fresh_1h",
+        min_value=0,
+    )
+    normalize_int(
+        freshness_slo,
+        "min_fresh_4h",
+        1,
+        "market_data.freshness_slo.min_fresh_4h",
+        min_value=0,
+    )
+    normalize_int(
+        freshness_slo,
+        "min_fresh_24h",
+        0,
+        "market_data.freshness_slo.min_fresh_24h",
+        min_value=0,
+    )
+    normalize_int(
+        freshness_slo,
+        "max_sync_errors",
+        0,
+        "market_data.freshness_slo.max_sync_errors",
+        min_value=0,
+    )
+    normalize_int(
+        freshness_slo,
+        "max_degraded_jobs",
+        0,
+        "market_data.freshness_slo.max_degraded_jobs",
+        min_value=0,
+    )
+    normalize_int(
+        freshness_slo,
+        "min_sync_requests",
+        1,
+        "market_data.freshness_slo.min_sync_requests",
+        min_value=0,
+    )
     sync_timeframes_default = ["1h", "4h", "1d"]
     raw_sync_timeframes = market_data.get("sync_timeframes")
     cleaned_sync_timeframes: list[str] = []

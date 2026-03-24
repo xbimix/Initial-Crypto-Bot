@@ -212,6 +212,35 @@ def test_order_book_falls_back_to_public_when_auth_unauthorized(monkeypatch):
     assert calls[1][1] == {"limit": 20}
 
 
+def test_order_book_does_not_fallback_to_public_when_disabled(monkeypatch):
+    calls = []
+
+    class _Resp:
+        status_code = 401
+
+    class _Err(RuntimeError):
+        def __init__(self):
+            super().__init__("401 Client Error: Unauthorized")
+            self.response = _Resp()
+
+    def fake_get(path, params=None, auth=False):
+        calls.append((path, params, auth))
+        if auth:
+            raise _Err()
+        return {"ok": True}
+
+    monkeypatch.setattr(revolut_order_book, "_AUTH_ORDERBOOK_UNAVAILABLE_UNTIL_EPOCH", 0.0)
+    monkeypatch.setattr(revolut_order_book, "_get", fake_get)
+    with pytest.raises(RuntimeError):
+        revolut_order_book.get_order_book(
+            "ETH-USD",
+            cfg={"market_data": {"source_map": {"orderbook": {"allow_public_fallback": False}}}},
+        )
+    assert calls
+    assert calls[0][0] == "/order-book/ETH-USD"
+    assert all(path != "/public/order-book/ETH-USD" for path, _params, _auth in calls)
+
+
 def test_public_api_health_rollup(monkeypatch):
     now = 1_000.0
     monkeypatch.setattr(revolut_api.time, "time", lambda: now)

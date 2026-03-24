@@ -1,9 +1,0 @@
-﻿{
-    "improvement_pct":  53.24,
-    "generated_at_utc":  "2026-03-14T04:47:11.7810579Z",
-    "metric":  "generate_daily_summary_runtime_seconds",
-    "after":  13.6744399,
-    "before":  29.2464548,
-    "improvement_seconds":  15.5720149,
-    "notes":  "Streaming log parse and selective snapshot indexing in reporting.daily_summary"
-}

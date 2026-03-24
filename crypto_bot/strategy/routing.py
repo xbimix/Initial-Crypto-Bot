@@ -90,6 +90,14 @@ def resolve_scalper_config(cfg, parse_numeric):
             if symbol:
                 symbols.add(symbol)
 
+    blocked_regimes = set()
+    raw_blocked_regimes = raw.get("blocked_regimes", ["unknown"])
+    if isinstance(raw_blocked_regimes, list):
+        for item in raw_blocked_regimes:
+            token = str(item or "").strip().lower()
+            if token:
+                blocked_regimes.add(token)
+
     max_range_pos = parse_numeric(raw.get("max_range_pos"), fallback=0.65)
     if max_range_pos is not None:
         max_range_pos = max(0.0, min(1.0, max_range_pos))
@@ -127,6 +135,7 @@ def resolve_scalper_config(cfg, parse_numeric):
             0.0,
         ),
         "max_range_pos": max_range_pos,
+        "blocked_regimes": blocked_regimes,
     }
 
 

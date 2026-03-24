@@ -214,6 +214,10 @@ type SymbolControl = {
   cooldownOverrideSeconds: number | null;
   buyExecutable: boolean;
   buyExecutableReason: string;
+  price: number | null;
+  change24hPct: number | null;
+  low24h: number | null;
+  high24h: number | null;
   regime: string | null;
   volatilityPct: number | null;
   strategyScorePct: number | null;
@@ -260,6 +264,7 @@ type SymbolControl = {
 
 type SnapshotMetrics = {
   price: number | null;
+  change24hPct: number | null;
   vwap: number | null;
   atrRaw: number | null;
   momNorm: number | null;
@@ -391,6 +396,7 @@ const LOG_PATH = path.join(STATE_DIR, "bot.log");
 const PRICE_HISTORY_PATH = path.join(STATE_DIR, "revolut_universe_price_history.json");
 const MARKET_SYNC_HEALTH_PATH = path.join(STATE_DIR, "market_sync_health.json");
 const LOG_TAIL_BYTES = 256 * 1024;
+const MAX_SNAPSHOT_HISTORY_POINTS = 6000;
 
 async function readJson<T>(filePath: string, fallback: T): Promise<T> {
   try {
@@ -459,6 +465,11 @@ function parseSnapshotMetrics(rawFields: string): SnapshotMetrics {
 
   return {
     price: asNumber(values.price),
+    change24hPct:
+      asNumber(values.change_24h_pct)
+      ?? asNumber(values["24h_change_pct"])
+      ?? asNumber(values["24h_change"])
+      ?? null,
     vwap: asNumber(values.vwap),
     atrRaw: asNumber(values.atr_raw),
     momNorm: asNumber(values.mom_norm),
@@ -489,6 +500,7 @@ function mergeSnapshotMetrics(
 ): SnapshotMetrics {
   return {
     price: mergeSnapshotMetricValue(incoming.price, existing?.price),
+    change24hPct: mergeSnapshotMetricValue(incoming.change24hPct, existing?.change24hPct),
     vwap: mergeSnapshotMetricValue(incoming.vwap, existing?.vwap),
     atrRaw: mergeSnapshotMetricValue(incoming.atrRaw, existing?.atrRaw),
     momNorm: mergeSnapshotMetricValue(incoming.momNorm, existing?.momNorm),
@@ -515,6 +527,16 @@ function deriveSnapshotMetricsFromHistory(
     : null;
   const high24h = recent24h.length > 0
     ? Math.max(...recent24h.map((row) => row.price))
+    : null;
+  const first24hPrice = recent24h.length > 0 ? recent24h[0].price : null;
+  const change24hPct = (
+    first24hPrice !== null
+    && Number.isFinite(first24hPrice)
+    && first24hPrice > 0
+    && Number.isFinite(latest.price)
+    && latest.price > 0
+  )
+    ? ((latest.price - first24hPrice) / first24hPrice) * 100
     : null;
   const vwap = baselineWindow.length > 0
     ? baselineWindow.reduce((sum, row) => sum + row.price, 0) / baselineWindow.length
@@ -543,6 +565,7 @@ function deriveSnapshotMetricsFromHistory(
   }
   return {
     price: latest.price,
+    change24hPct,
     points: points.length,
     low24h,
     high24h,
@@ -552,9 +575,13 @@ function deriveSnapshotMetricsFromHistory(
   };
 }
 
-async function readLatestSnapshots(symbols: string[]) {
+async function readLatestSnapshots(
+  symbols: string[],
+  preferredCanonicalSymbols: string[] = [],
+) {
   const snapshots: Record<string, SnapshotMetrics> = {};
   const snapshotHistory: Record<string, SnapshotPoint[]> = {};
+  const canonicalSymbols = new Set<string>();
   let lastSnapshotAt: string | null = null;
   const wanted = new Set(symbols);
 
@@ -562,12 +589,18 @@ async function readLatestSnapshots(symbols: string[]) {
     return { snapshots, snapshotHistory, lastSnapshotAt };
   }
 
+  const canonicalPriority = uniqueSymbols(
+    preferredCanonicalSymbols,
+    symbols,
+  ).slice(0, 40);
   try {
-    const symbolParam = symbols.join(",");
+    const symbolParam = canonicalPriority.join(",");
+    const controller = new AbortController();
+    const timeoutHandle = setTimeout(() => controller.abort(), 6000);
     const response = await fetch(
-      `${BACKEND}/market-data/candles-batch?timeframe=1m&limit=6000&symbols=${encodeURIComponent(symbolParam)}`,
-      { cache: "no-store" },
-    );
+      `${BACKEND}/market-data/candles-batch?timeframe=1m&limit=1800&symbols=${encodeURIComponent(symbolParam)}`,
+      { cache: "no-store", signal: controller.signal },
+    ).finally(() => clearTimeout(timeoutHandle));
     if (response.ok) {
       const payload = await response.json() as {
         symbols?: Record<
@@ -596,10 +629,12 @@ async function readLatestSnapshots(symbols: string[]) {
         if (points.length === 0) {
           continue;
         }
-        snapshotHistory[symbol] = points.slice(-50000);
+        canonicalSymbols.add(symbol);
+        snapshotHistory[symbol] = points.slice(-MAX_SNAPSHOT_HISTORY_POINTS);
         const latest = points[points.length - 1];
         snapshots[symbol] = {
           price: latest.price,
+          change24hPct: null,
           vwap: null,
           atrRaw: null,
           momNorm: null,
@@ -633,10 +668,23 @@ async function readLatestSnapshots(symbols: string[]) {
     }
 
     const parsed = parseSnapshotMetrics(match[3]);
-    snapshots[symbol] = mergeSnapshotMetrics(snapshots[symbol], parsed);
+    const canonicalPrice = canonicalSymbols.has(symbol)
+      ? snapshots[symbol]?.price ?? null
+      : null;
+    const merged = mergeSnapshotMetrics(snapshots[symbol], parsed);
+    snapshots[symbol] = (
+      canonicalPrice !== null
+      && Number.isFinite(canonicalPrice)
+      && canonicalPrice > 0
+    )
+      ? { ...merged, price: canonicalPrice }
+      : merged;
     lastSnapshotAt = match[1];
 
     if (parsed.price !== null && parsed.price > 0) {
+      if (canonicalSymbols.has(symbol)) {
+        continue;
+      }
       const tsEpoch = parseLogTimestampToEpoch(match[1]);
       if (tsEpoch !== null) {
         if (!(symbol in snapshotHistory)) {
@@ -650,16 +698,22 @@ async function readLatestSnapshots(symbols: string[]) {
     }
   }
 
-  const priceHistory = await readJson<Record<string, Array<{ ts?: number; tsEpoch?: number; price?: number }>>>(
-    PRICE_HISTORY_PATH,
-    {},
-  );
+  const missingSymbols = symbols.filter((symbol) => (
+    !Array.isArray(snapshotHistory[symbol]) || snapshotHistory[symbol].length === 0
+  ));
+  const priceHistory = missingSymbols.length > 0
+    ? await readJson<Record<string, Array<{ ts?: number; tsEpoch?: number; price?: number }>>>(
+      PRICE_HISTORY_PATH,
+      {},
+    )
+    : {};
   for (const symbol of symbols) {
     const rows = Array.isArray(priceHistory[symbol]) ? priceHistory[symbol] : [];
     if (!(symbol in snapshotHistory)) {
       snapshotHistory[symbol] = [];
     }
-    for (const row of rows) {
+    if (!canonicalSymbols.has(symbol)) {
+    for (const row of rows.slice(-MAX_SNAPSHOT_HISTORY_POINTS)) {
       const tsEpoch = Number(row?.tsEpoch ?? row?.ts ?? 0);
       const price = Number(row?.price ?? 0);
       if (!Number.isFinite(tsEpoch) || tsEpoch <= 0 || !Number.isFinite(price) || price <= 0) {
@@ -668,6 +722,7 @@ async function readLatestSnapshots(symbols: string[]) {
       snapshotHistory[symbol].push({ tsEpoch, price });
       snapshots[symbol] = mergeSnapshotMetrics(snapshots[symbol], {
         price,
+        change24hPct: null,
         vwap: null,
         atrRaw: null,
         momNorm: null,
@@ -681,6 +736,7 @@ async function readLatestSnapshots(symbols: string[]) {
         lastSnapshotAt = new Date(tsEpoch * 1000).toISOString().replace("T", " ").slice(0, 19);
       }
     }
+    }
     snapshotHistory[symbol].sort((left, right) => left.tsEpoch - right.tsEpoch);
     const deduped: SnapshotPoint[] = [];
     for (const row of snapshotHistory[symbol]) {
@@ -690,13 +746,14 @@ async function readLatestSnapshots(symbols: string[]) {
       }
       deduped.push(row);
     }
-    snapshotHistory[symbol] = deduped.slice(-50000);
+    snapshotHistory[symbol] = deduped.slice(-MAX_SNAPSHOT_HISTORY_POINTS);
 
     const latest = snapshotHistory[symbol][snapshotHistory[symbol].length - 1];
     if (latest) {
       const derived = deriveSnapshotMetricsFromHistory(snapshotHistory[symbol]);
       snapshots[symbol] = mergeSnapshotMetrics(snapshots[symbol], {
         price: derived.price ?? latest.price,
+        change24hPct: derived.change24hPct ?? null,
         vwap: derived.vwap ?? null,
         atrRaw: derived.atrRaw ?? null,
         momNorm: derived.momNorm ?? null,
@@ -1497,6 +1554,15 @@ function round(value: number, digits = 2) {
   return Number(value.toFixed(digits));
 }
 
+function roundPrice(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  const abs = Math.abs(value);
+  const digits = abs > 0 && abs < 1 ? 8 : 6;
+  return Number(value.toFixed(digits));
+}
+
 function sum(values: number[]) {
   return values.reduce((total, value) => total + value, 0);
 }
@@ -1916,7 +1982,10 @@ export async function GET() {
     positionSymbols,
   );
 
-  const { snapshots, snapshotHistory, lastSnapshotAt } = await readLatestSnapshots(allSymbols);
+  const { snapshots, snapshotHistory, lastSnapshotAt } = await readLatestSnapshots(
+    allSymbols,
+    positionSymbols,
+  );
   const openPositionsCount = positionSymbols.length;
   const startingBalance = Number(config.starting_balance ?? 10000);
   const cashBalance = Number(paper.balance ?? 0);
@@ -2200,6 +2269,10 @@ export async function GET() {
       cooldownOverrideSeconds: cooldownOverrideMap[symbol] ?? null,
       buyExecutable: executableStatus.buyExecutable,
       buyExecutableReason: executableStatus.buyExecutableReason,
+      price: snapshot?.price ?? null,
+      change24hPct: snapshot?.change24hPct ?? null,
+      low24h: snapshot?.low24h ?? null,
+      high24h: snapshot?.high24h ?? null,
       regime: formatRegimeLabel(regimeRaw),
       volatilityPct:
         volatilityRaw === null ? null : Number(volatilityRaw) * 100,
@@ -2835,6 +2908,22 @@ export async function GET() {
       fallbackReason: control.fallbackReason,
       readyForNonMrRoute: control.readyForNonMrRoute,
       nonMrReadyReason: control.nonMrReadyReason,
+      price:
+        control.price === null
+          ? null
+          : round(control.price, 8),
+      change24hPct:
+        control.change24hPct === null
+          ? null
+          : round(control.change24hPct, 3),
+      low24h:
+        control.low24h === null
+          ? null
+          : round(control.low24h, 8),
+      high24h:
+        control.high24h === null
+          ? null
+          : round(control.high24h, 8),
       buyOpportunityPct:
         control.buyOpportunityPct === null
           ? null
@@ -2966,11 +3055,11 @@ export async function GET() {
     positions: positionRows.map((row) => ({
       ...row,
       units: round(row.units, 6),
-      entryPrice: round(row.entryPrice, 6),
+      entryPrice: roundPrice(row.entryPrice),
       currentPrice:
-        row.currentPrice === null ? null : round(row.currentPrice, 6),
+        row.currentPrice === null ? null : roundPrice(row.currentPrice),
       lockPrice:
-        row.lockPrice === null ? null : round(row.lockPrice, 6),
+        row.lockPrice === null ? null : roundPrice(row.lockPrice),
       costBasis: round(row.costBasis, 2),
       marketValue: round(row.marketValue, 2),
       allocationPct: round(row.allocationPct, 2),
@@ -2990,7 +3079,7 @@ export async function GET() {
       advisoryMaxDrawdownPriceDuringTrade:
         row.advisoryMaxDrawdownPriceDuringTrade === null
           ? null
-          : round(row.advisoryMaxDrawdownPriceDuringTrade, 6),
+          : roundPrice(row.advisoryMaxDrawdownPriceDuringTrade),
       advisoryMaxDrawdownAt:
         row.advisoryMaxDrawdownAt === null
           ? null
@@ -3013,7 +3102,7 @@ export async function GET() {
         lockPrice:
           row.exitDiagnostics.lockPrice === null
             ? null
-            : round(row.exitDiagnostics.lockPrice, 6),
+            : roundPrice(row.exitDiagnostics.lockPrice),
         toLockPct:
           row.exitDiagnostics.toLockPct === null
             ? null

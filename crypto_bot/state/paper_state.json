@@ -1,16 +1,10 @@
 {
-  "balance": 5225.172957706927,
+  "balance": 5537.386953565577,
   "positions": {
     "CRV-USD": {
       "price": 0.25637,
       "size": 763.467196,
       "entry_time": 1772664289.4589665,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "PERP-USD": {
-      "price": 0.052000000000000005,
-      "size": 3023.852329,
-      "entry_time": 1772953757.0136933,
       "reason": "bear_market_mean_reversion_buy"
     },
     "SUI-USD": {
@@ -53,12 +47,6 @@
       "price": 1.4405000000000001,
       "size": 138.84068,
       "entry_time": 1773748696.3070853,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "APT-USD": {
-      "price": 0.9902,
-      "size": 201.979398,
-      "entry_time": 1773749579.7563531,
       "reason": "bear_market_mean_reversion_buy"
     },
     "FIL-USD": {

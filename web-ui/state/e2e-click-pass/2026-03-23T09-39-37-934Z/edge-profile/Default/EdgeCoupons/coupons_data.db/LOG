@@ -1,0 +1,5 @@
+2026/03/23-09:39:54.293 5b90 Creating DB D:\Python-Codes\RevBot\web-ui\state\e2e-click-pass\2026-03-23T09-39-37-934Z\edge-profile\Default\EdgeCoupons/coupons_data.db since it was missing.
+2026/03/23-09:39:56.340 5b90 Reusing MANIFEST D:\Python-Codes\RevBot\web-ui\state\e2e-click-pass\2026-03-23T09-39-37-934Z\edge-profile\Default\EdgeCoupons/coupons_data.db/MANIFEST-000001
+2026/03/23-09:40:12.785 575c Level-0 table #5: started
+2026/03/23-09:40:12.920 575c Level-0 table #5: 681620 bytes OK
+2026/03/23-09:40:13.000 575c Delete type=0 #3

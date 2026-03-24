@@ -56,6 +56,15 @@ def _capability_ttl_seconds() -> float:
     return max(60.0, value)
 
 
+def _allow_public_fallback_default() -> bool:
+    return str(os.getenv("REVBOT_CANDLE_ALLOW_PUBLIC_FALLBACK", "0")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _candidate_key(path: str, mode: str, auth: bool) -> str:
     return f"{'auth' if auth else 'public'}:{path}:{mode}"
 
@@ -309,6 +318,8 @@ def fetch_candles(
     interval_minutes: int,
     since_ms: int,
     until_ms: int,
+    *,
+    allow_public_fallback: bool | None = None,
 ) -> list[dict]:
     global _WORKING_CANDLE_REQUEST
     global _CANDLE_SCOPE_UNAUTHORIZED_UNTIL_EPOCH
@@ -320,8 +331,14 @@ def fetch_candles(
     if int(until_ms) <= int(since_ms):
         return []
 
+    allow_public = (
+        bool(allow_public_fallback)
+        if isinstance(allow_public_fallback, bool)
+        else _allow_public_fallback_default()
+    )
     now_epoch = time.time()
-    if _CANDLE_SCOPE_UNAUTHORIZED_UNTIL_EPOCH > now_epoch:
+    auth_scope_cooldown_active = _CANDLE_SCOPE_UNAUTHORIZED_UNTIL_EPOCH > now_epoch
+    if auth_scope_cooldown_active and not allow_public:
         remaining = int(_CANDLE_SCOPE_UNAUTHORIZED_UNTIL_EPOCH - now_epoch)
         raise RevolutCandleFetchError(
             f"Candle endpoint cooldown active due to previous auth scope unauthorized "
@@ -396,12 +413,6 @@ def fetch_candles(
         "symbolless_primary": params_symbolless_primary,
         "symbolless_seconds": params_symbolless_seconds,
     }
-    allow_public = str(os.getenv("REVBOT_CANDLE_ALLOW_PUBLIC_FALLBACK", "0")).strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
     auth_candidates = [
         # Canonical documented endpoint first.
         {"path": f"/candles/{symbol}", "mode": "symbolless_primary", "auth": True},
@@ -442,6 +453,8 @@ def fetch_candles(
         {"path": f"/public/market-data/candles/{symbol}", "mode": "symbolless_primary", "auth": False},
         {"path": f"/public/market-data/candles/{symbol}", "mode": "symbolless_seconds", "auth": False},
     ]
+    if auth_scope_cooldown_active:
+        auth_candidates = []
     def _run_candidates(
         candidates: list[dict[str, Any]],
         *,
@@ -546,20 +559,6 @@ def fetch_candles(
     if rows:
         _CANDLE_SCOPE_UNAUTHORIZED_UNTIL_EPOCH = 0.0
         return rows
-
-    # Automatic safety fallback: if all authenticated probes were unauthorized,
-    # attempt public variants even when public fallback is not explicitly enabled.
-    if not allow_public and auth_401_count > 0:
-        rows_public, any_retryable_public, all_not_found_public, _ = _run_candidates(
-            public_candidates,
-            seen=seen,
-            failures=failures,
-        )
-        any_retryable = any_retryable or any_retryable_public
-        all_not_found_or_unsupported = all_not_found_or_unsupported and all_not_found_public
-        if rows_public:
-            _CANDLE_SCOPE_UNAUTHORIZED_UNTIL_EPOCH = 0.0
-            return rows_public
 
     if any_retryable:
         _CANDLE_TELEMETRY["failed_calls"] = int(_CANDLE_TELEMETRY.get("failed_calls", 0) or 0) + 1

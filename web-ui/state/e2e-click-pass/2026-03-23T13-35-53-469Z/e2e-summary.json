@@ -1,0 +1,235 @@
+{
+  "baseUrl": "http://127.0.0.1:3005",
+  "runDir": "D:\\Python-Codes\\RevBot\\web-ui\\state\\e2e-click-pass\\2026-03-23T13-35-53-469Z",
+  "results": [
+    {
+      "item": 1,
+      "pass": false,
+      "symbol": "AAVE-USD",
+      "before": "ON",
+      "after": "ON",
+      "settled": false,
+      "symbolApiStatuses": [
+        503
+      ]
+    },
+    {
+      "item": 2,
+      "pass": false,
+      "symbol": "AAVE-USD",
+      "before": "ON",
+      "after": "ON",
+      "settled": false,
+      "symbolApiStatuses": [
+        503,
+        503
+      ]
+    },
+    {
+      "item": 3,
+      "pass": false,
+      "symbol": "AAVE-USD",
+      "before": "OFF",
+      "mid": "OFF",
+      "after": "OFF",
+      "settledFirst": false,
+      "settledSecond": false,
+      "scalperStatuses": [
+        503,
+        503
+      ]
+    },
+    {
+      "item": 4,
+      "pass": false,
+      "symbol": "AAVE-USD",
+      "steps": [
+        {
+          "regime": "AUTO",
+          "ok": true
+        },
+        {
+          "regime": "MEAN_REVERSION",
+          "ok": false
+        },
+        {
+          "regime": "TREND_PULLBACK",
+          "ok": false
+        },
+        {
+          "regime": "BREAKOUT_MOMENTUM",
+          "ok": false
+        },
+        {
+          "regime": "OBSERVE_ONLY",
+          "ok": false
+        },
+        {
+          "regime": "AUTO",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "item": 7,
+      "pass": true,
+      "before": [
+        "AAVE-USDOpen",
+        "ACH-USD",
+        "ACS-USD",
+        "ACX-USD",
+        "ADA-USD",
+        "ALCX-USD",
+        "ALGO-USD",
+        "API3-USD"
+      ],
+      "after": [
+        "AAVE-USDOpen",
+        "ACH-USD",
+        "ACX-USD",
+        "ADA-USD",
+        "ALCX-USD",
+        "ALGO-USD",
+        "APT-USDOpen",
+        "ARPA-USD"
+      ],
+      "changed": true,
+      "clickOutcomes": [
+        {
+          "label": "Regime Routing",
+          "ok": true
+        },
+        {
+          "label": "Confidence",
+          "ok": true
+        },
+        {
+          "label": "Volatility State",
+          "ok": true
+        },
+        {
+          "label": "Data Quality",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "item": 10,
+      "pass": true,
+      "symbol": "RPL-USD",
+      "message": "validation_error_visible"
+    },
+    {
+      "item": 6,
+      "pass": false,
+      "symbol": "RPL-USD",
+      "statuses": [
+        503,
+        200,
+        503,
+        503,
+        200,
+        200,
+        503,
+        200,
+        503,
+        200,
+        503,
+        200,
+        503,
+        200,
+        503,
+        200,
+        503,
+        200,
+        503,
+        200,
+        503,
+        200,
+        503,
+        200,
+        503,
+        503
+      ]
+    },
+    {
+      "item": 5,
+      "pass": false,
+      "symbol": "RPL-USD",
+      "statuses": [
+        503
+      ]
+    },
+    {
+      "item": 8,
+      "pass": false,
+      "symbol": "AAVE-USD",
+      "changedAmp": false,
+      "changedSlope": false
+    }
+  ],
+  "strictPassFail": {
+    "item1": false,
+    "item2": false,
+    "item3": false,
+    "item6": false,
+    "item7": true,
+    "item8": false,
+    "item10": true
+  },
+  "apiLogLines": [
+    "2026-03-23T13:36:11.463Z | POST /api/manual-stoploss -> 503",
+    "2026-03-23T13:36:17.331Z | GET /api/dashboard -> 200",
+    "2026-03-23T13:36:17.331Z | GET /api/manual-stoploss -> 200",
+    "2026-03-23T13:36:18.056Z | POST /api/symbols -> 503",
+    "2026-03-23T13:36:26.310Z | POST /api/manual-stoploss -> 503",
+    "2026-03-23T13:36:38.489Z | POST /api/symbols -> 503",
+    "2026-03-23T13:36:41.311Z | POST /api/manual-stoploss -> 503",
+    "2026-03-23T13:36:41.839Z | GET /api/dashboard -> 200",
+    "2026-03-23T13:36:41.860Z | GET /api/manual-stoploss -> 200",
+    "2026-03-23T13:36:45.693Z | GET /api/dashboard -> 200",
+    "2026-03-23T13:36:45.713Z | GET /api/manual-stoploss -> 200",
+    "2026-03-23T13:36:56.307Z | POST /api/manual-stoploss -> 503",
+    "2026-03-23T13:36:59.721Z | POST /api/scalper -> 503",
+    "2026-03-23T13:37:00.705Z | GET /api/dashboard -> 200",
+    "2026-03-23T13:37:00.728Z | GET /api/manual-stoploss -> 200",
+    "2026-03-23T13:37:11.303Z | POST /api/manual-stoploss -> 503",
+    "2026-03-23T13:37:20.025Z | POST /api/scalper -> 503",
+    "2026-03-23T13:37:20.871Z | GET /api/dashboard -> 200",
+    "2026-03-23T13:37:20.887Z | GET /api/manual-stoploss -> 200",
+    "2026-03-23T13:37:26.323Z | POST /api/manual-stoploss -> 503",
+    "2026-03-23T13:37:30.305Z | GET /api/dashboard -> 200",
+    "2026-03-23T13:37:30.318Z | GET /api/manual-stoploss -> 200",
+    "2026-03-23T13:37:40.858Z | POST /api/token-regime -> 503",
+    "2026-03-23T13:37:40.951Z | POST /api/token-regime -> 503",
+    "2026-03-23T13:37:41.306Z | POST /api/manual-stoploss -> 503",
+    "2026-03-23T13:37:45.403Z | GET /api/dashboard -> 200",
+    "2026-03-23T13:37:45.420Z | GET /api/manual-stoploss -> 200",
+    "2026-03-23T13:37:56.309Z | POST /api/manual-stoploss -> 503",
+    "2026-03-23T13:38:00.338Z | GET /api/dashboard -> 200",
+    "2026-03-23T13:38:00.350Z | GET /api/manual-stoploss -> 200",
+    "2026-03-23T13:38:01.368Z | POST /api/token-regime -> 503",
+    "2026-03-23T13:38:11.297Z | POST /api/manual-stoploss -> 503",
+    "2026-03-23T13:38:17.205Z | GET /api/dashboard -> 200",
+    "2026-03-23T13:38:17.224Z | GET /api/manual-stoploss -> 200",
+    "2026-03-23T13:38:22.192Z | POST /api/token-regime -> 503",
+    "2026-03-23T13:38:26.296Z | POST /api/manual-stoploss -> 503",
+    "2026-03-23T13:38:30.163Z | GET /api/dashboard -> 200",
+    "2026-03-23T13:38:30.208Z | GET /api/manual-stoploss -> 200",
+    "2026-03-23T13:38:41.296Z | POST /api/manual-stoploss -> 503",
+    "2026-03-23T13:38:42.959Z | POST /api/token-regime -> 503",
+    "2026-03-23T13:38:45.332Z | GET /api/dashboard -> 200",
+    "2026-03-23T13:38:45.355Z | GET /api/manual-stoploss -> 200",
+    "2026-03-23T13:38:56.300Z | POST /api/manual-stoploss -> 503",
+    "2026-03-23T13:39:00.183Z | GET /api/dashboard -> 200",
+    "2026-03-23T13:39:00.207Z | GET /api/manual-stoploss -> 200",
+    "2026-03-23T13:39:03.870Z | POST /api/token-regime -> 503",
+    "2026-03-23T13:39:11.306Z | POST /api/manual-stoploss -> 503",
+    "2026-03-23T13:39:12.659Z | POST /api/manual-stoploss -> 503",
+    "2026-03-23T13:39:14.647Z | POST /api/manual-sell -> 503",
+    "2026-03-23T13:39:18.447Z | GET /api/dashboard -> 200",
+    "2026-03-23T13:39:18.468Z | GET /api/manual-stoploss -> 200",
+    "2026-03-23T13:39:29.444Z | GET /api/token/AAVE-USD -> 200",
+    "2026-03-23T13:39:30.710Z | POST /api/manual-stoploss -> 503"
+  ]
+}

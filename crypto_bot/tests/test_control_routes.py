@@ -128,8 +128,33 @@ def test_universe_track_route_add_and_remove(monkeypatch):
     assert remove.status_code == 200
     remove_payload = remove.get_json()
     assert "ETH-USD" not in remove_payload["symbols"]
-    assert remove_payload["symbol_buy_enabled"]["ETH-USD"] is False
-    assert remove_payload["symbol_sell_enabled"]["ETH-USD"] is True
+    assert "ETH-USD" not in remove_payload["symbol_buy_enabled"]
+    assert "ETH-USD" not in remove_payload["symbol_sell_enabled"]
+
+
+def test_universe_track_route_blocks_remove_when_open_position(monkeypatch):
+    state = {"symbols": ["ETH-USD"], "symbol_buy_enabled": {"ETH-USD": True}, "symbol_sell_enabled": {"ETH-USD": True}}
+    update_calls = {"count": 0}
+
+    def fake_update_config(mutator):
+        nonlocal state
+        update_calls["count"] += 1
+        state = mutator(dict(state))
+        return state
+
+    monkeypatch.setattr(control_server, "update_config", fake_update_config)
+    monkeypatch.setattr(control_server, "_has_open_position", lambda symbol: symbol == "ETH-USD")
+    client = control_server.app.test_client()
+
+    remove = client.post(
+        "/universe-track",
+        json={"symbol": "eth-usd", "tracked": False},
+        headers=AUTH_HEADERS,
+    )
+    assert remove.status_code == 409
+    payload = remove.get_json()
+    assert payload["code"] == "open_position_exists"
+    assert update_calls["count"] == 0
 
 
 def test_token_regime_route_updates_single_symbol(monkeypatch):

@@ -32,6 +32,45 @@ def test_normalize_config_warn_mode_populates_defaults():
     assert normalized["risk"]["trade_window_utc"]["end_hour_utc"] == 0
     assert normalized["risk"]["stale_losing_review_age_hours"] == 36.0
     assert normalized["risk"]["stale_losing_review_unrealized_pnl_pct"] == -10.0
+    assert normalized["market_data"]["source_map"]["candles"]["authoritative"] == "official_signed"
+    assert normalized["market_data"]["source_map"]["candles"]["allow_public_fallback"] is False
+    assert normalized["market_data"]["source_map"]["orderbook"]["allow_public_fallback"] is True
+    assert normalized["market_data"]["freshness_slo"]["min_fresh_1h"] == 1
+    assert normalized["market_data"]["freshness_slo"]["min_fresh_4h"] == 1
+    assert normalized["market_data"]["freshness_slo"]["min_fresh_24h"] == 0
+
+
+def test_normalize_config_source_map_invalid_values_are_normalized():
+    raw = {
+        "enabled": True,
+        "symbols": ["btc-usd"],
+        "market_data": {
+            "source_map": {
+                "candles": {
+                    "authoritative": "invalid",
+                    "allow_public_fallback": "yes",
+                    "allow_snapshot_fallback": "nope",
+                },
+                "orderbook": {
+                    "allow_public_fallback": "off",
+                },
+            },
+            "freshness_slo": {
+                "min_fresh_1h": -5,
+                "max_sync_errors": "2",
+            },
+        },
+    }
+
+    normalized, warnings, changed = normalize_config(raw, strict=False)
+    assert changed is True
+    assert warnings
+    assert normalized["market_data"]["source_map"]["candles"]["authoritative"] == "official_signed"
+    assert normalized["market_data"]["source_map"]["candles"]["allow_public_fallback"] is True
+    assert normalized["market_data"]["source_map"]["candles"]["allow_snapshot_fallback"] is False
+    assert normalized["market_data"]["source_map"]["orderbook"]["allow_public_fallback"] is False
+    assert normalized["market_data"]["freshness_slo"]["min_fresh_1h"] == 0
+    assert normalized["market_data"]["freshness_slo"]["max_sync_errors"] == 2
 
 
 def test_normalize_config_stale_losing_review_thresholds_are_clamped():

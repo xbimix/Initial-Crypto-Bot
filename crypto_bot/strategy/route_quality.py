@@ -254,6 +254,67 @@ def _summarize_timestamp_fresh(payload: Any) -> dict[str, int]:
     return out
 
 
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        numeric = int(value)
+    except (TypeError, ValueError):
+        return default
+    return numeric
+
+
+def _sanitize_reason_counts(value: Any) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    out: dict[str, int] = {}
+    for raw_reason, raw_count in value.items():
+        reason = str(raw_reason or "").strip()
+        if not reason:
+            continue
+        count = max(_safe_int(raw_count, 0), 0)
+        if count <= 0:
+            continue
+        out[reason] = out.get(reason, 0) + count
+    return out
+
+
+def _summarize_buy_block_counters(
+    *,
+    by_symbol: Any,
+    by_symbol_route: Any,
+) -> tuple[dict[str, int], dict[str, dict[str, int]], dict[str, dict[str, int]]]:
+    total: dict[str, int] = {}
+    by_route: dict[str, dict[str, int]] = {}
+    by_symbol_route_flat: dict[str, dict[str, int]] = {}
+
+    if isinstance(by_symbol, dict):
+        for symbol, raw_reasons in by_symbol.items():
+            symbol_key = str(symbol or "").strip().upper()
+            if not symbol_key:
+                continue
+            reasons = _sanitize_reason_counts(raw_reasons)
+            if not reasons:
+                continue
+            for reason, count in reasons.items():
+                total[reason] = total.get(reason, 0) + count
+
+    if isinstance(by_symbol_route, dict):
+        for symbol, raw_routes in by_symbol_route.items():
+            symbol_key = str(symbol or "").strip().upper()
+            if not symbol_key or not isinstance(raw_routes, dict):
+                continue
+            for route, raw_reasons in raw_routes.items():
+                route_key = _normalize_route_name(route)
+                reasons = _sanitize_reason_counts(raw_reasons)
+                if not reasons:
+                    continue
+                route_bucket = by_route.setdefault(route_key, {})
+                for reason, count in reasons.items():
+                    route_bucket[reason] = route_bucket.get(reason, 0) + count
+                by_symbol_route_flat[f"{symbol_key}|{route_key}"] = reasons
+
+    return total, by_route, by_symbol_route_flat
+
+
 def _router_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
     strategy_defaults = cfg.get("strategy_defaults", {})
     if not isinstance(strategy_defaults, dict):
@@ -358,6 +419,10 @@ def build_route_quality_report(*, state_dir: Path, cfg: dict[str, Any], now_epoc
     failed_gate_counts = _summarize_failed_gates(strategy_state.get("last_failed_gates", {}))
     timestamp_fresh_counts = _summarize_timestamp_fresh(strategy_state.get("last_route_timestamp_fresh", {}))
     non_mr_ready_reason_counts = _count_values(strategy_state.get("last_non_mr_ready_reason", {}))
+    buy_block_gate_summary, buy_block_gate_by_route, buy_block_gate_by_symbol_route = _summarize_buy_block_counters(
+        by_symbol=strategy_state.get("buy_block_counts_by_symbol", {}),
+        by_symbol_route=strategy_state.get("buy_block_counts_by_symbol_route", {}),
+    )
 
     stats_30d = windows.get("30d", {})
     promoted_routes: dict[str, bool] = {}
@@ -387,6 +452,9 @@ def build_route_quality_report(*, state_dir: Path, cfg: dict[str, Any], now_epoc
         "failed_gate_summary": failed_gate_counts,
         "route_timestamp_fresh_summary": timestamp_fresh_counts,
         "non_mr_ready_reason_summary": non_mr_ready_reason_counts,
+        "buy_block_gate_summary": buy_block_gate_summary,
+        "buy_block_gate_by_route_summary": buy_block_gate_by_route,
+        "buy_block_gate_by_symbol_route_summary": buy_block_gate_by_symbol_route,
         "performance_by_effective_route": windows,
         "manual_vs_auto_comparison": manual_vs_auto,
         "per_token_route_history": per_token_history,

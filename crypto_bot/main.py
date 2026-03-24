@@ -953,7 +953,57 @@ def _persist_market_sync_health(payload: dict):
         return False
 
 
-def _build_sync_slo(sync_summary: dict, coverage_summary: dict) -> dict:
+def _market_data_source_policy(cfg: dict) -> dict:
+    market_data_cfg = cfg.get("market_data", {})
+    if not isinstance(market_data_cfg, dict):
+        return {}
+    source_map = market_data_cfg.get("source_map", {})
+    if not isinstance(source_map, dict):
+        return {}
+
+    policy: dict[str, dict] = {}
+    for section in ("candles", "orderbook", "tickers"):
+        raw = source_map.get(section, {})
+        if not isinstance(raw, dict):
+            continue
+        row = {}
+        if "authoritative" in raw:
+            row["authoritative"] = str(raw.get("authoritative"))
+        for key in (
+            "allow_public_fallback",
+            "allow_snapshot_fallback",
+            "decision_use_public_fallback",
+            "decision_use_snapshot_fallback",
+        ):
+            if key in raw:
+                row[key] = bool(raw.get(key))
+        if row:
+            policy[section] = row
+    return policy
+
+
+def _build_sync_slo(sync_summary: dict, coverage_summary: dict, cfg: dict | None = None) -> dict:
+    def _non_negative_int(value, default: int) -> int:
+        try:
+            parsed = int(float(value))
+        except (TypeError, ValueError):
+            return default
+        return max(0, parsed)
+
+    market_data_cfg = cfg.get("market_data", {}) if isinstance(cfg, dict) else {}
+    if not isinstance(market_data_cfg, dict):
+        market_data_cfg = {}
+    slo_cfg = market_data_cfg.get("freshness_slo", {})
+    if not isinstance(slo_cfg, dict):
+        slo_cfg = {}
+
+    min_fresh_1h = _non_negative_int(slo_cfg.get("min_fresh_1h"), 1)
+    min_fresh_4h = _non_negative_int(slo_cfg.get("min_fresh_4h"), 1)
+    min_fresh_24h = _non_negative_int(slo_cfg.get("min_fresh_24h"), 0)
+    max_sync_errors = _non_negative_int(slo_cfg.get("max_sync_errors"), 0)
+    max_degraded_jobs = _non_negative_int(slo_cfg.get("max_degraded_jobs"), 0)
+    min_sync_requests = _non_negative_int(slo_cfg.get("min_sync_requests"), 1)
+
     fresh_counts = coverage_summary.get("fresh_counts_by_timeframe", {})
     stale_symbol_timeframes = int(coverage_summary.get("stale_symbol_timeframes", 0) or 0)
     errors = int(sync_summary.get("errors", 0) or 0)
@@ -963,9 +1013,13 @@ def _build_sync_slo(sync_summary: dict, coverage_summary: dict) -> dict:
     fresh_1h = int(fresh_counts.get("1h", 0) or 0)
     fresh_4h = int(fresh_counts.get("4h", 0) or 0)
     fresh_1d = int(fresh_counts.get("1d", 0) or 0)
-    coverage_ok = fresh_1h > 0 and fresh_4h > 0
-    quality_ok = degraded == 0 and errors == 0
-    throughput_ok = requests > 0 and inserted >= 0
+    coverage_ok = (
+        fresh_1h >= min_fresh_1h
+        and fresh_4h >= min_fresh_4h
+        and fresh_1d >= min_fresh_24h
+    )
+    quality_ok = degraded <= max_degraded_jobs and errors <= max_sync_errors
+    throughput_ok = requests >= min_sync_requests and inserted >= 0
     status = "OK" if (coverage_ok and quality_ok and throughput_ok) else "DEGRADED"
     return {
         "status": status,
@@ -980,6 +1034,14 @@ def _build_sync_slo(sync_summary: dict, coverage_summary: dict) -> dict:
         "new_inserted": inserted,
         "errors": errors,
         "degraded": degraded,
+        "thresholds": {
+            "min_fresh_1h": int(min_fresh_1h),
+            "min_fresh_4h": int(min_fresh_4h),
+            "min_fresh_24h": int(min_fresh_24h),
+            "max_sync_errors": int(max_sync_errors),
+            "max_degraded_jobs": int(max_degraded_jobs),
+            "min_sync_requests": int(min_sync_requests),
+        },
     }
 
 
@@ -1342,6 +1404,7 @@ def main():
                         "rows_updated_last_24h": int(coverage_summary.get("rows_updated_last_24h", 0) or 0),
                     },
                     "endpoint_telemetry": get_candle_fetch_telemetry(),
+                    "source_policy": _market_data_source_policy(cfg),
                     "route_guard": {
                         "exposure_cap_hits": dict(_route_guard_cap_hits),
                         "cooldown_hits": dict(_route_guard_cooldown_hits),
@@ -1349,7 +1412,7 @@ def main():
                         "cooldown_until_epoch": dict(_route_guard_cooldown_until),
                     },
                 }
-                sync_health_payload["slo"] = _build_sync_slo(sync_summary, coverage_summary)
+                sync_health_payload["slo"] = _build_sync_slo(sync_summary, coverage_summary, cfg)
                 _persist_market_sync_health(sync_health_payload)
                 if sync_summary.get("enabled") and (
                     int(sync_summary.get("requests", 0) or 0) > 0

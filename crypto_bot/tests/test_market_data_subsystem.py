@@ -17,6 +17,12 @@ def _db_path(tmp_path: Path) -> Path:
     return tmp_path / "market_data.db"
 
 
+def setup_function():
+    revolut_candle_fetcher._WORKING_CANDLE_REQUEST = None
+    revolut_candle_fetcher._CANDLE_SCOPE_UNAUTHORIZED_UNTIL_EPOCH = 0.0
+    revolut_candle_fetcher._ENDPOINT_CAPABILITY_CACHE = {}
+
+
 def test_sqlite_schema_creation_and_indexes(tmp_path: Path):
     db_path = _db_path(tmp_path)
     revolut_market_db.ensure_schema(db_path)
@@ -142,7 +148,41 @@ def test_fetch_candles_skips_public_candidates_by_default(monkeypatch):
     assert all(not path.startswith("/public/") for path in calls)
 
 
-def test_fetch_candles_falls_back_to_public_on_auth_401(monkeypatch):
+def test_fetch_candles_does_not_fall_back_to_public_on_auth_401_by_default(monkeypatch):
+    calls: list[tuple[str, bool]] = []
+
+    class _Resp:
+        status_code = 401
+
+    class _AuthErr(RuntimeError):
+        def __init__(self):
+            super().__init__("401 Client Error: Unauthorized")
+            self.response = _Resp()
+
+    def fake_get(path, params=None, auth=False):
+        calls.append((path, auth))
+        if auth:
+            raise _AuthErr()
+        if path.startswith("/public/"):
+            return {"data": [{"start": 1_000, "open": "1", "high": "2", "low": "0.5", "close": "1.5", "volume": "3"}]}
+        raise RuntimeError("unexpected path")
+
+    monkeypatch.delenv("REVBOT_CANDLE_ALLOW_PUBLIC_FALLBACK", raising=False)
+    monkeypatch.setattr(revolut_candle_fetcher, "_WORKING_CANDLE_REQUEST", None)
+    monkeypatch.setattr(revolut_candle_fetcher, "_get", fake_get)
+
+    with pytest.raises(revolut_candle_fetcher.RevolutCandleFetchError):
+        revolut_candle_fetcher.fetch_candles(
+            symbol="BTC-USD",
+            interval_minutes=60,
+            since_ms=1_000,
+            until_ms=60_000,
+        )
+    assert any(auth for _path, auth in calls)
+    assert all(not path.startswith("/public/") for path, _auth in calls)
+
+
+def test_fetch_candles_falls_back_to_public_on_auth_401_when_enabled(monkeypatch):
     calls: list[tuple[str, bool]] = []
 
     class _Resp:
@@ -170,6 +210,7 @@ def test_fetch_candles_falls_back_to_public_on_auth_401(monkeypatch):
         interval_minutes=60,
         since_ms=1_000,
         until_ms=60_000,
+        allow_public_fallback=True,
     )
     assert rows
     assert any(auth for _path, auth in calls)
@@ -309,6 +350,38 @@ def test_fetch_candles_honors_auth_scope_cooldown(monkeypatch):
         )
     assert getattr(exc.value, "permanent", False) is True
     assert "cooldown active" in str(exc.value).lower()
+
+
+def test_fetch_candles_uses_public_when_auth_cooldown_and_public_enabled(monkeypatch):
+    calls: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        revolut_candle_fetcher,
+        "_CANDLE_SCOPE_UNAUTHORIZED_UNTIL_EPOCH",
+        revolut_candle_fetcher.time.time() + 120.0,
+    )
+
+    def fake_get(path, params=None, auth=False):
+        calls.append((path, auth))
+        if not auth and path.startswith("/public/"):
+            return {
+                "data": [
+                    {"start": 1_000, "open": "1", "high": "2", "low": "0.5", "close": "1.5", "volume": "3"}
+                ]
+            }
+        raise RuntimeError("unexpected path")
+
+    monkeypatch.setattr(revolut_candle_fetcher, "_get", fake_get)
+    rows = revolut_candle_fetcher.fetch_candles(
+        symbol="BTC-USD",
+        interval_minutes=60,
+        since_ms=1_000,
+        until_ms=60_000,
+        allow_public_fallback=True,
+    )
+    assert rows
+    assert calls
+    assert all(not auth for _path, auth in calls)
+    assert all(path.startswith("/public/") for path, _auth in calls)
 
 
 def test_backfill_paginates_and_remains_idempotent(tmp_path: Path, monkeypatch):
@@ -596,6 +669,91 @@ def test_incremental_sync_marks_unsupported_when_official_candles_unavailable_wi
     assert result["status"] == "unsupported"
     assert result["source"] == "revolut"
     assert result["inserted"] == 0
+
+
+def test_incremental_sync_passes_public_fallback_policy_from_source_map(tmp_path: Path, monkeypatch):
+    db_path = _db_path(tmp_path)
+    calls: list[bool] = []
+
+    def fake_fetch(symbol, interval_minutes, since_ms, until_ms, allow_public_fallback=None):
+        calls.append(bool(allow_public_fallback))
+        return []
+
+    monkeypatch.setattr(revolut_incremental_sync, "fetch_candles", fake_fetch)
+
+    cfg = {
+        "market_data": {
+            "source_map": {
+                "candles": {
+                    "allow_public_fallback": True,
+                }
+            }
+        }
+    }
+    revolut_incremental_sync.sync_new_candles(
+        symbol="BTC-USD",
+        timeframe="1m",
+        db_path=db_path,
+        now_ms=180_000,
+        cfg=cfg,
+    )
+    assert calls
+    assert all(calls)
+
+
+def test_incremental_sync_uses_snapshot_fallback_from_source_map(tmp_path: Path, monkeypatch):
+    db_path = _db_path(tmp_path)
+    symbol = "BTC-USD"
+    timeframe = "1m"
+    now_ms = 180_000
+    revolut_market_db.upsert_candles(
+        symbol=symbol,
+        timeframe=timeframe,
+        db_path=db_path,
+        candles=[
+            {"ts": 60_000, "open": 1.0, "high": 1.1, "low": 0.9, "close": 1.0, "volume": 1.0, "close_time": 119_999}
+        ],
+    )
+
+    def fake_fetch(symbol, interval_minutes, since_ms, until_ms, allow_public_fallback=None):
+        raise revolut_incremental_sync.RevolutCandleFetchError("unavailable", permanent=True)
+
+    monkeypatch.setattr(revolut_incremental_sync, "fetch_candles", fake_fetch)
+    monkeypatch.setattr(
+        revolut_incremental_sync,
+        "_derive_candles_from_price_history",
+        lambda **kwargs: [
+            {
+                "ts": 120_000,
+                "open": 1.0,
+                "high": 1.1,
+                "low": 0.9,
+                "close": 1.05,
+                "volume": 0.0,
+                "close_time": 179_999,
+            }
+        ],
+    )
+
+    cfg = {
+        "market_data": {
+            "source_map": {
+                "candles": {
+                    "allow_snapshot_fallback": True,
+                }
+            }
+        }
+    }
+    result = revolut_incremental_sync.sync_new_candles(
+        symbol=symbol,
+        timeframe=timeframe,
+        db_path=db_path,
+        now_ms=now_ms,
+        cfg=cfg,
+    )
+    assert result["status"] == "degraded"
+    assert result["source"] == "snapshot_derived"
+    assert result["inserted"] == 1
 
 
 def test_orderbook_top5_cache_and_optional_persistence(tmp_path: Path, monkeypatch):

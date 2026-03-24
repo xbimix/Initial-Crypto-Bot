@@ -38,6 +38,40 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return default
 
 
+def _market_data_cfg(cfg: dict | None) -> dict:
+    if not isinstance(cfg, dict):
+        return {}
+    raw = cfg.get("market_data", {})
+    return raw if isinstance(raw, dict) else {}
+
+
+def _candle_source_map(cfg: dict | None) -> dict:
+    market_data_cfg = _market_data_cfg(cfg)
+    source_map = market_data_cfg.get("source_map", {})
+    if not isinstance(source_map, dict):
+        return {}
+    candles = source_map.get("candles", {})
+    return candles if isinstance(candles, dict) else {}
+
+
+def _resolve_candle_public_fallback(cfg: dict | None, override: bool | None) -> bool:
+    if isinstance(override, bool):
+        return override
+    source_map = _candle_source_map(cfg)
+    if "allow_public_fallback" in source_map:
+        return bool(source_map.get("allow_public_fallback"))
+    return _env_bool("REVBOT_CANDLE_ALLOW_PUBLIC_FALLBACK", default=False)
+
+
+def _resolve_snapshot_fallback(cfg: dict | None, override: bool | None) -> bool:
+    if isinstance(override, bool):
+        return override
+    source_map = _candle_source_map(cfg)
+    if "allow_snapshot_fallback" in source_map:
+        return bool(source_map.get("allow_snapshot_fallback"))
+    return _env_bool("REVBOT_ALLOW_SNAPSHOT_CANDLE_FALLBACK", default=False)
+
+
 def _bootstrap_lookback_days(timeframe: str) -> int:
     tf = str(timeframe or "").strip().lower()
     env_name = f"REVBOT_BOOTSTRAP_LOOKBACK_DAYS_{tf.upper()}"
@@ -133,6 +167,9 @@ def sync_new_candles(
     now_ms: int | None = None,
     source: str = "revolut",
     include_partial: bool = False,
+    cfg: dict | None = None,
+    allow_public_fallback: bool | None = None,
+    allow_snapshot_fallback: bool | None = None,
 ) -> dict:
     store = RevolutCandleStore(db_path=db_path)
     interval_minutes = timeframe_to_interval_minutes(timeframe)
@@ -168,24 +205,36 @@ def sync_new_candles(
     effective_source = source
     sync_status = "ok"
     sync_note = "incremental_sync"
+    resolved_public_fallback = _resolve_candle_public_fallback(cfg, allow_public_fallback)
+    resolved_snapshot_fallback = _resolve_snapshot_fallback(cfg, allow_snapshot_fallback)
     try:
         for window_since, window_until in _iter_request_windows(
             since_ms,
             current_ms,
             interval_minutes=interval_minutes,
         ):
-            window_rows = fetch_candles(
-                symbol=symbol,
-                interval_minutes=interval_minutes,
-                since_ms=window_since,
-                until_ms=window_until,
-            )
+            try:
+                window_rows = fetch_candles(
+                    symbol=symbol,
+                    interval_minutes=interval_minutes,
+                    since_ms=window_since,
+                    until_ms=window_until,
+                    allow_public_fallback=resolved_public_fallback,
+                )
+            except TypeError:
+                # Backward-compat for test doubles/custom monkeypatches.
+                window_rows = fetch_candles(
+                    symbol=symbol,
+                    interval_minutes=interval_minutes,
+                    since_ms=window_since,
+                    until_ms=window_until,
+                )
             fetched.extend(window_rows)
             requests += 1
     except RevolutCandleFetchError as exc:
         if not exc.permanent:
             raise
-        if _env_bool("REVBOT_ALLOW_SNAPSHOT_CANDLE_FALLBACK", default=False):
+        if resolved_snapshot_fallback:
             fetched = _derive_candles_from_price_history(
                 symbol=symbol,
                 interval_ms=interval_ms,
@@ -253,4 +302,6 @@ def sync_new_candles(
         "source": effective_source,
         "status": sync_status,
         "note": sync_note,
+        "allow_public_fallback": bool(resolved_public_fallback),
+        "allow_snapshot_fallback": bool(resolved_snapshot_fallback),
     }

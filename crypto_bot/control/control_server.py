@@ -596,6 +596,12 @@ def _remove_strategy_symbol(state, symbol):
         "last_detection_source",
         "last_detection_timestamp_epoch",
         "last_effective_strategy",
+        "last_effective_route",
+        "last_route_eval_ts",
+        "last_regime_eval_ts",
+        "last_fallback_reason",
+        "last_non_mr_ready_reason",
+        "last_ready_for_non_mr_route",
         "last_auto_fallback_reason",
     ):
         section = state.get(key)
@@ -603,6 +609,20 @@ def _remove_strategy_symbol(state, symbol):
             section.pop(symbol, None)
 
     return state
+
+
+def _has_open_position(symbol: str) -> bool:
+    paper_state = STORAGE.read(PAPER_STATE_PATH, default={})
+    if not isinstance(paper_state, dict):
+        return False
+    positions = paper_state.get("positions", {})
+    if not isinstance(positions, dict):
+        return False
+    position = positions.get(symbol)
+    if not isinstance(position, dict):
+        return False
+    size = _to_float(position.get("size"), fallback=0.0) or 0.0
+    return size > 0
 
 
 def _read_latest_snapshot_price(symbol):
@@ -1134,6 +1154,13 @@ def update_universe_track():
         return _json_error("Missing symbol")
     if not isinstance(tracked, bool):
         return _json_error("tracked must be a boolean")
+    if not tracked and _has_open_position(symbol):
+        return _json_error(
+            f"Cannot remove {symbol} while an open position exists",
+            status=409,
+            code="open_position_exists",
+            details={"symbol": symbol},
+        )
 
     cfg_before = load_config()
     old_payload = {}
@@ -1153,6 +1180,21 @@ def update_universe_track():
         buy_map = _parse_enabled_map(cfg.get("symbol_buy_enabled", {}))
         sell_map = _parse_enabled_map(cfg.get("symbol_sell_enabled", {}))
         legacy_map = _parse_enabled_map(cfg.get("symbol_enabled", {}))
+        token_regimes = cfg.get("token_regimes")
+        if not isinstance(token_regimes, dict):
+            token_regimes = {}
+        symbol_strategies = cfg.get("symbol_strategies")
+        if not isinstance(symbol_strategies, dict):
+            symbol_strategies = {}
+        strategy_overrides = cfg.get("strategy_overrides")
+        if not isinstance(strategy_overrides, dict):
+            strategy_overrides = {}
+        risk = cfg.get("risk")
+        if not isinstance(risk, dict):
+            risk = {}
+        symbol_cooldown_seconds = risk.get("symbol_cooldown_seconds")
+        if not isinstance(symbol_cooldown_seconds, dict):
+            symbol_cooldown_seconds = {}
 
         if tracked:
             if symbol not in symbols:
@@ -1162,15 +1204,23 @@ def update_universe_track():
             legacy_map[symbol] = True
         else:
             symbols = [item for item in symbols if item != symbol]
-            buy_map[symbol] = False
-            # Keep SELL enabled so open-position exits remain safe.
-            sell_map[symbol] = True
-            legacy_map[symbol] = False
+            buy_map.pop(symbol, None)
+            sell_map.pop(symbol, None)
+            legacy_map.pop(symbol, None)
+            token_regimes.pop(symbol, None)
+            symbol_strategies.pop(symbol, None)
+            strategy_overrides.pop(symbol, None)
+            symbol_cooldown_seconds.pop(symbol, None)
 
         cfg["symbols"] = symbols
         cfg["symbol_buy_enabled"] = buy_map
         cfg["symbol_sell_enabled"] = sell_map
         cfg["symbol_enabled"] = legacy_map
+        cfg["token_regimes"] = token_regimes
+        cfg["symbol_strategies"] = symbol_strategies
+        cfg["strategy_overrides"] = strategy_overrides
+        risk["symbol_cooldown_seconds"] = symbol_cooldown_seconds
+        cfg["risk"] = risk
 
         result = {
             "symbol": symbol,
@@ -1182,7 +1232,14 @@ def update_universe_track():
         }
         return cfg
 
-    update_config(_mutate)
+    with STORAGE.transaction(STATE_DIR, timeout=12.0):
+        update_config(_mutate)
+        if not tracked:
+            strategy_state = STORAGE.read(STRATEGY_STATE_PATH, default={})
+            if not isinstance(strategy_state, dict):
+                strategy_state = {}
+            strategy_state = _remove_strategy_symbol(strategy_state, symbol)
+            STORAGE.write(STRATEGY_STATE_PATH, strategy_state)
     _write_audit_event(
         "universe_track_update",
         old=old_payload,

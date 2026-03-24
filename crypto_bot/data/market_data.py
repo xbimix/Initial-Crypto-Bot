@@ -1,5 +1,6 @@
 import time
 import statistics
+import math
 from collections import defaultdict, deque
 from datetime import datetime
 
@@ -37,6 +38,19 @@ DEFAULT_REGIME_STALE_AFTER_SECONDS = {"1h": 7200, "4h": 28800, "1d": 172800}
 _PRICE_HISTORY = defaultdict(deque)
 _LAST_CANDLE_SYNC_AT: dict[str, float] = {}
 _INDICATOR_CACHE: dict[str, dict] = {}
+
+
+def _format_snapshot_price(value: float | int | None) -> str:
+    if value is None:
+        return "NA"
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return "NA"
+    if not math.isfinite(numeric):
+        return "NA"
+    precision = 5 if abs(numeric) >= 1 else 8
+    return f"{numeric:.{precision}f}"
 
 
 def _core_readiness_payload(symbol: str, market_data_cfg: dict) -> dict:
@@ -458,7 +472,13 @@ def _load_candle_history(symbol: str, timeframe: str, limit: int) -> tuple[list[
     return prices, weights, meta if isinstance(meta, dict) else {}
 
 
-def _maybe_sync_candles(symbol: str, timeframe: str, sync_interval_seconds: int) -> None:
+def _maybe_sync_candles(
+    symbol: str,
+    timeframe: str,
+    sync_interval_seconds: int,
+    *,
+    cfg: dict | None = None,
+) -> None:
     now = time.time()
     key = f"{symbol}:{timeframe}"
     last_run = _LAST_CANDLE_SYNC_AT.get(key, 0.0)
@@ -466,7 +486,12 @@ def _maybe_sync_candles(symbol: str, timeframe: str, sync_interval_seconds: int)
         return
     _LAST_CANDLE_SYNC_AT[key] = now
     try:
-        sync_new_candles(symbol=symbol, timeframe=timeframe, include_partial=False)
+        sync_new_candles(
+            symbol=symbol,
+            timeframe=timeframe,
+            include_partial=False,
+            cfg=cfg,
+        )
     except Exception as exc:
         logger.debug(f"Candle sync skipped for {symbol} {timeframe}: {exc}")
 
@@ -522,7 +547,7 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
 
         # High-frequency healthy event; keep available at DEBUG to reduce log churn.
         logger.debug(f"Fetching market snapshot for {symbol}")
-        order_book = get_order_book(symbol)
+        order_book = get_order_book(symbol, cfg=cfg)
         book = _extract_order_book_snapshot(order_book, symbol)
         if book is None:
             return None
@@ -532,6 +557,7 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
                 symbol=symbol,
                 timeframe=candle_timeframe,
                 sync_interval_seconds=candle_sync_interval_seconds,
+                cfg=cfg,
             )
 
         history = _record_mark_price(
@@ -683,24 +709,24 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             "ema_50_slope": ema_50_slope,
         }
 
-        ema_50_log = f"{ema_50:.5f}" if ema_50 is not None else "NA"
-        ema_200_log = f"{ema_200:.5f}" if ema_200 is not None else "NA"
+        ema_50_log = _format_snapshot_price(ema_50)
+        ema_200_log = _format_snapshot_price(ema_200)
         ema_50_slope_log = f"{ema_50_slope:.8f}" if ema_50_slope is not None else "NA"
 
         logger.info(
             f"SNAPSHOT {symbol} | "
-            f"price={last_price:.5f} "
-            f"bid={book['best_bid']:.5f} "
-            f"ask={book['best_ask']:.5f} "
+            f"price={_format_snapshot_price(last_price)} "
+            f"bid={_format_snapshot_price(book['best_bid'])} "
+            f"ask={_format_snapshot_price(book['best_ask'])} "
             f"spread_bps={book['spread_bps']:.2f} "
             f"mom_norm={norm_momentum:.3f} "
             f"rsi={(rsi if rsi is not None else 50.0):.2f} "
-            f"atr_raw={atr_raw:.5f} "
-            f"vwap={vwap:.5f} "
+            f"atr_raw={_format_snapshot_price(atr_raw)} "
+            f"vwap={_format_snapshot_price(vwap)} "
             f"points={len(prices)} "
             f"quality={data_quality_reason} "
-            f"24h_low={low_24h:.5f} "
-            f"24h_high={high_24h:.5f} "
+            f"24h_low={_format_snapshot_price(low_24h)} "
+            f"24h_high={_format_snapshot_price(high_24h)} "
             f"ema_50={ema_50_log} "
             f"ema_200={ema_200_log} "
             f"ema_50_slope={ema_50_slope_log}"

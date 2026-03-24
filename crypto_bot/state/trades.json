@@ -1220,5 +1220,38 @@
     "pnl": -14.304439609999994,
     "balance": 5225.172957706927,
     "reason": "scalper_stop_loss"
+  },
+  {
+    "time": 1774245013.073,
+    "symbol": "PERP-USD",
+    "side": "SELL",
+    "price": 0.03385,
+    "size": 3023.852329,
+    "pnl": -54.88291977135002,
+    "balance": 5327.530359043577,
+    "reason": "manual_user_sell"
+  },
+  {
+    "time": 1774300380.8429668,
+    "symbol": "APT-USD",
+    "side": "SELL",
+    "price": 1.039,
+    "size": 201.979398,
+    "pnl": 9.85659462239999,
+    "balance": 5537.386953565577,
+    "reason": "profit_lock_exit_5pct",
+    "entry_route": "mean_reversion",
+    "entry_regime": "MIXED_OR_UNCLEAR",
+    "exit_policy_used": null,
+    "entry_confidence": 48.18,
+    "entry_timestamp": 1773749579.7563531,
+    "route_eval_ts": 1773749579.7563531,
+    "regime_eval_ts": 1773749579.7563531,
+    "effective_route": "mean_reversion",
+    "effective_strategy": "mean_reversion",
+    "configured_regime": "AUTO",
+    "fallback_reason": "open_position_exit_policy_locked",
+    "auto_fallback_reason": "insufficient_shadow_state",
+    "exit_policy": "mr_exit"
   }
 ]

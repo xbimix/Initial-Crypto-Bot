@@ -1,17 +1,17 @@
 ﻿{
-    "generated_at_utc":  "2026-03-22T22:31:25.9727073Z",
+    "generated_at_utc":  "2026-03-23T14:21:49.6608086Z",
     "hash_scope":  "behavior_sensitive",
     "repo_root":  "D:\\Python-Codes\\RevBot",
     "files":  {
-                  "crypto_bot/strategy/strategy_engine.py":  "BA57C9E583B07769D0BBF67912588CC7F87D5DAF7E60F6799C93A340078647E9",
+                  "crypto_bot/strategy/strategy_engine.py":  "482B3A3E337C4190E707E6B5BA63FBDEFD73A66FE363CBA0A52251A78D9D6464",
                   "crypto_bot/strategy/regime_router.py":  "39019A81A6FAE2797BFE9DA62556B60DE49A534E37E9151F1284610512A6A879",
-                  "crypto_bot/strategy/trend_pullback.py":  "72FE3C2C3CA11C612894E24CB95D1794A1B78A9DF141F82F1B82B9531E1C1533",
-                  "crypto_bot/strategy/breakout_momentum.py":  "5696BEB9EA03BE79A8305FD9A899D2F042E94C959A14DDFCCD0065D6DA8CD63E",
+                  "crypto_bot/strategy/trend_pullback.py":  "4819A6B074832E8C85607A270F1D9D6651A67550E57591500D77A66C2018D385",
+                  "crypto_bot/strategy/breakout_momentum.py":  "2D74BB524527F7E80EF9474E5DAD00426CD1C4310A162D9664FE7AF97A9172A0",
                   "crypto_bot/strategy/regime.py":  "546DC789C80A898A042245F8BD9B54894508EA82F55041D3CD647F47D6452CD4",
                   "crypto_bot/strategy/scoring.py":  "EDF97342F7193086F1970D8842DE71376AF094EAEA7B3E8486265DFF5BE45D44",
                   "crypto_bot/trading/executor.py":  "BA6448D7ED517FEDB578C5D43C0E56B98FA1BC4212E1496510F1BCFD15A69CEA",
                   "crypto_bot/risk/risk_manager.py":  "52AC1E45F63BCFD0C4B61DF5A1C954BB7823FF9657777B856E1D30D7B8E6A5A3",
-                  "crypto_bot/main.py":  "6751A82B9BAE988EBDD37420A158F59B7134A18C398F9EF5127426FD36B32B85",
+                  "crypto_bot/main.py":  "FA536BFB00A2CDC836AB0DF4F33F79FB962AA777773BE006E868405386A8270D",
                   "crypto_bot/paper/paper_broker.py":  "4379DAE78C03EF07CD43F63B0C4BC25B2A1008CB4B4F8A6B2164ACAC2A2425F8"
               }
 }

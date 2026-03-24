@@ -24,6 +24,9 @@ def evaluate_sell(
 ):
     if entry is None:
         return None
+    if entry <= 0:
+        logger.warning(f"{symbol} exit skipped due to invalid entry price: {entry}")
+        return decision(symbol, "HOLD", price, momentum, "invalid_entry_price")
 
     pnl_pct = (price - entry) / entry
     current_lock = profit_lock_state.get(symbol)

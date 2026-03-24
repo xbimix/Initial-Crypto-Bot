@@ -92,6 +92,10 @@ def reset_strategy_globals(monkeypatch, tmp_path: Path):
         "_last_shadow_continuity_state",
         "_last_shadow_age_seconds",
         "_last_failed_gates",
+        "_last_buy_block_reason",
+        "_last_buy_block_route",
+        "_buy_block_counts_by_symbol",
+        "_buy_block_counts_by_symbol_route",
         "_pending_entry_contract",
         "_entry_route",
         "_entry_regime",
@@ -918,3 +922,182 @@ def test_auto_falls_back_when_key_window_support_flag_missing():
     )
     assert decision["effective_strategy"] == "mean_reversion"
     assert decision["fallback_reason"] == "unsupported_key_windows"
+
+
+def test_manual_trend_missing_data_quality_is_conservative():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "TREND_PULLBACK"}
+    cfg["market_regime"]["min_score_to_buy"] = 0
+    snap = _snapshot(
+        price=101.4,
+        momentum_norm=0.4,
+        trade_count=30,
+        high_24h=110.0,
+        low_24h=90.0,
+        atr=1.0,
+        vwap=101.3,
+        ema_50=101.2,
+        ema_200=95.0,
+        ema_50_slope=0.08,
+        recent_prices=[96.0, 97.8, 99.2, 100.4, 101.6, 100.8, 101.2, 101.4],
+    )
+    snap.pop("data_quality_ok", None)
+    snap.pop("data_quality_reason", None)
+
+    decision = se.generate_decision(snap, cfg)
+    assert decision["action"] == "HOLD"
+    assert decision["reason"] == "data_quality_missing"
+
+
+def test_manual_breakout_missing_data_quality_is_conservative():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "BREAKOUT_MOMENTUM"}
+    cfg["market_regime"]["min_score_to_buy"] = 0
+    snap = _snapshot(
+        price=109.9,
+        momentum_norm=0.85,
+        trade_count=45,
+        high_24h=110.0,
+        low_24h=100.0,
+        atr=1.0,
+        vwap=108.0,
+        rsi=78.0,
+        ema_50=107.5,
+        ema_200=104.0,
+        recent_prices=[103.0, 104.5, 105.2, 106.3, 107.1, 108.2, 109.0, 109.9],
+    )
+    snap.pop("data_quality_ok", None)
+    snap.pop("data_quality_reason", None)
+
+    decision = se.generate_decision(snap, cfg)
+    assert decision["action"] == "HOLD"
+    assert decision["reason"] == "data_quality_missing"
+
+
+def test_manual_scalper_uses_scalper_blocked_regimes_not_mr_defaults(monkeypatch):
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["symbol_strategies"] = {"TEST-USD": "volatility_scalper"}
+    cfg["market_regime"]["blocked_regimes"] = ["range"]
+    cfg["market_regime"]["hard_blocked_regimes"] = ["range"]
+    cfg["volatility_scalper"] = {
+        "symbols": ["TEST-USD"],
+        "blocked_regimes": [],
+        "min_score_to_buy": 0,
+    }
+
+    monkeypatch.setattr(
+        se,
+        "_compute_scalper_diagnostics",
+        lambda **kwargs: ("range", 90.0, 0.3, 0.01),
+    )
+
+    decision = se.generate_decision(
+        _snapshot(
+            price=0.95,
+            vwap=1.0,
+            atr=0.02,
+            momentum_norm=0.7,
+            trade_count=60,
+            high_24h=1.30,
+            low_24h=0.80,
+            spread_bps=20.0,
+            rsi=50.0,
+        ),
+        cfg,
+    )
+    assert decision["effective_strategy"] == "volatility_scalper"
+    assert decision["action"] == "BUY"
+    assert decision["reason"] == "volatility_scalper_entry"
+
+
+def test_manual_scalper_missing_data_quality_is_conservative():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["symbol_strategies"] = {"TEST-USD": "volatility_scalper"}
+    cfg["volatility_scalper"] = {"symbols": ["TEST-USD"]}
+    snap = _snapshot(
+        price=0.95,
+        vwap=1.0,
+        atr=0.02,
+        momentum_norm=0.7,
+        trade_count=60,
+        high_24h=1.30,
+        low_24h=0.80,
+        spread_bps=20.0,
+    )
+    snap.pop("data_quality_ok", None)
+    snap.pop("data_quality_reason", None)
+
+    decision = se.generate_decision(snap, cfg)
+    assert decision["effective_strategy"] == "volatility_scalper"
+    assert decision["action"] == "HOLD"
+    assert decision["reason"] == "data_quality_missing"
+
+
+def test_trend_route_gates_read_from_strategy_defaults_route_gates():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "TREND_PULLBACK"}
+    cfg["market_regime"]["min_score_to_buy"] = 0
+    cfg["strategy_defaults"] = {
+        "route_gates": {
+            "trend_pullback": {
+                "min_momentum": 0.95,
+                "min_score_to_buy": 0,
+            }
+        }
+    }
+
+    decision = se.generate_decision(
+        _snapshot(
+            price=101.4,
+            momentum_norm=0.4,
+            trade_count=30,
+            high_24h=110.0,
+            low_24h=90.0,
+            atr=1.0,
+            vwap=101.3,
+            ema_50=101.2,
+            ema_200=95.0,
+            ema_50_slope=0.08,
+            recent_prices=[96.0, 97.8, 99.2, 100.4, 101.6, 100.8, 101.2, 101.4],
+        ),
+        cfg,
+    )
+    assert decision["effective_strategy"] == "trend_pullback"
+    assert decision["action"] == "HOLD"
+    assert decision["reason"] == "trend_pullback_momentum_not_ready"
+
+
+def test_breakout_route_gates_read_from_strategy_defaults_route_gates():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "BREAKOUT_MOMENTUM"}
+    cfg["market_regime"]["min_score_to_buy"] = 0
+    cfg["strategy_defaults"] = {
+        "route_gates": {
+            "breakout_momentum": {
+                "min_momentum": 0.95,
+                "min_score_to_buy": 0,
+            }
+        }
+    }
+
+    decision = se.generate_decision(
+        _snapshot(
+            price=109.9,
+            momentum_norm=0.9,
+            trade_count=45,
+            high_24h=110.0,
+            low_24h=100.0,
+            atr=1.0,
+            vwap=108.0,
+            rsi=78.0,
+            ema_50=107.5,
+            ema_200=104.0,
+            recent_prices=[103.0, 104.5, 105.2, 106.3, 107.1, 108.2, 109.0, 109.9],
+        ),
+        cfg,
+    )
+    assert decision["effective_strategy"] == "breakout_momentum"
+    assert decision["action"] == "HOLD"
+    assert decision["reason"] == "breakout_momentum_not_ready"

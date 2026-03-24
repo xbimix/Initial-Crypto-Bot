@@ -147,7 +147,12 @@ def run_incremental_sync_tick(
         attempted_jobs += 1
         next_delay_seconds = cadence_seconds
         try:
-            result = sync_new_candles(symbol=symbol, timeframe=timeframe, include_partial=False)
+            result = sync_new_candles(
+                symbol=symbol,
+                timeframe=timeframe,
+                include_partial=False,
+                cfg=cfg,
+            )
             result_status = str(result.get("status", "ok")).strip().lower()
             requests += int(result.get("requests", 0) or 0)
             inserted += int(result.get("inserted", 0) or 0)

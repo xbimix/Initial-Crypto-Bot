@@ -92,6 +92,10 @@ _last_route_timestamp_fresh = {}
 _last_shadow_continuity_state = {}
 _last_shadow_age_seconds = {}
 _last_failed_gates = {}
+_last_buy_block_reason = {}
+_last_buy_block_route = {}
+_buy_block_counts_by_symbol = {}
+_buy_block_counts_by_symbol_route = {}
 _entry_route = {}
 _entry_regime = {}
 _exit_policy = {}
@@ -463,6 +467,13 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             regime_cfg.get("blocked_regimes", ["unknown"]),
         )
     )
+    scalper_blocked_regimes = set()
+    raw_scalper_blocked_regimes = scalper_cfg.get("blocked_regimes", set())
+    if isinstance(raw_scalper_blocked_regimes, (set, list, tuple)):
+        for raw in raw_scalper_blocked_regimes:
+            token = str(raw or "").strip().lower()
+            if token:
+                scalper_blocked_regimes.add(token)
     route_blocked_regimes = blocked_regimes if effective_strategy == "mean_reversion" else set()
 
     if effective_strategy == "volatility_scalper":
@@ -636,7 +647,7 @@ def generate_decision(snapshot: dict, cfg: dict) -> dict:
             regime=regime,
             score=score,
             range_pos=range_pos,
-            blocked_regimes=blocked_regimes,
+            blocked_regimes=scalper_blocked_regimes,
             min_trades=min_trades,
             scalper_cfg=scalper_cfg,
         )
@@ -913,13 +924,17 @@ def _evaluate_scalper_buy(
     min_trades,
     scalper_cfg,
 ):
-    if not snapshot.get("data_quality_ok", True):
+    data_quality_ok = snapshot.get("data_quality_ok")
+    if data_quality_ok is not True:
+        reason = snapshot.get("data_quality_reason")
+        if not isinstance(reason, str) or not reason.strip():
+            reason = "data_quality_missing" if data_quality_ok is None else "data_quality_failed"
         return _decision(
             symbol,
             "HOLD",
             price,
             momentum,
-            snapshot.get("data_quality_reason", "data_quality_failed"),
+            str(reason),
         )
 
     if regime in blocked_regimes:
@@ -1054,6 +1069,10 @@ def _save_strategy_state():
             "last_regime": _last_regime,
             "last_score": _last_score,
             "last_volatility": _last_volatility,
+            "last_buy_block_reason": _last_buy_block_reason,
+            "last_buy_block_route": _last_buy_block_route,
+            "buy_block_counts_by_symbol": _buy_block_counts_by_symbol,
+            "buy_block_counts_by_symbol_route": _buy_block_counts_by_symbol_route,
             **_route_metadata_state_map(_route_metadata_maps),
         },
         shadow_regime_state=_shadow_regime_state,
@@ -1083,6 +1102,10 @@ def _load_strategy_state():
             "last_regime": _last_regime,
             "last_score": _last_score,
             "last_volatility": _last_volatility,
+            "last_buy_block_reason": _last_buy_block_reason,
+            "last_buy_block_route": _last_buy_block_route,
+            "buy_block_counts_by_symbol": _buy_block_counts_by_symbol,
+            "buy_block_counts_by_symbol_route": _buy_block_counts_by_symbol_route,
             **_route_metadata_state_map(_route_metadata_maps),
         },
         shadow_regime_state=_shadow_regime_state,
@@ -1185,6 +1208,7 @@ def _cleanup(symbol, price):
 
 def _decision(symbol, action, price, momentum, reason):
     logger.info(f"{symbol} -> {action} | reason={reason}")
+    _record_buy_block_gate(symbol=symbol, action=action, reason=reason)
     payload = {
         "symbol": symbol,
         "action": action,
@@ -1212,6 +1236,10 @@ def _decision(symbol, action, price, momentum, reason):
         payload["entry_route_eval_ts"] = _entry_route_eval_ts[symbol]
     if symbol in _entry_regime_eval_ts:
         payload["entry_regime_eval_ts"] = _entry_regime_eval_ts[symbol]
+    if symbol in _last_buy_block_reason:
+        payload["last_buy_block_reason"] = _last_buy_block_reason[symbol]
+    if symbol in _last_buy_block_route:
+        payload["last_buy_block_route"] = _last_buy_block_route[symbol]
     _inject_route_metadata_payload(symbol, payload, _route_metadata_maps)
     return payload
 
@@ -1293,6 +1321,57 @@ def _record_symbol_metrics(symbol, regime, score, volatility):
         score_epsilon=SCORE_EPSILON,
         volatility_epsilon=VOLATILITY_EPSILON,
     )
+
+    if changed:
+        _metrics_dirty = True
+
+
+def _record_buy_block_gate(*, symbol, action, reason):
+    global _metrics_dirty
+
+    if action == "BUY":
+        return
+    # Buy-block diagnostics are only for symbols without an open position.
+    if symbol in _entry_price:
+        return
+
+    symbol_key = str(symbol or "").strip().upper()
+    if not symbol_key:
+        return
+
+    reason_key = str(reason or "").strip().lower()
+    if not reason_key:
+        reason_key = "unknown"
+    route_key = _normalize_strategy(
+        _last_effective_route.get(symbol_key) or _last_effective_strategy.get(symbol_key),
+        fallback="mean_reversion",
+    )
+
+    changed = False
+    if _last_buy_block_reason.get(symbol_key) != reason_key:
+        _last_buy_block_reason[symbol_key] = reason_key
+        changed = True
+    if _last_buy_block_route.get(symbol_key) != route_key:
+        _last_buy_block_route[symbol_key] = route_key
+        changed = True
+
+    symbol_bucket = _buy_block_counts_by_symbol.get(symbol_key)
+    if not isinstance(symbol_bucket, dict):
+        symbol_bucket = {}
+    symbol_bucket[reason_key] = int(symbol_bucket.get(reason_key, 0) or 0) + 1
+    _buy_block_counts_by_symbol[symbol_key] = symbol_bucket
+    changed = True
+
+    symbol_route_bucket = _buy_block_counts_by_symbol_route.get(symbol_key)
+    if not isinstance(symbol_route_bucket, dict):
+        symbol_route_bucket = {}
+    route_bucket = symbol_route_bucket.get(route_key)
+    if not isinstance(route_bucket, dict):
+        route_bucket = {}
+    route_bucket[reason_key] = int(route_bucket.get(reason_key, 0) or 0) + 1
+    symbol_route_bucket[route_key] = route_bucket
+    _buy_block_counts_by_symbol_route[symbol_key] = symbol_route_bucket
+    changed = True
 
     if changed:
         _metrics_dirty = True

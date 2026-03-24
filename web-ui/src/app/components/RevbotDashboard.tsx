@@ -113,6 +113,10 @@ type DashboardPayload = {
     cooldownOverrideSeconds: number | null;
     buyExecutable: boolean;
     buyExecutableReason: string;
+    price: number | null;
+    change24hPct: number | null;
+    low24h: number | null;
+    high24h: number | null;
     regime: string | null;
     volatilityPct: number | null;
     strategyScorePct: number | null;
@@ -281,12 +285,43 @@ type RangeId = (typeof RANGE_OPTIONS)[number]["id"];
 
 type PositionSortKey =
   | "attention"
+  | "symbol"
+  | "side"
+  | "units"
+  | "entry"
+  | "price"
+  | "change24h"
+  | "high24h"
+  | "low24h"
   | "value"
+  | "allocation"
   | "pnl"
   | "pnlPct"
+  | "lock"
+  | "peak"
   | "age"
   | "worstDip"
-  | "bounce";
+  | "review"
+  | "bounce"
+  | "status";
+
+type ControlSortKey =
+  | "symbol"
+  | "mode"
+  | "configuredRegime"
+  | "regime"
+  | "confidence"
+  | "volatility"
+  | "dataQuality"
+  | "price"
+  | "change24h"
+  | "high24h"
+  | "low24h"
+  | "buyOpportunity"
+  | "buyExecutable"
+  | "scalper"
+  | "buy"
+  | "sell";
 
 type ManualStoplossType = "pct" | "price";
 
@@ -910,7 +945,7 @@ export default function RevbotDashboard() {
     "score" | "stretch" | "volatility" | "bounce"
   >("score");
   const [controlSort, setControlSort] = useState<{
-    key: "symbol" | "regime" | "confidence" | "volatility" | "buyOpportunity" | "dataQuality";
+    key: ControlSortKey;
     direction: "asc" | "desc";
   }>({
     key: "symbol",
@@ -954,44 +989,43 @@ export default function RevbotDashboard() {
 
   const loadDashboard = useCallback(async () => {
     try {
-      try {
-        await fetch("/api/manual-stoploss", {
-          method: "POST",
-          headers: buildMutatingAuthHeaders({ "Content-Type": "application/json" }),
-          body: JSON.stringify({ action: "check" }),
-        });
-      } catch {
-        // best-effort only; dashboard fetch still proceeds
-      }
-
-      const response = await fetch("/api/dashboard", { cache: "no-store" });
+      const controller = new AbortController();
+      const timeoutHandle = window.setTimeout(() => controller.abort(), 12000);
+      const response = await fetch("/api/dashboard", {
+        cache: "no-store",
+        signal: controller.signal,
+      }).finally(() => {
+        window.clearTimeout(timeoutHandle);
+      });
       if (!response.ok) {
         throw new Error(`Dashboard request failed (${response.status})`);
       }
 
       const payload = (await response.json()) as DashboardPayload;
       let stoplossRules: Record<string, ManualStoplossRule> = {};
-      try {
-        const stoplossResponse = await fetch("/api/manual-stoploss", { cache: "no-store" });
-        if (stoplossResponse.ok) {
-          const rawPayload = (await stoplossResponse.json()) as {
-            rules?: Record<string, unknown>;
-          };
-          const rawRules = rawPayload.rules ?? {};
-          if (rawRules && typeof rawRules === "object" && !Array.isArray(rawRules)) {
-            const nextRules: Record<string, ManualStoplossRule> = {};
-            for (const [symbol, rawRule] of Object.entries(rawRules)) {
-              const parsed = toManualStoplossRule(rawRule);
-              if (!parsed) {
-                continue;
+      if (payload.positions.length > 0) {
+        try {
+          const stoplossResponse = await fetch("/api/manual-stoploss", { cache: "no-store" });
+          if (stoplossResponse.ok) {
+            const rawPayload = (await stoplossResponse.json()) as {
+              rules?: Record<string, unknown>;
+            };
+            const rawRules = rawPayload.rules ?? {};
+            if (rawRules && typeof rawRules === "object" && !Array.isArray(rawRules)) {
+              const nextRules: Record<string, ManualStoplossRule> = {};
+              for (const [symbol, rawRule] of Object.entries(rawRules)) {
+                const parsed = toManualStoplossRule(rawRule);
+                if (!parsed) {
+                  continue;
+                }
+                nextRules[symbol] = parsed;
               }
-              nextRules[symbol] = parsed;
+              stoplossRules = nextRules;
             }
-            stoplossRules = nextRules;
           }
+        } catch {
+          // fallback for stoploss state is optional at render time
         }
-      } catch {
-        // fallback for stoploss state is optional at render time
       }
 
       startTransition(() => {
@@ -1485,6 +1519,36 @@ export default function RevbotDashboard() {
     }
   }
 
+  function setControlSortKey(key: ControlSortKey) {
+    setControlSort((previous) => {
+      if (previous.key === key) {
+        return {
+          key,
+          direction: previous.direction === "desc" ? "asc" : "desc",
+        };
+      }
+
+      if (
+        key === "symbol"
+        || key === "mode"
+        || key === "configuredRegime"
+        || key === "regime"
+        || key === "volatility"
+      ) {
+        return { key, direction: "asc" };
+      }
+
+      return { key, direction: "desc" };
+    });
+  }
+
+  function controlSortIndicator(key: ControlSortKey) {
+    if (controlSort.key !== key) {
+      return "";
+    }
+    return controlSort.direction === "desc" ? "v" : "^";
+  }
+
   function setPositionSortKey(key: PositionSortKey) {
     setPositionSort((previous) => {
       if (previous.key === key) {
@@ -1494,7 +1558,15 @@ export default function RevbotDashboard() {
         };
       }
 
-      if (key === "pnl" || key === "pnlPct" || key === "worstDip") {
+      if (
+        key === "symbol"
+        || key === "side"
+        || key === "status"
+      ) {
+        return { key, direction: "asc" };
+      }
+
+      if (key === "pnl" || key === "pnlPct" || key === "worstDip" || key === "change24h") {
         return { key, direction: "asc" };
       }
 
@@ -1528,6 +1600,17 @@ export default function RevbotDashboard() {
         <div className="rb-shell mx-auto flex w-full max-w-[1720px] justify-center">
           <div className="hidden w-20 shrink-0 rounded-md border border-white/8 bg-black/40 lg:block" />
           <div className="flex-1 space-y-8">
+            <section className="rounded-lg border border-sky-400/25 bg-sky-500/10 px-5 py-4 text-slate-100">
+              <h1 className="text-lg font-semibold tracking-tight">RevBot Dashboard</h1>
+              <p className="mt-1 text-sm text-slate-300">
+                Loading live dashboard data...
+              </p>
+              {error ? (
+                <div className="mt-3 rounded-md border border-rose-400/40 bg-rose-500/15 px-3 py-2 text-sm text-rose-100">
+                  {error}
+                </div>
+              ) : null}
+            </section>
             <div className="h-[420px] animate-pulse rounded-md border border-white/8 bg-white/[0.04]" />
             <div className="grid gap-6 lg:grid-cols-3">
               <div className="h-40 animate-pulse rounded-lg border border-white/8 bg-white/[0.04]" />
@@ -1570,8 +1653,22 @@ export default function RevbotDashboard() {
       ?.symbol ?? null;
   const sortedSymbolControls = [...data.symbolControls].sort((left, right) => {
     const keyOf = (row: DashboardPayload["symbolControls"][number]) => {
+      if (controlSort.key === "mode") {
+        return (
+          row.buyEnabled && row.sellEnabled
+            ? "buy+sell"
+            : row.buyEnabled
+              ? "buy"
+              : row.sellEnabled
+                ? "sell"
+                : "paused"
+        );
+      }
+      if (controlSort.key === "configuredRegime") {
+        return String(row.configuredRegime ?? "").toLowerCase();
+      }
       if (controlSort.key === "regime") {
-        return formatDetectedRegime(row.detectedRegime).toLowerCase();
+        return formatDetectedRegime(row.suggestedRegimeV2 ?? row.detectedRegime).toLowerCase();
       }
       if (controlSort.key === "confidence") {
         return Number(row.detectedRegimeConfidenceScore ?? confidenceScoreFromLabel(row.detectedRegimeConfidenceLabel));
@@ -1579,8 +1676,32 @@ export default function RevbotDashboard() {
       if (controlSort.key === "volatility") {
         return String(row.detectedRegimeVolatilityState ?? "unknown").toLowerCase();
       }
+      if (controlSort.key === "price") {
+        return Number(row.price ?? -1);
+      }
+      if (controlSort.key === "change24h") {
+        return Number(row.change24hPct ?? -999);
+      }
+      if (controlSort.key === "high24h") {
+        return Number(row.high24h ?? -1);
+      }
+      if (controlSort.key === "low24h") {
+        return Number(row.low24h ?? -1);
+      }
       if (controlSort.key === "buyOpportunity") {
         return Number(row.buyOpportunityPct ?? -1);
+      }
+      if (controlSort.key === "buyExecutable") {
+        return row.buyExecutable ? 1 : 0;
+      }
+      if (controlSort.key === "scalper") {
+        return row.scalperEnabled ? 1 : 0;
+      }
+      if (controlSort.key === "buy") {
+        return row.buyEnabled ? 1 : 0;
+      }
+      if (controlSort.key === "sell") {
+        return row.sellEnabled ? 1 : 0;
       }
       if (controlSort.key === "dataQuality") {
         const regimeQuality = dataQualityRank(row.regimeDataQualityStatus);
@@ -1645,6 +1766,10 @@ export default function RevbotDashboard() {
 
     return {
       ...position,
+      price: control?.price ?? position.currentPrice ?? null,
+      change24hPct: control?.change24hPct ?? null,
+      high24h: control?.high24h ?? null,
+      low24h: control?.low24h ?? null,
       ageHours,
       bounceScore,
       bounceLabel: volatilityLabel(control?.volatilityOpportunityLabel ?? null),
@@ -1654,9 +1779,36 @@ export default function RevbotDashboard() {
     };
   });
   const sortedPositions = [...positionsWithMeta].sort((left, right) => {
-    const valueFor = (row: (typeof positionsWithMeta)[number]) => {
+    const valueFor = (row: (typeof positionsWithMeta)[number]): number | string => {
+      if (positionSort.key === "symbol") {
+        return row.symbol.toLowerCase();
+      }
+      if (positionSort.key === "side") {
+        return "long";
+      }
+      if (positionSort.key === "units") {
+        return row.units;
+      }
+      if (positionSort.key === "entry") {
+        return row.entryPrice;
+      }
+      if (positionSort.key === "price") {
+        return row.price ?? -1;
+      }
+      if (positionSort.key === "change24h") {
+        return row.change24hPct ?? -999;
+      }
+      if (positionSort.key === "high24h") {
+        return row.high24h ?? -1;
+      }
+      if (positionSort.key === "low24h") {
+        return row.low24h ?? -1;
+      }
       if (positionSort.key === "value") {
         return row.marketValue;
+      }
+      if (positionSort.key === "allocation") {
+        return row.allocationPct;
       }
       if (positionSort.key === "pnl") {
         return row.unrealizedValue;
@@ -1664,19 +1816,37 @@ export default function RevbotDashboard() {
       if (positionSort.key === "pnlPct") {
         return row.unrealizedPct;
       }
+      if (positionSort.key === "lock") {
+        return row.profitLockPct ?? -999;
+      }
+      if (positionSort.key === "peak") {
+        return row.peakPnlPct;
+      }
       if (positionSort.key === "age") {
         return row.ageHours ?? -1;
       }
       if (positionSort.key === "worstDip") {
         return row.advisoryMaxDrawdownPctDuringTrade;
       }
+      if (positionSort.key === "review") {
+        return row.advisoryStaleLosingReview ? 1 : 0;
+      }
       if (positionSort.key === "bounce") {
         return row.bounceScore ?? -1;
+      }
+      if (positionSort.key === "status") {
+        return String(row.status ?? "").toLowerCase();
       }
       return row.attentionScore;
     };
 
-    const delta = valueFor(left) - valueFor(right);
+    const leftKey = valueFor(left);
+    const rightKey = valueFor(right);
+    const delta = (
+      typeof leftKey === "string" || typeof rightKey === "string"
+    )
+      ? String(leftKey).localeCompare(String(rightKey))
+      : Number(leftKey) - Number(rightKey);
     if (delta !== 0) {
       return positionSort.direction === "asc" ? delta : -delta;
     }
@@ -1873,7 +2043,7 @@ export default function RevbotDashboard() {
     if (positionSort.key !== key) {
       return "";
     }
-    return positionSort.direction === "desc" ? "↓" : "↑";
+    return positionSort.direction === "desc" ? "v" : "^";
   };
   const comparisonRows = [
     {
@@ -2059,110 +2229,89 @@ export default function RevbotDashboard() {
             </div>
 
             <div className="rb-table-wrap mt-4 max-h-[560px] overflow-y-auto overflow-x-auto">
-              <table className="min-w-[1480px] w-full">
-                <thead className="sticky top-0 z-10 bg-[#0b1220]">
+              <table className="min-w-[1560px] w-full">
+                <thead className="sticky top-0 z-10 bg-slate-950/95">
                   <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.12em] text-slate-400">
-                    <th className="px-3 py-2">
-                      <button
-                        className="text-left"
-                        onClick={() =>
-                          setControlSort((previous) => ({
-                            key: "symbol",
-                            direction:
-                              previous.key === "symbol" && previous.direction === "asc"
-                                ? "desc"
-                                : "asc",
-                          }))
-                        }
-                      >
-                        Token
+                    <th className="px-2 py-2 whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setControlSortKey("symbol")}>
+                        Token {controlSortIndicator("symbol")}
                       </button>
                     </th>
-                    <th className="px-3 py-2">Mode</th>
-                    <th className="px-3 py-2">Configured Regime</th>
-                    <th className="px-3 py-2">
-                      <button
-                        className="text-left"
-                        onClick={() =>
-                          setControlSort((previous) => ({
-                            key: "regime",
-                            direction:
-                              previous.key === "regime" && previous.direction === "asc"
-                                ? "desc"
-                                : "asc",
-                          }))
-                        }
-                      >
-                        Regime Routing
+                    <th className="px-2 py-2 text-right whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("price")}>
+                        Price {controlSortIndicator("price")}
                       </button>
                     </th>
-                    <th className="px-3 py-2">
-                      <button
-                        className="text-left"
-                        onClick={() =>
-                          setControlSort((previous) => ({
-                            key: "confidence",
-                            direction:
-                              previous.key === "confidence" && previous.direction === "desc"
-                                ? "asc"
-                                : "desc",
-                          }))
-                        }
-                      >
-                        Confidence
+                    <th className="px-2 py-2 text-right whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("change24h")}>
+                        24h Change {controlSortIndicator("change24h")}
                       </button>
                     </th>
-                    <th className="px-3 py-2">
-                      <button
-                        className="text-left"
-                        onClick={() =>
-                          setControlSort((previous) => ({
-                            key: "volatility",
-                            direction:
-                              previous.key === "volatility" && previous.direction === "asc"
-                                ? "desc"
-                                : "asc",
-                          }))
-                        }
-                      >
-                        Volatility State
+                    <th className="px-2 py-2 text-right whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("high24h")}>
+                        24h High {controlSortIndicator("high24h")}
                       </button>
                     </th>
-                    <th className="px-3 py-2">
-                      <button
-                        className="text-left"
-                        onClick={() =>
-                          setControlSort((previous) => ({
-                            key: "dataQuality",
-                            direction:
-                              previous.key === "dataQuality" && previous.direction === "desc"
-                                ? "asc"
-                                : "desc",
-                          }))
-                        }
-                      >
-                        Data Quality
+                    <th className="px-2 py-2 text-right whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("low24h")}>
+                        24h Low {controlSortIndicator("low24h")}
                       </button>
                     </th>
-                    <th className="px-3 py-2 text-center">
-                      <button
-                        onClick={() =>
-                          setControlSort((previous) => ({
-                            key: "buyOpportunity",
-                            direction:
-                              previous.key === "buyOpportunity" && previous.direction === "desc"
-                                ? "asc"
-                                : "desc",
-                          }))
-                        }
-                      >
-                        Buy Opportunity
+                    <th className="px-2 py-2 whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("mode")}>
+                        Mode {controlSortIndicator("mode")}
                       </button>
                     </th>
-                    <th className="px-3 py-2 text-center">Buy Executable</th>
-                    <th className="px-3 py-2 text-center">Scalper</th>
-                    <th className="px-3 py-2 text-center">BUY</th>
-                    <th className="px-3 py-2 text-center">SELL</th>
+                    <th className="px-2 py-2 whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("configuredRegime")}>
+                        Configured Regime {controlSortIndicator("configuredRegime")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setControlSortKey("regime")}>
+                        Regime Routing {controlSortIndicator("regime")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setControlSortKey("confidence")}>
+                        Confidence {controlSortIndicator("confidence")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setControlSortKey("volatility")}>
+                        Volatility State {controlSortIndicator("volatility")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setControlSortKey("dataQuality")}>
+                        Data Quality {controlSortIndicator("dataQuality")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 text-center whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("buyOpportunity")}>
+                        Buy Opportunity {controlSortIndicator("buyOpportunity")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 text-center whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("buyExecutable")}>
+                        Buy Executable {controlSortIndicator("buyExecutable")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 text-center whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("scalper")}>
+                        Scalper {controlSortIndicator("scalper")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 text-center whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("buy")}>
+                        BUY {controlSortIndicator("buy")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 text-center whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("sell")}>
+                        SELL {controlSortIndicator("sell")}
+                      </button>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/6 text-sm">
@@ -2186,7 +2335,7 @@ export default function RevbotDashboard() {
 
                     return (
                       <tr key={`top-controls-${control.symbol}`} className="text-slate-200">
-                        <td className="px-3 py-2.5 font-semibold">
+                        <td className="px-2 py-2.5 font-semibold">
                           <div className="flex items-center gap-2">
                             <Link
                               href={`/token/${encodeURIComponent(control.symbol)}`}
@@ -2201,8 +2350,20 @@ export default function RevbotDashboard() {
                             ) : null}
                           </div>
                         </td>
-                        <td className="px-3 py-2.5 text-slate-300">{modeLabel}</td>
-                        <td className="px-3 py-2.5">
+                        <td className="px-2 py-2.5 text-right font-semibold text-slate-200">
+                          {control.price === null ? "N/A" : formatPrice(control.price)}
+                        </td>
+                        <td className={`px-2 py-2.5 text-right font-semibold ${valueTone(control.change24hPct ?? 0)}`}>
+                          {control.change24hPct === null ? "N/A" : formatPercent(control.change24hPct)}
+                        </td>
+                        <td className="px-2 py-2.5 text-right text-slate-300">
+                          {control.high24h === null ? "N/A" : formatPrice(control.high24h)}
+                        </td>
+                        <td className="px-2 py-2.5 text-right text-slate-300">
+                          {control.low24h === null ? "N/A" : formatPrice(control.low24h)}
+                        </td>
+                        <td className="px-2 py-2.5 text-slate-300 whitespace-nowrap">{modeLabel}</td>
+                        <td className="px-2 py-2.5">
                           <select
                             value={control.configuredRegime}
                             onChange={(event) =>
@@ -2215,7 +2376,7 @@ export default function RevbotDashboard() {
                               || busySymbol !== null
                               || savingRisk
                             }
-                            className="w-[176px] rounded-md border border-white/12 bg-white/[0.04] px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            className="w-[150px] rounded-md border border-white/12 bg-white/[0.04] px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                             title="Manual strategy mode per token"
                           >
                             {TOKEN_REGIME_OPTIONS.map((option) => (
@@ -2225,41 +2386,41 @@ export default function RevbotDashboard() {
                             ))}
                           </select>
                         </td>
-                        <td className="px-3 py-2.5">
-                          <div className="flex flex-col items-start gap-1">
+                        <td className="px-2 py-2.5">
+                          <div className="flex max-w-[220px] flex-col items-start gap-1">
                             <span className="text-[10px] uppercase tracking-[0.12em] text-slate-500">
                               Detected (Legacy/Shadow)
                             </span>
                             <span
-                              className="inline-flex min-w-[160px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                              className="inline-flex min-w-[120px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
                               style={detectedRegimeChipStyle}
                               title={control.detectedRegimeExplanation}
                             >
                               {formatDetectedRegime(control.detectedRegime)}
                             </span>
                             <span
-                              className="text-[10px] uppercase tracking-[0.12em] text-slate-500"
+                              className="line-clamp-2 text-[10px] uppercase tracking-[0.12em] text-slate-500"
                               title={control.detectedRegimeExplanation}
                             >
                               Suggested Regime V2: {formatDetectedRegime(control.suggestedRegimeV2 ?? control.detectedRegime)}
                             </span>
                             <span
-                              className="text-[10px] uppercase tracking-[0.12em] text-slate-500"
+                              className="line-clamp-2 text-[10px] uppercase tracking-[0.12em] text-slate-500"
                               title={(control.fallbackReason ?? control.autoFallbackReason) ?? undefined}
                             >
                               Effective Route (After Gates): {formatDetectedRegime(control.effectiveRoute ?? control.effectiveStrategy)}
                             </span>
                             <span
-                              className="text-[10px] uppercase tracking-[0.12em] text-amber-300"
+                              className="line-clamp-2 text-[10px] uppercase tracking-[0.12em] text-amber-300"
                               title={(control.fallbackReason ?? control.autoFallbackReason) ?? undefined}
                             >
                               Failed Gates: {formatFailedGates(control.fallbackReason ?? control.autoFallbackReason)}
                             </span>
                           </div>
                         </td>
-                        <td className="px-3 py-2.5">
+                        <td className="px-2 py-2.5">
                           <div className="flex items-center gap-2">
-                            <span className="inline-flex min-w-[98px] justify-center rounded-md border border-white/15 bg-white/[0.04] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-200">
+                            <span className="inline-flex min-w-[84px] justify-center rounded-md border border-white/15 bg-white/[0.04] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-200">
                               {control.detectedRegimeConfidenceLabel}
                               {control.detectedRegimeConfidenceScore === null
                                 ? ""
@@ -2293,9 +2454,9 @@ export default function RevbotDashboard() {
                             P:{control.detectedRegimePersistenceInferred ? "I" : "N"}
                           </div>
                         </td>
-                        <td className="px-3 py-2.5">
+                        <td className="px-2 py-2.5">
                           <span
-                            className="inline-flex min-w-[110px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                            className="inline-flex min-w-[92px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
                             style={regimeStyle(control.detectedRegimeVolatilityState)}
                           >
                             {formatDetectedRegime(control.detectedRegimeVolatilityState)}
@@ -2304,14 +2465,14 @@ export default function RevbotDashboard() {
                         <td className="px-3 py-2.5">
                           <div className="flex flex-col gap-1">
                             <span
-                              className="inline-flex min-w-[110px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                              className="inline-flex min-w-[92px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
                               style={dataQualityStyle(control.regimeDataQualityStatus)}
                               title={control.regimeDataQualityReason}
                             >
                               Regime {control.regimeDataQualityStatus}
                             </span>
                             <span
-                              className="inline-flex min-w-[110px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                              className="inline-flex min-w-[92px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
                               style={dataQualityStyle(control.volatilityDataQualityStatus)}
                               title={control.volatilityDataQualityReason}
                             >
@@ -2319,24 +2480,24 @@ export default function RevbotDashboard() {
                             </span>
                           </div>
                         </td>
-                        <td className="px-3 py-2.5 text-center">
+                        <td className="px-2 py-2.5 text-center">
                           <span
-                            className="inline-flex min-w-[110px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                            className="inline-flex min-w-[92px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
                             style={buyOpportunityChipStyle}
                           >
                             {formatOpportunity(control.buyOpportunityPct)}
                           </span>
                         </td>
-                        <td className="px-3 py-2.5 text-center">
+                        <td className="px-2 py-2.5 text-center">
                           <span
-                            className="inline-flex min-w-[98px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                            className="inline-flex min-w-[84px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
                             style={executableChipStyle}
                             title={control.buyExecutableReason}
                           >
                             {control.buyExecutable ? "Ready" : "Blocked"}
                           </span>
                         </td>
-                        <td className="px-3 py-2.5 text-center">
+                        <td className="px-2 py-2.5 text-center">
                           <button
                             onClick={() => setScalperMode(control.symbol, !scalperOn)}
                             disabled={
@@ -2346,7 +2507,7 @@ export default function RevbotDashboard() {
                               || busyRegime !== null
                               || savingRisk
                             }
-                            className="min-w-[70px] rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:cursor-not-allowed disabled:opacity-60"
+                            className="min-w-[62px] rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white disabled:cursor-not-allowed disabled:opacity-60"
                             style={{
                               backgroundColor: scalperOn ? "#16a34a" : "#dc2626",
                               borderColor: scalperOn ? "#16a34a" : "#dc2626",
@@ -2355,7 +2516,7 @@ export default function RevbotDashboard() {
                             {busyScalperRow ? "Saving..." : scalperOn ? "ON" : "OFF"}
                           </button>
                         </td>
-                        <td className="px-3 py-2.5 text-center">
+                        <td className="px-2 py-2.5 text-center">
                           <button
                             onClick={() =>
                               setSymbolAutoTrade(
@@ -2371,7 +2532,7 @@ export default function RevbotDashboard() {
                               || busyScalper !== null
                               || busyRegime !== null
                             }
-                            className="min-w-[70px] rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:cursor-not-allowed disabled:opacity-60"
+                            className="min-w-[62px] rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white disabled:cursor-not-allowed disabled:opacity-60"
                             style={{
                               backgroundColor: buyOn ? "#16a34a" : "#dc2626",
                               borderColor: buyOn ? "#16a34a" : "#dc2626",
@@ -2380,7 +2541,7 @@ export default function RevbotDashboard() {
                             {busyBuy ? "Saving..." : buyOn ? "ON" : "OFF"}
                           </button>
                         </td>
-                        <td className="px-3 py-2.5 text-center">
+                        <td className="px-2 py-2.5 text-center">
                           <button
                             onClick={() =>
                               setSymbolAutoTrade(
@@ -2396,7 +2557,7 @@ export default function RevbotDashboard() {
                               || busyScalper !== null
                               || busyRegime !== null
                             }
-                            className="min-w-[70px] rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white disabled:cursor-not-allowed disabled:opacity-60"
+                            className="min-w-[62px] rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white disabled:cursor-not-allowed disabled:opacity-60"
                             style={{
                               backgroundColor: sellOn ? "#16a34a" : "#dc2626",
                               borderColor: sellOn ? "#16a34a" : "#dc2626",
@@ -2603,48 +2764,89 @@ export default function RevbotDashboard() {
             </div>
 
             <div className="rb-table-wrap mt-5 max-h-[560px] overflow-y-auto overflow-x-auto">
-              <table className="min-w-[1400px] w-full">
-                <thead className="sticky top-0 z-10 bg-[#0b1220]">
+              <table className="min-w-[1540px] w-full">
+                <thead className="sticky top-0 z-10 bg-slate-950/95">
                   <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.12em] text-slate-400">
-                    <th className="px-3 py-2">
-                      <button className="text-left" onClick={() => setPositionSortKey("attention")}>
-                        Token {sortIndicator("attention")}
+                    <th className="px-2 py-2 whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setPositionSortKey("symbol")}>
+                        Token {sortIndicator("symbol")}
                       </button>
                     </th>
-                    <th className="px-3 py-2">Side</th>
-                    <th className="px-3 py-2 text-right">
-                      <button onClick={() => setPositionSortKey("value")}>
+                    <th className="px-2 py-2 whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("side")}>
+                        Side {sortIndicator("side")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 text-right whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("price")}>
+                        Price {sortIndicator("price")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 text-right whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("change24h")}>
+                        24h Change {sortIndicator("change24h")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 text-right whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("high24h")}>
+                        24h High {sortIndicator("high24h")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 text-right whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("low24h")}>
+                        24h Low {sortIndicator("low24h")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 text-right whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("value")}>
                         Value {sortIndicator("value")}
                       </button>
                     </th>
-                    <th className="px-3 py-2 text-right">
-                      <button onClick={() => setPositionSortKey("pnl")}>
+                    <th className="px-2 py-2 text-right whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("allocation")}>
+                        Alloc {sortIndicator("allocation")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 text-right whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("pnl")}>
                         P/L {sortIndicator("pnl")}
                       </button>
                     </th>
-                    <th className="px-3 py-2 text-right">
-                      <button onClick={() => setPositionSortKey("pnlPct")}>
+                    <th className="px-2 py-2 text-right whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("pnlPct")}>
                         P/L % {sortIndicator("pnlPct")}
                       </button>
                     </th>
-                    <th className="px-3 py-2 text-right">
-                      <button onClick={() => setPositionSortKey("age")}>
+                    <th className="px-2 py-2 text-right whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("age")}>
                         Age {sortIndicator("age")}
                       </button>
                     </th>
-                    <th className="px-3 py-2 text-right">
-                      <button onClick={() => setPositionSortKey("worstDip")}>
+                    <th className="px-2 py-2 text-right whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("worstDip")}>
                         Worst Dip {sortIndicator("worstDip")}
                       </button>
                     </th>
-                    <th className="px-3 py-2 text-center">Needs Review</th>
-                    <th className="px-3 py-2 text-center">
-                      <button onClick={() => setPositionSortKey("bounce")}>
+                    <th className="px-2 py-2 text-center whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("review")}>
+                        Needs Review {sortIndicator("review")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 text-center whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("bounce")}>
                         Bounce Setup {sortIndicator("bounce")}
                       </button>
                     </th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2 text-center">Action</th>
+                    <th className="px-2 py-2 whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("status")}>
+                        Status {sortIndicator("status")}
+                      </button>
+                    </th>
+                    <th className="px-2 py-2 text-center whitespace-nowrap">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("attention")}>
+                        Action {sortIndicator("attention")}
+                      </button>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/6 text-sm">
@@ -2653,7 +2855,7 @@ export default function RevbotDashboard() {
                     const control = symbolControlsBySymbol.get(position.symbol);
                     return (
                       <tr key={`main-open-${position.symbol}`} className="text-slate-200">
-                        <td className="px-3 py-2.5">
+                        <td className="px-2 py-2.5">
                           <div className="flex flex-col">
                             <Link
                               href={`/token/${encodeURIComponent(position.symbol)}`}
@@ -2666,27 +2868,42 @@ export default function RevbotDashboard() {
                             </span>
                           </div>
                         </td>
-                        <td className="px-3 py-2.5">
+                        <td className="px-2 py-2.5">
                           <span className="rounded-md border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em]">
                             LONG
                           </span>
                         </td>
-                        <td className="px-3 py-2.5 text-right font-semibold">
+                        <td className="px-2 py-2.5 text-right font-semibold text-slate-200">
+                          {position.price === null ? "N/A" : formatPrice(position.price)}
+                        </td>
+                        <td className={`px-2 py-2.5 text-right font-semibold ${valueTone(position.change24hPct ?? 0)}`}>
+                          {position.change24hPct === null ? "N/A" : formatPercent(position.change24hPct)}
+                        </td>
+                        <td className="px-2 py-2.5 text-right text-slate-300">
+                          {position.high24h === null ? "N/A" : formatPrice(position.high24h)}
+                        </td>
+                        <td className="px-2 py-2.5 text-right text-slate-300">
+                          {position.low24h === null ? "N/A" : formatPrice(position.low24h)}
+                        </td>
+                        <td className="px-2 py-2.5 text-right font-semibold">
                           {formatCurrency(position.marketValue)}
                         </td>
-                        <td className={`px-3 py-2.5 text-right font-semibold ${valueTone(position.unrealizedValue)}`}>
+                        <td className="px-2 py-2.5 text-right font-medium text-slate-300">
+                          {percentFormatter.format(position.allocationPct)}%
+                        </td>
+                        <td className={`px-2 py-2.5 text-right font-semibold ${valueTone(position.unrealizedValue)}`}>
                           {formatCurrency(position.unrealizedValue)}
                         </td>
-                        <td className={`px-3 py-2.5 text-right font-semibold ${valueTone(position.unrealizedPct)}`}>
+                        <td className={`px-2 py-2.5 text-right font-semibold ${valueTone(position.unrealizedPct)}`}>
                           {formatPercent(position.unrealizedPct)}
                         </td>
-                        <td className="px-3 py-2.5 text-right text-slate-300">
+                        <td className="px-2 py-2.5 text-right text-slate-300">
                           {formatHours(position.ageHours)}
                         </td>
-                        <td className={`px-3 py-2.5 text-right ${valueTone(position.advisoryMaxDrawdownPctDuringTrade)}`}>
+                        <td className={`px-2 py-2.5 text-right ${valueTone(position.advisoryMaxDrawdownPctDuringTrade)}`}>
                           {formatPercent(position.advisoryMaxDrawdownPctDuringTrade)}
                         </td>
-                        <td className="px-3 py-2.5 text-center">
+                        <td className="px-2 py-2.5 text-center">
                           <span
                             className={`inline-flex min-w-[88px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
                               position.advisoryStaleLosingReview
@@ -2697,7 +2914,7 @@ export default function RevbotDashboard() {
                             {position.advisoryStaleLosingReview ? "Review" : "Clear"}
                           </span>
                         </td>
-                        <td className="px-3 py-2.5 text-center">
+                        <td className="px-2 py-2.5 text-center">
                           <div className="flex flex-col items-center gap-1">
                             <span
                               className="inline-flex min-w-[96px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
@@ -2710,7 +2927,7 @@ export default function RevbotDashboard() {
                             </span>
                           </div>
                         </td>
-                        <td className="px-3 py-2.5">
+                        <td className="px-2 py-2.5">
                           <div className="flex flex-col gap-1">
                             <span
                               className={`inline-flex w-fit rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${statusTone(position.status)}`}
@@ -2725,7 +2942,7 @@ export default function RevbotDashboard() {
                             </span>
                           </div>
                         </td>
-                        <td className="px-3 py-2.5 text-center">
+                        <td className="px-2 py-2.5 text-center">
                           <div className="mx-auto flex w-full max-w-[320px] flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-2">
                             <button
                               onClick={() => manualSell(position)}
@@ -3836,44 +4053,79 @@ export default function RevbotDashboard() {
               </div>
             </div>
 
-            <div className="rb-table-wrap mt-6 max-h-[620px] overflow-y-auto overflow-x-auto">
-              <table className="w-full min-w-[1540px] border-collapse">
+            <div className="rb-table-wrap mt-6 max-h-[620px] overflow-y-auto overflow-x-hidden">
+              <table className="w-full table-fixed border-collapse">
                 <thead className="sticky top-0 z-10 bg-[#0b1220]">
-                  <tr className="border-b border-white/8 bg-white/[0.05] text-left">
-                    <th className="w-[20%] px-4 py-3.5 text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
-                      Asset
+                  <tr className="border-b border-white/8 bg-white/[0.05] text-left text-[10px] uppercase tracking-[0.12em] text-slate-400">
+                    <th className="px-3 py-2">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("symbol")}>
+                        Asset {sortIndicator("symbol")}
+                      </button>
                     </th>
-                    <th className="w-[8%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
-                      Units
+                    <th className="px-3 py-2 text-right">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("units")}>
+                        Units {sortIndicator("units")}
+                      </button>
                     </th>
-                    <th className="w-[8%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-slate-300">
-                      Entry
+                    <th className="px-3 py-2 text-right">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("entry")}>
+                        Entry {sortIndicator("entry")}
+                      </button>
                     </th>
-                    <th className="w-[8%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-sky-300">
-                      Spot
+                    <th className="px-3 py-2 text-right">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("price")}>
+                        Price {sortIndicator("price")}
+                      </button>
                     </th>
-                    <th className="w-[10%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-white">
-                      Value v
+                    <th className="px-3 py-2 text-right">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("change24h")}>
+                        24h Change {sortIndicator("change24h")}
+                      </button>
                     </th>
-                    <th className="w-[7%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-sky-300">
-                      Alloc
+                    <th className="px-3 py-2 text-right">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("high24h")}>
+                        24h High {sortIndicator("high24h")}
+                      </button>
                     </th>
-                    <th className="w-[12%] px-4 py-3.5 text-left text-sm font-semibold uppercase tracking-[0.18em] text-amber-200">
-                      Lock
+                    <th className="px-3 py-2 text-right">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("low24h")}>
+                        24h Low {sortIndicator("low24h")}
+                      </button>
                     </th>
-                    <th className="w-[7%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-sky-300">
-                      Peak
+                    <th className="px-3 py-2 text-right">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("value")}>
+                        Value {sortIndicator("value")}
+                      </button>
                     </th>
-                    <th className="w-[10%] px-4 py-3.5 text-right text-sm font-semibold uppercase tracking-[0.18em] text-emerald-300">
-                      P&L
+                    <th className="px-3 py-2 text-right">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("allocation")}>
+                        Alloc {sortIndicator("allocation")}
+                      </button>
                     </th>
-                    <th className="w-[18%] px-4 py-3.5 text-center text-sm font-semibold uppercase tracking-[0.18em] text-rose-300">
-                      Manual
+                    <th className="px-3 py-2">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("lock")}>
+                        Lock {sortIndicator("lock")}
+                      </button>
+                    </th>
+                    <th className="px-3 py-2 text-right">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("peak")}>
+                        Peak {sortIndicator("peak")}
+                      </button>
+                    </th>
+                    <th className="px-3 py-2 text-right">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("pnl")}>
+                        P&L {sortIndicator("pnl")}
+                      </button>
+                    </th>
+                    <th className="px-3 py-2 text-center">
+                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("attention")}>
+                        Manual {sortIndicator("attention")}
+                      </button>
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/6">
-                  {data.positions.map((position) => {
+                  {sortedPositions.map((position) => {
                     const manualSellOnProfit = position.unrealizedValue >= 0;
                     const assetName = coinName(position.symbol);
 
@@ -3890,7 +4142,7 @@ export default function RevbotDashboard() {
                               : "bg-white/[0.025]"
                         }`}
                       >
-                      <td className="px-4 py-3 align-middle">
+                      <td className="px-3 py-2.5 align-middle">
                         <div className="flex items-center gap-3">
                           <div className="inline-flex min-h-9 min-w-[110px] items-center justify-center rounded-md bg-[linear-gradient(135deg,rgba(248,250,252,0.16),rgba(59,130,246,0.22))] px-2.5 text-[10px] font-semibold text-white">
                             {assetName}
@@ -3945,21 +4197,30 @@ export default function RevbotDashboard() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right font-medium text-slate-200">
+                      <td className="px-3 py-2.5 text-right font-medium text-slate-200">
                         {formatUnits(position.units)}
                       </td>
-                      <td className="px-4 py-3 text-right font-medium text-slate-300">
+                      <td className="px-3 py-2.5 text-right font-medium text-slate-300">
                         {formatPrice(position.entryPrice)}
                       </td>
                       <td
-                        className={`px-4 py-3 text-right font-semibold ${compareTone(
-                          position.currentPrice,
+                        className={`px-3 py-2.5 text-right font-semibold ${compareTone(
+                          position.price ?? position.currentPrice,
                           position.entryPrice,
                         )}`}
                       >
-                        {position.currentPrice === null ? "Pending" : formatPrice(position.currentPrice)}
+                        {position.price === null ? "Pending" : formatPrice(position.price)}
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className={`px-3 py-2.5 text-right font-semibold ${valueTone(position.change24hPct ?? 0)}`}>
+                        {position.change24hPct === null ? "N/A" : formatPercent(position.change24hPct)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-slate-300">
+                        {position.high24h === null ? "N/A" : formatPrice(position.high24h)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-slate-300">
+                        {position.low24h === null ? "N/A" : formatPrice(position.low24h)}
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
                         <p className="text-sm font-semibold text-white">
                           {formatCurrency(position.marketValue)}
                         </p>
@@ -3967,10 +4228,10 @@ export default function RevbotDashboard() {
                           Cost {formatCurrency(position.costBasis)}
                         </p>
                       </td>
-                      <td className="px-4 py-3 text-right font-medium text-slate-200">
+                      <td className="px-3 py-2.5 text-right font-medium text-slate-200">
                         {percentFormatter.format(position.allocationPct)}%
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2.5">
                         <div className="flex flex-col gap-1.5">
                           <span
                             className={`inline-flex w-fit rounded-md px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${statusTone(
@@ -3996,10 +4257,10 @@ export default function RevbotDashboard() {
                           </p>
                         </div>
                       </td>
-                      <td className={`px-4 py-3 text-right font-semibold ${valueTone(position.peakPnlPct)}`}>
+                      <td className={`px-3 py-2.5 text-right font-semibold ${valueTone(position.peakPnlPct)}`}>
                         {percentFormatter.format(position.peakPnlPct)}%
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-3 py-2.5 text-right">
                         <p className={`text-sm font-semibold ${valueTone(position.unrealizedValue)}`}>
                           {formatCurrency(position.unrealizedValue)}
                         </p>
@@ -4007,7 +4268,7 @@ export default function RevbotDashboard() {
                           {formatPercent(position.unrealizedPct)}
                         </p>
                       </td>
-                        <td className="px-4 py-3 text-center">
+                        <td className="px-3 py-2.5 text-center">
                           <div className="mx-auto flex w-full max-w-[340px] flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-2">
                             <button
                               onClick={() => manualSell(position)}
@@ -4101,7 +4362,7 @@ export default function RevbotDashboard() {
             </div>
             <div className="mt-4 flex flex-wrap gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">
               <span className="rounded-md border border-white/8 bg-white/[0.03] px-3 py-1.5">
-                Sorted by value
+                Sorted by {positionSort.key}
               </span>
               {topExposureSymbol ? (
                 <span className="rounded-md border border-sky-400/15 bg-sky-500/8 px-3 py-1.5 text-sky-200">

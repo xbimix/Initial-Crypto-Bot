@@ -85,6 +85,10 @@ def reset_strategy_globals(monkeypatch, tmp_path: Path):
         "_last_shadow_continuity_state",
         "_last_shadow_age_seconds",
         "_last_failed_gates",
+        "_last_buy_block_reason",
+        "_last_buy_block_route",
+        "_buy_block_counts_by_symbol",
+        "_buy_block_counts_by_symbol_route",
         "_pending_entry_contract",
         "_entry_route",
         "_entry_regime",
@@ -168,6 +172,50 @@ def test_profit_lock_exit_regression():
     )
     assert sell_decision["action"] == "SELL"
     assert str(sell_decision["reason"]).startswith("profit_lock_exit_")
+
+
+def test_invalid_entry_price_is_guarded_in_sell_path():
+    cfg = _base_cfg()
+    se._entry_price["TEST-USD"] = 0.0
+    se._entry_time["TEST-USD"] = 1000.0
+    se._last_signal["TEST-USD"] = "BUY"
+
+    decision = se.generate_decision(
+        _snapshot(
+            symbol="TEST-USD",
+            price=99.0,
+            high_24h=110.0,
+            low_24h=90.0,
+            atr=1.0,
+            vwap=100.0,
+        ),
+        cfg,
+    )
+    assert decision["action"] == "HOLD"
+    assert decision["reason"] == "invalid_entry_price"
+
+
+def test_buy_block_counters_increment_by_symbol_and_route():
+    cfg = _base_cfg()
+    decision = se.generate_decision(
+        _snapshot(
+            trade_count=0,
+            atr=0.0,
+            vwap=None,
+        ),
+        cfg,
+    )
+    assert decision["action"] == "HOLD"
+    assert decision["reason"] == "insufficient_data"
+
+    symbol_counts = se._buy_block_counts_by_symbol.get("TEST-USD", {})
+    assert symbol_counts.get("insufficient_data", 0) >= 1
+
+    by_symbol_route = se._buy_block_counts_by_symbol_route.get("TEST-USD", {})
+    assert "mean_reversion" in by_symbol_route
+    assert by_symbol_route["mean_reversion"].get("insufficient_data", 0) >= 1
+    assert se._last_buy_block_reason.get("TEST-USD") == "insufficient_data"
+    assert se._last_buy_block_route.get("TEST-USD") == "mean_reversion"
 
 
 def test_auto_with_scalper_override_forces_scalper_route():

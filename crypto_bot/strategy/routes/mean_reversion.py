@@ -30,13 +30,17 @@ def evaluate_mean_reversion_entry(
     decision: Callable[[str, str, float, float, str], dict[str, Any]],
 ) -> dict[str, Any]:
     # Frozen Mean-Reversion entry behavior; do not alter.
-    if not snapshot.get("data_quality_ok", True):
+    data_quality_ok = snapshot.get("data_quality_ok")
+    if data_quality_ok is not True:
+        reason = snapshot.get("data_quality_reason")
+        if not isinstance(reason, str) or not reason.strip():
+            reason = "data_quality_missing" if data_quality_ok is None else "data_quality_failed"
         return decision(
             symbol,
             "HOLD",
             price,
             momentum,
-            snapshot.get("data_quality_reason", "data_quality_failed"),
+            reason,
         )
 
     if (

@@ -117,15 +117,11 @@ function resolveActor(req: Request): string {
 
 function isTrustedSameOriginUiRequest(req: Request): boolean {
   const actor = resolveActor(req);
-  if (actor !== "web-ui") {
+  if (actor !== "web-ui" && actor !== "web-ui-client") {
     return false;
   }
 
   const url = new URL(req.url);
-  const host = url.hostname.toLowerCase();
-  if (host !== "127.0.0.1" && host !== "localhost") {
-    return false;
-  }
 
   const fetchSite = String(req.headers.get("sec-fetch-site") ?? "").trim().toLowerCase();
   if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "same-site") {
@@ -144,12 +140,16 @@ function isTrustedSameOriginUiRequest(req: Request): boolean {
     }
   }
 
-  const clientIp = extractClientIp(req).toLowerCase();
-  if (clientIp && clientIp !== "unknown") {
-    if (clientIp === "::1" || clientIp === "localhost" || clientIp.startsWith("127.")) {
-      return true;
+  const referer = String(req.headers.get("referer") ?? "").trim();
+  if (referer) {
+    try {
+      const refererUrl = new URL(referer);
+      if (refererUrl.origin !== url.origin) {
+        return false;
+      }
+    } catch {
+      return false;
     }
-    return false;
   }
 
   return true;

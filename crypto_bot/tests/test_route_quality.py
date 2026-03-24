@@ -95,3 +95,36 @@ def test_route_quality_prefers_explicit_effective_route_over_reason(tmp_path: Pa
     assert "mean_reversion" in report["windows"]["30d"]
     assert "trend_pullback" not in report["windows"]["30d"]
     assert report["per_token_route_history"]["AAA-USD"]["route_counts"]["mean_reversion"] == 1
+
+
+def test_route_quality_includes_buy_block_gate_summaries(tmp_path: Path):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    now = 1_000_000.0
+    write_json_file(state_dir / "trades.json", [])
+    write_json_file(
+        state_dir / "strategy_state.json",
+        {
+            "buy_block_counts_by_symbol": {
+                "AAA-USD": {"insufficient_data": 3, "score_below_threshold": 1},
+                "BBB-USD": {"insufficient_data": 2},
+            },
+            "buy_block_counts_by_symbol_route": {
+                "AAA-USD": {
+                    "mean_reversion": {"insufficient_data": 2},
+                    "trend_pullback": {"score_below_threshold": 1},
+                },
+                "BBB-USD": {
+                    "mean_reversion": {"insufficient_data": 2},
+                },
+            },
+        },
+    )
+    write_json_file(state_dir / "config.json", {})
+
+    report = build_route_quality_report(state_dir=state_dir, cfg={"token_regimes": {}}, now_epoch=now)
+    assert report["buy_block_gate_summary"]["insufficient_data"] == 5
+    assert report["buy_block_gate_summary"]["score_below_threshold"] == 1
+    assert report["buy_block_gate_by_route_summary"]["mean_reversion"]["insufficient_data"] == 4
+    assert report["buy_block_gate_by_route_summary"]["trend_pullback"]["score_below_threshold"] == 1
+    assert report["buy_block_gate_by_symbol_route_summary"]["AAA-USD|mean_reversion"]["insufficient_data"] == 2

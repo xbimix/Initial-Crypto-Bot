@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from data import live_sync_scheduler
 
@@ -10,7 +10,7 @@ def setup_function():
 def test_incremental_sync_scheduler_caps_requests(monkeypatch):
     calls: list[tuple[str, str]] = []
 
-    def fake_sync_new_candles(*, symbol, timeframe, include_partial):
+    def fake_sync_new_candles(*, symbol, timeframe, include_partial, cfg=None):
         calls.append((symbol, timeframe))
         return {"requests": 1, "fetched": 10, "inserted": 5}
 
@@ -50,7 +50,7 @@ def test_incremental_sync_scheduler_respects_disable():
 def test_incremental_sync_scheduler_caps_attempts_on_errors(monkeypatch):
     calls: list[tuple[str, str]] = []
 
-    def fake_sync_new_candles(*, symbol, timeframe, include_partial):
+    def fake_sync_new_candles(*, symbol, timeframe, include_partial, cfg=None):
         calls.append((symbol, timeframe))
         raise RuntimeError("sync failed")
 
@@ -81,7 +81,7 @@ def test_incremental_sync_scheduler_caps_attempts_on_errors(monkeypatch):
 def test_incremental_sync_scheduler_retries_errors_with_backoff(monkeypatch):
     calls: list[tuple[str, str]] = []
 
-    def fake_sync_new_candles(*, symbol, timeframe, include_partial):
+    def fake_sync_new_candles(*, symbol, timeframe, include_partial, cfg=None):
         calls.append((symbol, timeframe))
         raise RuntimeError("transient failure")
 
@@ -125,7 +125,7 @@ def test_incremental_sync_scheduler_retries_errors_with_backoff(monkeypatch):
 def test_incremental_sync_scheduler_avoids_timeframe_starvation(monkeypatch):
     calls: list[tuple[str, str]] = []
 
-    def fake_sync_new_candles(*, symbol, timeframe, include_partial):
+    def fake_sync_new_candles(*, symbol, timeframe, include_partial, cfg=None):
         calls.append((symbol, timeframe))
         return {"requests": 1, "fetched": 1, "inserted": 1, "status": "ok"}
 
@@ -157,7 +157,7 @@ def test_incremental_sync_scheduler_avoids_timeframe_starvation(monkeypatch):
 def test_incremental_sync_scheduler_prefers_core_timeframes_when_equally_due(monkeypatch):
     calls: list[tuple[str, str]] = []
 
-    def fake_sync_new_candles(*, symbol, timeframe, include_partial):
+    def fake_sync_new_candles(*, symbol, timeframe, include_partial, cfg=None):
         calls.append((symbol, timeframe))
         return {"requests": 1, "fetched": 1, "inserted": 1, "status": "ok"}
 
@@ -181,7 +181,7 @@ def test_incremental_sync_scheduler_prefers_core_timeframes_when_equally_due(mon
 
 
 def test_incremental_sync_scheduler_aggregates_extended_insert_metrics(monkeypatch):
-    def fake_sync_new_candles(*, symbol, timeframe, include_partial):
+    def fake_sync_new_candles(*, symbol, timeframe, include_partial, cfg=None):
         return {
             "requests": 1,
             "fetched": 10,

@@ -1,0 +1,5 @@
+2026/03/23-13:25:45.945 5ae0 Creating DB D:\Python-Codes\RevBot\web-ui\state\e2e-click-pass\2026-03-23T13-25-41-740Z\edge-profile\Default\Asset Store\assets.db since it was missing.
+2026/03/23-13:25:48.734 5ae0 Reusing MANIFEST D:\Python-Codes\RevBot\web-ui\state\e2e-click-pass\2026-03-23T13-25-41-740Z\edge-profile\Default\Asset Store\assets.db/MANIFEST-000001
+2026/03/23-13:26:02.730 58ec Level-0 table #5: started
+2026/03/23-13:26:03.164 58ec Level-0 table #5: 332817 bytes OK
+2026/03/23-13:26:03.458 58ec Delete type=0 #3
