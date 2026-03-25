@@ -36,3 +36,9 @@ work_testdirs_probe/
 crypto_bot/state/reports/strategy_replay_*.json
 crypto_bot/state/reports/route_analysis_*.json
 crypto_bot/state/snapshots/*_bot_prestart/
+crypto_bot/state/*.db
+crypto_bot/state/*.jsonl
+crypto_bot/state/*.log
+crypto_bot/state/*.log.*
+crypto_bot/state/bot.log*
+crypto_bot/state/bot.strategy.log*
