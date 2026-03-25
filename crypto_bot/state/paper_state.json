@@ -1,5 +1,5 @@
 {
-  "balance": 5537.386953565577,
+  "balance": 5744.033402835226,
   "positions": {
     "CRV-USD": {
       "price": 0.25637,
@@ -53,12 +53,6 @@
       "price": 0.9633,
       "size": 207.619641,
       "entry_time": 1773750653.9559686,
-      "reason": "bear_market_mean_reversion_buy"
-    },
-    "XTZ-USD": {
-      "price": 0.3957,
-      "size": 505.433409,
-      "entry_time": 1773754640.4855633,
       "reason": "bear_market_mean_reversion_buy"
     },
     "AAVE-USD": {

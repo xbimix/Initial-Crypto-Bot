@@ -424,7 +424,7 @@
     "SPA-USD": "AUTO",
     "XCN-USD": "AUTO",
     "SOL-USD": "AUTO",
-    "BTC-USD": "OBSERVE_ONLY",
+    "BTC-USD": "AUTO",
     "XRP-USD": "AUTO",
     "XLM-USD": "AUTO",
     "SUI-USD": "AUTO",
