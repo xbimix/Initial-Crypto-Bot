@@ -43,10 +43,6 @@ crypto_bot/state/*.log.*
 crypto_bot/state/bot.log*
 crypto_bot/state/bot.strategy.log*
 # Runtime state / logs / databases
-crypto_bot/state/*.db
-crypto_bot/state/*.jsonl
-crypto_bot/state/*.log
-crypto_bot/state/*.log.*
-crypto_bot/state/bot.log*
+crypto_bot/state/
 crypto_bot/state/*.sqlite
 crypto_bot/state/*.sqlite3
