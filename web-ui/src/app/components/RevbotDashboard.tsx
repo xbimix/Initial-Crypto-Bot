@@ -2229,7 +2229,7 @@ export default function RevbotDashboard() {
             </div>
 
             <div className="rb-table-wrap mt-4 max-h-[560px] overflow-y-auto overflow-x-auto">
-              <table className="min-w-[1560px] w-full">
+              <table className="min-w-[1420px] w-full">
                 <thead className="sticky top-0 z-10 bg-slate-950/95">
                   <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.12em] text-slate-400">
                     <th className="px-2 py-2 whitespace-nowrap">
@@ -2376,7 +2376,7 @@ export default function RevbotDashboard() {
                               || busySymbol !== null
                               || savingRisk
                             }
-                            className="w-[150px] rounded-md border border-white/12 bg-white/[0.04] px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            className="w-[132px] rounded-md border border-white/12 bg-white/[0.04] px-2 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                             title="Manual strategy mode per token"
                           >
                             {TOKEN_REGIME_OPTIONS.map((option) => (
@@ -2387,12 +2387,12 @@ export default function RevbotDashboard() {
                           </select>
                         </td>
                         <td className="px-2 py-2.5">
-                          <div className="flex max-w-[220px] flex-col items-start gap-1">
+                          <div className="flex max-w-[176px] flex-col items-start gap-1">
                             <span className="text-[10px] uppercase tracking-[0.12em] text-slate-500">
                               Detected (Legacy/Shadow)
                             </span>
                             <span
-                              className="inline-flex min-w-[120px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                              className="inline-flex min-w-[102px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
                               style={detectedRegimeChipStyle}
                               title={control.detectedRegimeExplanation}
                             >
@@ -2420,7 +2420,7 @@ export default function RevbotDashboard() {
                         </td>
                         <td className="px-2 py-2.5">
                           <div className="flex items-center gap-2">
-                            <span className="inline-flex min-w-[84px] justify-center rounded-md border border-white/15 bg-white/[0.04] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-200">
+                            <span className="inline-flex min-w-[72px] justify-center rounded-md border border-white/15 bg-white/[0.04] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-200">
                               {control.detectedRegimeConfidenceLabel}
                               {control.detectedRegimeConfidenceScore === null
                                 ? ""
@@ -2456,7 +2456,7 @@ export default function RevbotDashboard() {
                         </td>
                         <td className="px-2 py-2.5">
                           <span
-                            className="inline-flex min-w-[92px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                            className="inline-flex min-w-[80px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
                             style={regimeStyle(control.detectedRegimeVolatilityState)}
                           >
                             {formatDetectedRegime(control.detectedRegimeVolatilityState)}
@@ -2465,14 +2465,14 @@ export default function RevbotDashboard() {
                         <td className="px-3 py-2.5">
                           <div className="flex flex-col gap-1">
                             <span
-                              className="inline-flex min-w-[92px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                              className="inline-flex min-w-[80px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
                               style={dataQualityStyle(control.regimeDataQualityStatus)}
                               title={control.regimeDataQualityReason}
                             >
                               Regime {control.regimeDataQualityStatus}
                             </span>
                             <span
-                              className="inline-flex min-w-[92px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                              className="inline-flex min-w-[80px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
                               style={dataQualityStyle(control.volatilityDataQualityStatus)}
                               title={control.volatilityDataQualityReason}
                             >
@@ -2482,7 +2482,7 @@ export default function RevbotDashboard() {
                         </td>
                         <td className="px-2 py-2.5 text-center">
                           <span
-                            className="inline-flex min-w-[92px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                            className="inline-flex min-w-[80px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
                             style={buyOpportunityChipStyle}
                           >
                             {formatOpportunity(control.buyOpportunityPct)}
@@ -2490,7 +2490,7 @@ export default function RevbotDashboard() {
                         </td>
                         <td className="px-2 py-2.5 text-center">
                           <span
-                            className="inline-flex min-w-[84px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                            className="inline-flex min-w-[76px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
                             style={executableChipStyle}
                             title={control.buyExecutableReason}
                           >
@@ -2507,7 +2507,7 @@ export default function RevbotDashboard() {
                               || busyRegime !== null
                               || savingRisk
                             }
-                            className="min-w-[62px] rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white disabled:cursor-not-allowed disabled:opacity-60"
+                            className="min-w-[56px] rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white disabled:cursor-not-allowed disabled:opacity-60"
                             style={{
                               backgroundColor: scalperOn ? "#16a34a" : "#dc2626",
                               borderColor: scalperOn ? "#16a34a" : "#dc2626",
@@ -2532,7 +2532,7 @@ export default function RevbotDashboard() {
                               || busyScalper !== null
                               || busyRegime !== null
                             }
-                            className="min-w-[62px] rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white disabled:cursor-not-allowed disabled:opacity-60"
+                            className="min-w-[56px] rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white disabled:cursor-not-allowed disabled:opacity-60"
                             style={{
                               backgroundColor: buyOn ? "#16a34a" : "#dc2626",
                               borderColor: buyOn ? "#16a34a" : "#dc2626",
@@ -2557,7 +2557,7 @@ export default function RevbotDashboard() {
                               || busyScalper !== null
                               || busyRegime !== null
                             }
-                            className="min-w-[62px] rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white disabled:cursor-not-allowed disabled:opacity-60"
+                            className="min-w-[56px] rounded-full border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] text-white disabled:cursor-not-allowed disabled:opacity-60"
                             style={{
                               backgroundColor: sellOn ? "#16a34a" : "#dc2626",
                               borderColor: sellOn ? "#16a34a" : "#dc2626",
@@ -2764,7 +2764,7 @@ export default function RevbotDashboard() {
             </div>
 
             <div className="rb-table-wrap mt-5 max-h-[560px] overflow-y-auto overflow-x-auto">
-              <table className="min-w-[1540px] w-full">
+              <table className="min-w-[1380px] w-full">
                 <thead className="sticky top-0 z-10 bg-slate-950/95">
                   <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.12em] text-slate-400">
                     <th className="px-2 py-2 whitespace-nowrap">
@@ -2905,7 +2905,7 @@ export default function RevbotDashboard() {
                         </td>
                         <td className="px-2 py-2.5 text-center">
                           <span
-                            className={`inline-flex min-w-[88px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                            className={`inline-flex min-w-[76px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${
                               position.advisoryStaleLosingReview
                                 ? "border-amber-400/45 bg-amber-500/25 text-amber-100"
                                 : "border-emerald-400/35 bg-emerald-500/18 text-emerald-100"
@@ -2917,7 +2917,7 @@ export default function RevbotDashboard() {
                         <td className="px-2 py-2.5 text-center">
                           <div className="flex flex-col items-center gap-1">
                             <span
-                              className="inline-flex min-w-[96px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
+                              className="inline-flex min-w-[84px] justify-center rounded-md border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]"
                               style={radarLabelStyle(control?.volatilityOpportunityLabel ?? null)}
                             >
                               {position.bounceLabel}
@@ -2943,7 +2943,7 @@ export default function RevbotDashboard() {
                           </div>
                         </td>
                         <td className="px-2 py-2.5 text-center">
-                          <div className="mx-auto flex w-full max-w-[320px] flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-2">
+                          <div className="mx-auto flex w-full max-w-[248px] flex-col gap-2 rounded-lg border border-white/10 bg-white/[0.03] p-2">
                             <button
                               onClick={() => manualSell(position)}
                               disabled={
@@ -2953,7 +2953,7 @@ export default function RevbotDashboard() {
                                 busyScalper !== null ||
                                 savingRisk
                               }
-                              className="rounded-md border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white transition disabled:cursor-not-allowed disabled:opacity-60"
+                              className="rounded-md border px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white transition disabled:cursor-not-allowed disabled:opacity-60"
                               style={{
                                 backgroundColor: manualSellOnProfit ? "#16a34a" : "#dc2626",
                                 borderColor: manualSellOnProfit ? "#16a34a" : "#dc2626",
@@ -2981,7 +2981,7 @@ export default function RevbotDashboard() {
                                   <span>{(manualStoplossDrafts[position.symbol]?.enabled ?? false) ? "On" : "Off"}</span>
                                 </label>
                               </div>
-                              <div className="grid grid-cols-[86px_1fr_auto] items-center gap-1.5">
+                              <div className="grid grid-cols-[74px_1fr_auto] items-center gap-1.5">
                                 <select
                                   value={manualStoplossDrafts[position.symbol]?.type ?? "pct"}
                                   onChange={(event) =>

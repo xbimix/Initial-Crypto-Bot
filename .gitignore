@@ -1,17 +1,17 @@
-# Secrets
+#Secrets
 .env
 private.pem
 revolut-keys/
 
-# Python
+#Python
 __pycache__/
 *.pyc
 
-# Logs
+#Logs
 *.log
 .pytest_cache/
 
-# Local runtime artifacts
+#Localruntimeartifacts
 crypto_bot/state/backups/
 crypto_bot/state/*.lock
 crypto_bot/state/.pytest_cache*/
@@ -42,7 +42,26 @@ crypto_bot/state/*.log
 crypto_bot/state/*.log.*
 crypto_bot/state/bot.log*
 crypto_bot/state/bot.strategy.log*
-# Runtime state / logs / databases
+#Runtimestate/logs/databases
 crypto_bot/state/
 crypto_bot/state/*.sqlite
 crypto_bot/state/*.sqlite3
+
+crypto_bot/state/market_data.db
+crypto_bot/state/market_data.db
+crypto_bot/state/market_data.db
+crypto_bot/state/market_data.db
+crypto_bot/state/decision_audit.jsonl
+crypto_bot/state/decision_audit.jsonl
+crypto_bot/state/decision_audit.jsonl
+crypto_bot/state/market_data.db
+
+crypto_bot/state/decision_audit.jsonl
+crypto_bot/state/bot.log
+crypto_bot/state/market_sync_health_history.jsonl
+
+crypto_bot/state/market_sync_health_history.jsonl
+
+crypto_bot/state/market_sync_health_history.jsonl
+
+crypto_bot/state/decision_audit.jsonl
