@@ -124,7 +124,31 @@
     "HBAR-USD": "mr_exit",
     "POL-USD": "mr_exit"
   },
-  "entry_confidence": {},
+  "entry_confidence": {
+    "CRV-USD": null,
+    "SUI-USD": null,
+    "BTC-USD": null,
+    "XRP-USD": null,
+    "DOT-USD": null,
+    "ICP-USD": null,
+    "TIA-USD": null,
+    "NEAR-USD": null,
+    "FIL-USD": null,
+    "AAVE-USD": null,
+    "RPL-USD": null,
+    "SNX-USD": null,
+    "JASMY-USD": null,
+    "ATOM-USD": null,
+    "LTC-USD": null,
+    "AVAX-USD": null,
+    "CVX-USD": null,
+    "SOL-USD": null,
+    "LINK-USD": null,
+    "UNI-USD": null,
+    "GLM-USD": null,
+    "HBAR-USD": null,
+    "POL-USD": null
+  },
   "entry_timestamp": {
     "CRV-USD": 1772664289.4589665,
     "SUI-USD": 1773649623.6210284,
@@ -323,7 +347,13 @@
     "UNI-USD": "dump",
     "GLM-USD": "chop",
     "HBAR-USD": "dump",
-    "POL-USD": "dump"
+    "POL-USD": "dump",
+    "XLM-USD": "range",
+    "XTZ-USD": "unknown",
+    "XYO-USD": "unknown",
+    "ZK-USD": "unknown",
+    "ZKJ-USD": "unknown",
+    "ZRX-USD": "dump"
   },
   "last_score": {
     "CRV-USD": 30.0,
@@ -348,7 +378,13 @@
     "UNI-USD": 0.0,
     "GLM-USD": 0.0,
     "HBAR-USD": 0.0,
-    "POL-USD": 30.0
+    "POL-USD": 30.0,
+    "XLM-USD": 60.0,
+    "XTZ-USD": 20.0,
+    "XYO-USD": 20.0,
+    "ZK-USD": 20.0,
+    "ZKJ-USD": 20.0,
+    "ZRX-USD": 0.0
   },
   "last_volatility": {
     "CRV-USD": 0.0003520042240506743,
@@ -373,7 +409,13 @@
     "UNI-USD": 0.00027946231450685796,
     "GLM-USD": 0.0,
     "HBAR-USD": 1.1196452963712297e-05,
-    "POL-USD": 0.0
+    "POL-USD": 0.0,
+    "XLM-USD": 0.00018176913479953764,
+    "XTZ-USD": 0.0,
+    "XYO-USD": 0.0,
+    "ZK-USD": 0.0,
+    "ZKJ-USD": 0.0,
+    "ZRX-USD": 0.00038801047628284383
   },
   "last_buy_block_reason": {
     "VET-USD": "warming_up_history",
@@ -381,7 +423,7 @@
     "XLM-USD": "warming_up_history",
     "XYO-USD": "warming_up_history",
     "ZK-USD": "warming_up_history",
-    "ZRX-USD": "warming_up_history",
+    "ZRX-USD": "price_above_buy_zone",
     "ZKJ-USD": "warming_up_history",
     "XTZ-USD": "warming_up_history"
   },
@@ -404,27 +446,28 @@
     },
     "XLM-USD": {
       "candle_history_stale": 9,
-      "warming_up_history": 3
+      "warming_up_history": 10
     },
     "XYO-USD": {
       "candle_history_stale": 9,
-      "warming_up_history": 3
+      "warming_up_history": 4
     },
     "ZK-USD": {
       "candle_history_stale": 9,
-      "warming_up_history": 3
+      "warming_up_history": 4
     },
     "ZRX-USD": {
       "candle_history_stale": 9,
-      "warming_up_history": 3
+      "warming_up_history": 9,
+      "price_above_buy_zone": 1
     },
     "ZKJ-USD": {
       "candle_history_stale": 9,
-      "warming_up_history": 3
+      "warming_up_history": 4
     },
     "XTZ-USD": {
       "candle_history_stale": 3,
-      "warming_up_history": 3
+      "warming_up_history": 4
     }
   },
   "buy_block_counts_by_symbol_route": {
@@ -441,37 +484,38 @@
     "XLM-USD": {
       "mean_reversion": {
         "candle_history_stale": 9,
-        "warming_up_history": 3
+        "warming_up_history": 10
       }
     },
     "XYO-USD": {
       "mean_reversion": {
         "candle_history_stale": 9,
-        "warming_up_history": 3
+        "warming_up_history": 4
       }
     },
     "ZK-USD": {
       "mean_reversion": {
         "candle_history_stale": 9,
-        "warming_up_history": 3
+        "warming_up_history": 4
       }
     },
     "ZRX-USD": {
       "mean_reversion": {
         "candle_history_stale": 9,
-        "warming_up_history": 3
+        "warming_up_history": 9,
+        "price_above_buy_zone": 1
       }
     },
     "ZKJ-USD": {
       "mean_reversion": {
         "candle_history_stale": 9,
-        "warming_up_history": 3
+        "warming_up_history": 4
       }
     },
     "XTZ-USD": {
       "mean_reversion": {
         "candle_history_stale": 3,
-        "warming_up_history": 3
+        "warming_up_history": 4
       }
     }
   },
@@ -498,7 +542,13 @@
     "UNI-USD": "AUTO",
     "GLM-USD": "AUTO",
     "HBAR-USD": "AUTO",
-    "POL-USD": "AUTO"
+    "POL-USD": "AUTO",
+    "XLM-USD": "AUTO",
+    "XTZ-USD": "AUTO",
+    "XYO-USD": "AUTO",
+    "ZK-USD": "AUTO",
+    "ZKJ-USD": "AUTO",
+    "ZRX-USD": "AUTO"
   },
   "last_detected_regime": {
     "UNI-USD": "MIXED_OR_UNCLEAR",
@@ -523,107 +573,137 @@
     "DOT-USD": "MIXED_OR_UNCLEAR",
     "HBAR-USD": "MIXED_OR_UNCLEAR",
     "POL-USD": "MIXED_OR_UNCLEAR",
-    "GLM-USD": "MIXED_OR_UNCLEAR"
+    "GLM-USD": "MIXED_OR_UNCLEAR",
+    "XTZ-USD": "MIXED_OR_UNCLEAR",
+    "XYO-USD": "MIXED_OR_UNCLEAR",
+    "ZK-USD": "MIXED_OR_UNCLEAR",
+    "ZKJ-USD": "MIXED_OR_UNCLEAR",
+    "XLM-USD": "MEAN_REVERSION_FRIENDLY",
+    "ZRX-USD": "MEAN_REVERSION_FRIENDLY"
   },
   "last_detected_regime_confidence": {
-    "BTC-USD": 55.910000000000004,
-    "SUI-USD": 52.849999999999994,
-    "CRV-USD": 82.19,
-    "XRP-USD": 55.94,
-    "DOT-USD": 62.9,
-    "ICP-USD": 52.190000000000005,
-    "TIA-USD": 63.01,
-    "NEAR-USD": 70.87,
-    "FIL-USD": 54.26,
-    "AAVE-USD": 52.5,
-    "RPL-USD": 58.4,
-    "SNX-USD": 27.6,
-    "JASMY-USD": 82.13000000000001,
-    "ATOM-USD": 54.35,
-    "LTC-USD": 54.35,
-    "AVAX-USD": 58.52,
-    "CVX-USD": 81.51,
-    "SOL-USD": 55.92,
-    "LINK-USD": 52.849999999999994,
-    "UNI-USD": 58.60999999999999,
-    "GLM-USD": 8.0,
-    "HBAR-USD": 71.11,
-    "POL-USD": 30.330000000000002
+    "BTC-USD": 52.07000000000001,
+    "SUI-USD": 52.01,
+    "CRV-USD": 52.51,
+    "XRP-USD": 52.11,
+    "DOT-USD": 82.19,
+    "ICP-USD": 82.39999999999999,
+    "TIA-USD": 82.27,
+    "NEAR-USD": 52.839999999999996,
+    "FIL-USD": 49.07,
+    "AAVE-USD": 52.01,
+    "RPL-USD": 25.56,
+    "SNX-USD": 25.040000000000003,
+    "JASMY-USD": 68.96,
+    "ATOM-USD": 52.04,
+    "LTC-USD": 52.04,
+    "AVAX-USD": 52.11,
+    "CVX-USD": 47.64,
+    "SOL-USD": 52.07000000000001,
+    "LINK-USD": 52.54,
+    "UNI-USD": 52.11,
+    "GLM-USD": 14.719999999999999,
+    "HBAR-USD": 52.51,
+    "POL-USD": 30.59,
+    "XLM-USD": 33.18,
+    "XTZ-USD": 16.63,
+    "XYO-USD": 12.19,
+    "ZK-USD": 16.36,
+    "ZKJ-USD": 6.0600000000000005,
+    "ZRX-USD": 18.86
   },
   "last_detected_regime_confidence_label": {
     "SUI-USD": "MEDIUM",
-    "CRV-USD": "HIGH",
+    "CRV-USD": "MEDIUM",
     "XRP-USD": "MEDIUM",
-    "DOT-USD": "MEDIUM",
-    "ICP-USD": "MEDIUM",
-    "TIA-USD": "MEDIUM",
+    "DOT-USD": "HIGH",
+    "ICP-USD": "HIGH",
+    "TIA-USD": "HIGH",
     "NEAR-USD": "MEDIUM",
     "FIL-USD": "MEDIUM",
     "AAVE-USD": "MEDIUM",
-    "RPL-USD": "MEDIUM",
+    "RPL-USD": "LOW",
     "SNX-USD": "LOW",
-    "JASMY-USD": "HIGH",
+    "JASMY-USD": "MEDIUM",
     "ATOM-USD": "MEDIUM",
     "LTC-USD": "MEDIUM",
     "AVAX-USD": "MEDIUM",
-    "CVX-USD": "HIGH",
+    "CVX-USD": "LOW",
     "SOL-USD": "MEDIUM",
     "LINK-USD": "MEDIUM",
     "UNI-USD": "MEDIUM",
     "GLM-USD": "LOW",
     "HBAR-USD": "MEDIUM",
     "POL-USD": "LOW",
-    "BTC-USD": "MEDIUM"
+    "BTC-USD": "MEDIUM",
+    "XLM-USD": "LOW",
+    "XTZ-USD": "LOW",
+    "XYO-USD": "LOW",
+    "ZK-USD": "LOW",
+    "ZKJ-USD": "LOW",
+    "ZRX-USD": "LOW"
   },
   "last_detected_regime_stability": {
-    "BTC-USD": 55.910000000000004,
-    "SOL-USD": 55.92,
-    "XRP-USD": 55.94,
-    "DOT-USD": 62.9,
-    "SUI-USD": 52.849999999999994,
-    "AAVE-USD": 52.5,
-    "ATOM-USD": 54.35,
-    "AVAX-USD": 58.52,
-    "CRV-USD": 82.19,
-    "CVX-USD": 81.51,
-    "FIL-USD": 54.26,
-    "GLM-USD": 8.0,
-    "HBAR-USD": 71.11,
-    "ICP-USD": 52.190000000000005,
-    "JASMY-USD": 82.13000000000001,
-    "LINK-USD": 52.849999999999994,
-    "LTC-USD": 54.35,
-    "NEAR-USD": 70.87,
-    "POL-USD": 30.330000000000002,
-    "RPL-USD": 58.4,
-    "SNX-USD": 27.6,
-    "TIA-USD": 63.01,
-    "UNI-USD": 58.60999999999999
+    "BTC-USD": 52.07000000000001,
+    "SOL-USD": 52.07000000000001,
+    "XRP-USD": 52.11,
+    "DOT-USD": 82.19,
+    "SUI-USD": 52.01,
+    "AAVE-USD": 52.01,
+    "ATOM-USD": 52.04,
+    "AVAX-USD": 52.11,
+    "CRV-USD": 52.51,
+    "CVX-USD": 47.64,
+    "FIL-USD": 49.07,
+    "GLM-USD": 14.719999999999999,
+    "HBAR-USD": 52.51,
+    "ICP-USD": 82.39999999999999,
+    "JASMY-USD": 68.96,
+    "LINK-USD": 52.54,
+    "LTC-USD": 52.04,
+    "NEAR-USD": 52.839999999999996,
+    "POL-USD": 30.59,
+    "RPL-USD": 25.56,
+    "SNX-USD": 25.040000000000003,
+    "TIA-USD": 82.27,
+    "UNI-USD": 52.11,
+    "XLM-USD": 33.18,
+    "XTZ-USD": 16.63,
+    "XYO-USD": 12.19,
+    "ZK-USD": 16.36,
+    "ZKJ-USD": 6.0600000000000005,
+    "ZRX-USD": 18.86
   },
   "last_detected_regime_persistence": {
-    "BTC-USD": 55.910000000000004,
-    "SOL-USD": 55.92,
-    "XRP-USD": 55.94,
-    "DOT-USD": 62.9,
-    "SUI-USD": 52.849999999999994,
-    "AAVE-USD": 52.5,
-    "ATOM-USD": 54.35,
-    "AVAX-USD": 58.52,
-    "CRV-USD": 82.19,
-    "CVX-USD": 81.51,
-    "FIL-USD": 54.26,
-    "GLM-USD": 8.0,
-    "HBAR-USD": 71.11,
-    "ICP-USD": 52.190000000000005,
-    "JASMY-USD": 82.13000000000001,
-    "LINK-USD": 52.849999999999994,
-    "LTC-USD": 54.35,
-    "NEAR-USD": 70.87,
-    "POL-USD": 30.330000000000002,
-    "RPL-USD": 58.4,
-    "SNX-USD": 27.6,
-    "TIA-USD": 63.01,
-    "UNI-USD": 58.60999999999999
+    "BTC-USD": 52.07000000000001,
+    "SOL-USD": 52.07000000000001,
+    "XRP-USD": 52.11,
+    "DOT-USD": 82.19,
+    "SUI-USD": 52.01,
+    "AAVE-USD": 52.01,
+    "ATOM-USD": 52.04,
+    "AVAX-USD": 52.11,
+    "CRV-USD": 52.51,
+    "CVX-USD": 47.64,
+    "FIL-USD": 49.07,
+    "GLM-USD": 14.719999999999999,
+    "HBAR-USD": 52.51,
+    "ICP-USD": 82.39999999999999,
+    "JASMY-USD": 68.96,
+    "LINK-USD": 52.54,
+    "LTC-USD": 52.04,
+    "NEAR-USD": 52.839999999999996,
+    "POL-USD": 30.59,
+    "RPL-USD": 25.56,
+    "SNX-USD": 25.040000000000003,
+    "TIA-USD": 82.27,
+    "UNI-USD": 52.11,
+    "XLM-USD": 33.18,
+    "XTZ-USD": 16.63,
+    "XYO-USD": 12.19,
+    "ZK-USD": 16.36,
+    "ZKJ-USD": 6.0600000000000005,
+    "ZRX-USD": 18.86
   },
   "last_detected_regime_stability_inferred": {
     "AAVE-USD": true,
@@ -648,7 +728,13 @@
     "SUI-USD": true,
     "TIA-USD": true,
     "UNI-USD": true,
-    "XRP-USD": true
+    "XRP-USD": true,
+    "XLM-USD": true,
+    "XTZ-USD": true,
+    "XYO-USD": true,
+    "ZK-USD": true,
+    "ZKJ-USD": true,
+    "ZRX-USD": true
   },
   "last_detected_regime_persistence_inferred": {
     "AAVE-USD": true,
@@ -673,7 +759,13 @@
     "SUI-USD": true,
     "TIA-USD": true,
     "UNI-USD": true,
-    "XRP-USD": true
+    "XRP-USD": true,
+    "XLM-USD": true,
+    "XTZ-USD": true,
+    "XYO-USD": true,
+    "ZK-USD": true,
+    "ZKJ-USD": true,
+    "ZRX-USD": true
   },
   "last_regime_data_quality_status": {
     "BTC-USD": "PARTIAL",
@@ -698,7 +790,13 @@
     "RPL-USD": "PARTIAL",
     "SNX-USD": "PARTIAL",
     "TIA-USD": "PARTIAL",
-    "UNI-USD": "PARTIAL"
+    "UNI-USD": "PARTIAL",
+    "XLM-USD": "PARTIAL",
+    "XTZ-USD": "PARTIAL",
+    "XYO-USD": "PARTIAL",
+    "ZK-USD": "PARTIAL",
+    "ZKJ-USD": "PARTIAL",
+    "ZRX-USD": "PARTIAL"
   },
   "last_regime_key_windows_supported": {
     "BTC-USD": true,
@@ -723,7 +821,13 @@
     "RPL-USD": true,
     "SNX-USD": true,
     "TIA-USD": true,
-    "UNI-USD": true
+    "UNI-USD": true,
+    "XLM-USD": true,
+    "XTZ-USD": true,
+    "XYO-USD": true,
+    "ZK-USD": true,
+    "ZKJ-USD": true,
+    "ZRX-USD": true
   },
   "last_suggested_regime_v2": {
     "UNI-USD": "MIXED_OR_UNCLEAR",
@@ -748,7 +852,13 @@
     "DOT-USD": "MIXED_OR_UNCLEAR",
     "HBAR-USD": "MIXED_OR_UNCLEAR",
     "POL-USD": "MIXED_OR_UNCLEAR",
-    "GLM-USD": "MIXED_OR_UNCLEAR"
+    "GLM-USD": "MIXED_OR_UNCLEAR",
+    "XTZ-USD": "MIXED_OR_UNCLEAR",
+    "XYO-USD": "MIXED_OR_UNCLEAR",
+    "ZK-USD": "MIXED_OR_UNCLEAR",
+    "ZKJ-USD": "MIXED_OR_UNCLEAR",
+    "XLM-USD": "MEAN_REVERSION_FRIENDLY",
+    "ZRX-USD": "MEAN_REVERSION_FRIENDLY"
   },
   "last_detection_source": {
     "BTC-USD": "runtime_shadow",
@@ -773,32 +883,44 @@
     "UNI-USD": "runtime_shadow",
     "GLM-USD": "runtime_shadow",
     "HBAR-USD": "runtime_shadow",
-    "POL-USD": "runtime_shadow"
+    "POL-USD": "runtime_shadow",
+    "XLM-USD": "runtime_shadow",
+    "XTZ-USD": "runtime_shadow",
+    "XYO-USD": "runtime_shadow",
+    "ZK-USD": "runtime_shadow",
+    "ZKJ-USD": "runtime_shadow",
+    "ZRX-USD": "runtime_shadow"
   },
   "last_detection_timestamp_epoch": {
-    "BTC-USD": 1774733473.8941483,
-    "XRP-USD": 1774733347.6496477,
-    "DOT-USD": 1774733347.0162003,
-    "SUI-USD": 1774733417.403332,
-    "CRV-USD": 1774733487.6656091,
-    "JASMY-USD": 1774733375.4961085,
-    "AAVE-USD": 1774733431.9228394,
-    "NEAR-USD": 1774733389.5741622,
-    "TIA-USD": 1774733333.169444,
-    "ICP-USD": 1774733362.3062937,
-    "RPL-USD": 1774733390.3921518,
-    "FIL-USD": 1774733347.3717794,
-    "SNX-USD": 1774733403.782409,
-    "ATOM-USD": 1774733445.7867095,
-    "LTC-USD": 1774733376.2719653,
-    "AVAX-USD": 1774733459.9015687,
-    "CVX-USD": 1774733403.387753,
-    "SOL-USD": 1774733404.0783012,
-    "LINK-USD": 1774733375.9738488,
-    "UNI-USD": 1774733333.4630947,
-    "GLM-USD": 1774733361.597152,
-    "HBAR-USD": 1774733362.023958,
-    "POL-USD": 1774733389.9992642
+    "BTC-USD": 1774734462.4351044,
+    "XRP-USD": 1774734420.124007,
+    "DOT-USD": 1774734476.4493153,
+    "SUI-USD": 1774734462.0020056,
+    "CRV-USD": 1774734462.722785,
+    "JASMY-USD": 1774734491.276992,
+    "AAVE-USD": 1774734448.5976355,
+    "NEAR-USD": 1774734421.0817373,
+    "TIA-USD": 1774734476.0255275,
+    "ICP-USD": 1774734490.9496837,
+    "RPL-USD": 1774734434.9237137,
+    "FIL-USD": 1774734476.7716694,
+    "SNX-USD": 1774734435.2095847,
+    "ATOM-USD": 1774734448.8998172,
+    "LTC-USD": 1774734420.796383,
+    "AVAX-USD": 1774734449.1830416,
+    "CVX-USD": 1774734463.023803,
+    "SOL-USD": 1774734448.223926,
+    "LINK-USD": 1774734420.467771,
+    "UNI-USD": 1774734490.2172947,
+    "GLM-USD": 1774734477.0749764,
+    "HBAR-USD": 1774734490.6621954,
+    "POL-USD": 1774734434.6418788,
+    "XLM-USD": 1774734406.2031322,
+    "XTZ-USD": 1774733927.1396499,
+    "XYO-USD": 1774733927.615666,
+    "ZK-USD": 1774733927.871508,
+    "ZKJ-USD": 1774733928.1214314,
+    "ZRX-USD": 1774734434.2875357
   },
   "last_effective_strategy": {
     "CRV-USD": "mean_reversion",
@@ -823,7 +945,13 @@
     "UNI-USD": "mean_reversion",
     "GLM-USD": "mean_reversion",
     "HBAR-USD": "mean_reversion",
-    "POL-USD": "mean_reversion"
+    "POL-USD": "mean_reversion",
+    "XLM-USD": "mean_reversion",
+    "XTZ-USD": "mean_reversion",
+    "XYO-USD": "mean_reversion",
+    "ZK-USD": "mean_reversion",
+    "ZKJ-USD": "mean_reversion",
+    "ZRX-USD": "mean_reversion"
   },
   "last_effective_route": {
     "BTC-USD": "mean_reversion",
@@ -848,82 +976,106 @@
     "RPL-USD": "mean_reversion",
     "SNX-USD": "mean_reversion",
     "TIA-USD": "mean_reversion",
-    "UNI-USD": "mean_reversion"
+    "UNI-USD": "mean_reversion",
+    "XLM-USD": "mean_reversion",
+    "XTZ-USD": "mean_reversion",
+    "XYO-USD": "mean_reversion",
+    "ZK-USD": "mean_reversion",
+    "ZKJ-USD": "mean_reversion",
+    "ZRX-USD": "mean_reversion"
   },
   "last_route_eval_ts": {
-    "BTC-USD": 1774733610.313493,
-    "SOL-USD": 1774733487.393379,
-    "XRP-USD": 1774733431.6479607,
-    "DOT-USD": 1774733431.014464,
-    "SUI-USD": 1774733500.3712926,
-    "AAVE-USD": 1774733609.4428627,
-    "ATOM-USD": 1774733609.7386882,
-    "AVAX-USD": 1774733610.0275397,
-    "CRV-USD": 1774733622.9338288,
-    "CVX-USD": 1774733486.6452243,
-    "FIL-USD": 1774733431.3670695,
-    "GLM-USD": 1774733444.775659,
-    "HBAR-USD": 1774733445.1948915,
-    "ICP-USD": 1774733445.4853432,
-    "JASMY-USD": 1774733458.9028335,
-    "LINK-USD": 1774733459.342369,
-    "LTC-USD": 1774733459.6242478,
-    "NEAR-USD": 1774733472.9294176,
-    "POL-USD": 1774733473.312992,
-    "RPL-USD": 1774733473.6153603,
-    "SNX-USD": 1774733487.1094944,
-    "TIA-USD": 1774733417.7809129,
-    "UNI-USD": 1774733418.0570543
+    "BTC-USD": 1774734552.243789,
+    "SOL-USD": 1774734551.8353415,
+    "XRP-USD": 1774734521.6383593,
+    "DOT-USD": 1774734566.169461,
+    "SUI-USD": 1774734565.7797346,
+    "AAVE-USD": 1774734538.4766853,
+    "ATOM-USD": 1774734538.8141673,
+    "AVAX-USD": 1774734539.1123333,
+    "CRV-USD": 1774734552.577368,
+    "CVX-USD": 1774734552.8740811,
+    "FIL-USD": 1774734566.4659026,
+    "GLM-USD": 1774734566.7587905,
+    "HBAR-USD": 1774734580.0579538,
+    "ICP-USD": 1774734580.3668728,
+    "JASMY-USD": 1774734580.653149,
+    "LINK-USD": 1774734507.7807863,
+    "LTC-USD": 1774734508.0834427,
+    "NEAR-USD": 1774734508.3666694,
+    "POL-USD": 1774734522.07097,
+    "RPL-USD": 1774734522.5513628,
+    "SNX-USD": 1774734522.9191196,
+    "TIA-USD": 1774734579.6882024,
+    "UNI-USD": 1774734593.6295767,
+    "XLM-USD": 1774734507.1537733,
+    "XTZ-USD": 1774733927.1396036,
+    "XYO-USD": 1774733927.615625,
+    "ZK-USD": 1774733927.8714657,
+    "ZKJ-USD": 1774733928.1213882,
+    "ZRX-USD": 1774734538.0325823
   },
   "last_regime_eval_ts": {
-    "BTC-USD": 1774733610.2638962,
-    "SOL-USD": 1774733487.3553276,
-    "XRP-USD": 1774733431.6094885,
-    "DOT-USD": 1774733430.9743192,
-    "SUI-USD": 1774733500.332567,
-    "AAVE-USD": 1774733609.2710888,
-    "ATOM-USD": 1774733609.6955445,
-    "AVAX-USD": 1774733609.983638,
-    "CRV-USD": 1774733622.8849523,
-    "CVX-USD": 1774733486.6051412,
-    "FIL-USD": 1774733431.3277788,
-    "GLM-USD": 1774733444.7355702,
-    "HBAR-USD": 1774733445.1547747,
-    "ICP-USD": 1774733445.4411705,
-    "JASMY-USD": 1774733458.8575234,
-    "LINK-USD": 1774733459.3007295,
-    "LTC-USD": 1774733459.5846255,
-    "NEAR-USD": 1774733472.8863637,
-    "POL-USD": 1774733473.273904,
-    "RPL-USD": 1774733473.564764,
-    "SNX-USD": 1774733487.0657692,
-    "TIA-USD": 1774733417.7407176,
-    "UNI-USD": 1774733418.0192885
+    "BTC-USD": 1774734552.1987834,
+    "SOL-USD": 1774734551.7842145,
+    "XRP-USD": 1774734521.583023,
+    "DOT-USD": 1774734566.1235883,
+    "SUI-USD": 1774734565.7281854,
+    "AAVE-USD": 1774734538.425188,
+    "ATOM-USD": 1774734538.7672436,
+    "AVAX-USD": 1774734539.0602064,
+    "CRV-USD": 1774734552.5260897,
+    "CVX-USD": 1774734552.820252,
+    "FIL-USD": 1774734566.4210355,
+    "GLM-USD": 1774734566.7132287,
+    "HBAR-USD": 1774734580.0066564,
+    "ICP-USD": 1774734580.3220723,
+    "JASMY-USD": 1774734580.6083503,
+    "LINK-USD": 1774734507.7257118,
+    "LTC-USD": 1774734508.0337229,
+    "NEAR-USD": 1774734508.3223736,
+    "POL-USD": 1774734522.0053573,
+    "RPL-USD": 1774734522.492368,
+    "SNX-USD": 1774734522.7909088,
+    "TIA-USD": 1774734579.6415367,
+    "UNI-USD": 1774734593.5576236,
+    "XLM-USD": 1774734507.1369007,
+    "XTZ-USD": 1774733927.1225476,
+    "XYO-USD": 1774733927.6017683,
+    "ZK-USD": 1774733927.858582,
+    "ZKJ-USD": 1774733928.107566,
+    "ZRX-USD": 1774734537.9429543
   },
   "last_auto_fallback_reason": {
     "AVAX-USD": "low_confidence",
-    "DOT-USD": "core_timeframe_not_ready",
-    "ICP-USD": "core_timeframe_not_ready",
-    "SNX-USD": "core_timeframe_not_ready",
-    "NEAR-USD": "core_timeframe_not_ready",
-    "UNI-USD": "core_timeframe_not_ready",
+    "DOT-USD": "mixed_or_unclear_regime",
+    "ICP-USD": "mixed_or_unclear_regime",
+    "SNX-USD": "low_confidence",
+    "NEAR-USD": "low_confidence",
+    "UNI-USD": "low_confidence",
     "AAVE-USD": "low_confidence",
-    "RPL-USD": "core_timeframe_not_ready",
-    "XRP-USD": "core_timeframe_not_ready",
-    "CRV-USD": "mixed_or_unclear_regime",
-    "FIL-USD": "core_timeframe_not_ready",
-    "HBAR-USD": "core_timeframe_not_ready",
-    "JASMY-USD": "core_timeframe_not_ready",
-    "LTC-USD": "core_timeframe_not_ready",
-    "POL-USD": "core_timeframe_not_ready",
-    "SUI-USD": "core_timeframe_not_ready",
-    "GLM-USD": "core_timeframe_not_ready",
-    "TIA-USD": "core_timeframe_not_ready",
-    "LINK-USD": "core_timeframe_not_ready",
-    "SOL-USD": "core_timeframe_not_ready",
+    "RPL-USD": "low_confidence",
+    "XRP-USD": "low_confidence",
+    "CRV-USD": "low_confidence",
+    "FIL-USD": "low_confidence",
+    "HBAR-USD": "low_confidence",
+    "JASMY-USD": "mixed_or_unclear_regime",
+    "LTC-USD": "low_confidence",
+    "POL-USD": "low_confidence",
+    "SUI-USD": "low_confidence",
+    "GLM-USD": "low_confidence",
+    "TIA-USD": "mixed_or_unclear_regime",
+    "LINK-USD": "low_confidence",
+    "SOL-USD": "low_confidence",
     "ATOM-USD": "low_confidence",
-    "CVX-USD": "core_timeframe_not_ready",
-    "BTC-USD": "low_confidence"
+    "CVX-USD": "low_confidence",
+    "BTC-USD": "low_confidence",
+    "XLM-USD": "low_confidence",
+    "XTZ-USD": "core_timeframe_not_ready",
+    "XYO-USD": "core_timeframe_not_ready",
+    "ZK-USD": "core_timeframe_not_ready",
+    "ZKJ-USD": "core_timeframe_not_ready",
+    "ZRX-USD": "low_confidence"
   },
   "last_fallback_reason": {
     "AVAX-USD": "open_position_exit_policy_locked",
@@ -948,7 +1100,13 @@
     "SOL-USD": "open_position_exit_policy_locked",
     "ATOM-USD": "open_position_exit_policy_locked",
     "CVX-USD": "open_position_exit_policy_locked",
-    "BTC-USD": "open_position_exit_policy_locked"
+    "BTC-USD": "open_position_exit_policy_locked",
+    "XLM-USD": "low_confidence",
+    "XTZ-USD": "core_timeframe_not_ready:4h:stale,1d:stale",
+    "XYO-USD": "core_timeframe_not_ready:4h:stale,1d:stale",
+    "ZK-USD": "core_timeframe_not_ready:1h:stale,4h:stale,1d:stale",
+    "ZKJ-USD": "core_timeframe_not_ready:4h:stale,1d:stale",
+    "ZRX-USD": "low_confidence"
   },
   "last_ready_for_non_mr_route": {
     "AAVE-USD": false,
@@ -973,32 +1131,44 @@
     "SUI-USD": false,
     "TIA-USD": false,
     "UNI-USD": false,
-    "XRP-USD": false
+    "XRP-USD": false,
+    "XLM-USD": false,
+    "XTZ-USD": false,
+    "XYO-USD": false,
+    "ZK-USD": false,
+    "ZKJ-USD": false,
+    "ZRX-USD": false
   },
   "last_non_mr_ready_reason": {
     "AAVE-USD": "low_confidence",
     "ATOM-USD": "low_confidence",
     "AVAX-USD": "low_confidence",
     "BTC-USD": "low_confidence",
-    "CRV-USD": "mixed_or_unclear_regime",
-    "CVX-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "DOT-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "FIL-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "GLM-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "HBAR-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "ICP-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "JASMY-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "LINK-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "LTC-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "NEAR-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "POL-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "RPL-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "SNX-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "SOL-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "SUI-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "TIA-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "UNI-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "XRP-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported"
+    "CRV-USD": "low_confidence",
+    "CVX-USD": "low_confidence",
+    "DOT-USD": "mixed_or_unclear_regime",
+    "FIL-USD": "low_confidence",
+    "GLM-USD": "low_confidence",
+    "HBAR-USD": "low_confidence",
+    "ICP-USD": "mixed_or_unclear_regime",
+    "JASMY-USD": "mixed_or_unclear_regime",
+    "LINK-USD": "low_confidence",
+    "LTC-USD": "low_confidence",
+    "NEAR-USD": "low_confidence",
+    "POL-USD": "low_confidence",
+    "RPL-USD": "low_confidence",
+    "SNX-USD": "low_confidence",
+    "SOL-USD": "low_confidence",
+    "SUI-USD": "low_confidence",
+    "TIA-USD": "mixed_or_unclear_regime",
+    "UNI-USD": "low_confidence",
+    "XRP-USD": "low_confidence",
+    "XLM-USD": "low_confidence",
+    "XTZ-USD": "core_timeframe_not_ready:4h:stale,1d:stale",
+    "XYO-USD": "core_timeframe_not_ready:4h:stale,1d:stale",
+    "ZK-USD": "core_timeframe_not_ready:1h:stale,4h:stale,1d:stale",
+    "ZKJ-USD": "core_timeframe_not_ready:4h:stale,1d:stale",
+    "ZRX-USD": "low_confidence"
   },
   "last_route_readiness_state": {
     "AAVE-USD": "FALLBACK",
@@ -1023,14 +1193,40 @@
     "SUI-USD": "FALLBACK",
     "TIA-USD": "FALLBACK",
     "UNI-USD": "FALLBACK",
-    "XRP-USD": "FALLBACK"
+    "XRP-USD": "FALLBACK",
+    "XLM-USD": "FALLBACK",
+    "XTZ-USD": "FALLBACK",
+    "XYO-USD": "FALLBACK",
+    "ZK-USD": "FALLBACK",
+    "ZKJ-USD": "FALLBACK",
+    "ZRX-USD": "FALLBACK"
   },
   "last_route_timestamp_age_seconds": {
-    "BTC-USD": 136.41934466362,
-    "AAVE-USD": 177.52002334594727,
-    "ATOM-USD": 163.95197868347168,
-    "AVAX-USD": 150.12597107887268,
-    "CRV-USD": 135.26821970939636
+    "BTC-USD": 89.80868458747864,
+    "AAVE-USD": 89.87904977798462,
+    "ATOM-USD": 89.9143500328064,
+    "AVAX-USD": 89.92929172515869,
+    "CRV-USD": 89.85458302497864,
+    "CVX-USD": 89.85027813911438,
+    "DOT-USD": 89.72014570236206,
+    "FIL-USD": 89.69423317909241,
+    "GLM-USD": 89.68381404876709,
+    "HBAR-USD": 89.39575839042664,
+    "ICP-USD": 89.41718912124634,
+    "JASMY-USD": 89.3761568069458,
+    "LINK-USD": 87.31301522254944,
+    "LTC-USD": 87.28705978393555,
+    "NEAR-USD": 87.28493213653564,
+    "POL-USD": 87.42909121513367,
+    "RPL-USD": 87.6276490688324,
+    "SNX-USD": 87.70953488349915,
+    "SOL-USD": 103.61141538619995,
+    "SUI-USD": 103.77772903442383,
+    "TIA-USD": 103.66267490386963,
+    "UNI-USD": 103.41228199005127,
+    "XLM-USD": 100.95064115524292,
+    "XRP-USD": 101.51435232162476,
+    "ZRX-USD": 103.74504661560059
   },
   "last_route_timestamp_fresh": {
     "AAVE-USD": true,
@@ -1038,24 +1234,30 @@
     "AVAX-USD": true,
     "BTC-USD": true,
     "CRV-USD": true,
-    "CVX-USD": false,
-    "DOT-USD": false,
-    "FIL-USD": false,
-    "GLM-USD": false,
-    "HBAR-USD": false,
-    "ICP-USD": false,
-    "JASMY-USD": false,
-    "LINK-USD": false,
-    "LTC-USD": false,
-    "NEAR-USD": false,
-    "POL-USD": false,
-    "RPL-USD": false,
-    "SNX-USD": false,
-    "SOL-USD": false,
-    "SUI-USD": false,
-    "TIA-USD": false,
-    "UNI-USD": false,
-    "XRP-USD": false
+    "CVX-USD": true,
+    "DOT-USD": true,
+    "FIL-USD": true,
+    "GLM-USD": true,
+    "HBAR-USD": true,
+    "ICP-USD": true,
+    "JASMY-USD": true,
+    "LINK-USD": true,
+    "LTC-USD": true,
+    "NEAR-USD": true,
+    "POL-USD": true,
+    "RPL-USD": true,
+    "SNX-USD": true,
+    "SOL-USD": true,
+    "SUI-USD": true,
+    "TIA-USD": true,
+    "UNI-USD": true,
+    "XRP-USD": true,
+    "XLM-USD": true,
+    "XTZ-USD": false,
+    "XYO-USD": false,
+    "ZK-USD": false,
+    "ZKJ-USD": false,
+    "ZRX-USD": true
   },
   "last_shadow_continuity_state": {
     "AAVE-USD": "healthy",
@@ -1080,32 +1282,44 @@
     "SUI-USD": "healthy",
     "TIA-USD": "healthy",
     "UNI-USD": "healthy",
-    "XRP-USD": "healthy"
+    "XRP-USD": "healthy",
+    "XLM-USD": "healthy",
+    "XTZ-USD": "healthy",
+    "XYO-USD": "healthy",
+    "ZK-USD": "healthy",
+    "ZKJ-USD": "healthy",
+    "ZRX-USD": "healthy"
   },
   "last_shadow_age_seconds": {
-    "AAVE-USD": 177.52002334594727,
-    "ATOM-USD": 163.95197868347168,
-    "AVAX-USD": 150.12597107887268,
-    "BTC-USD": 136.41934466362,
-    "CRV-USD": 135.26821970939636,
-    "CVX-USD": 83.2574713230133,
-    "DOT-USD": 83.9982635974884,
-    "FIL-USD": 83.99529004096985,
-    "GLM-USD": 83.17850708961487,
-    "HBAR-USD": 83.17093348503113,
-    "ICP-USD": 83.17904949188232,
-    "JASMY-USD": 83.40672492980957,
-    "LINK-USD": 83.36852025985718,
-    "LTC-USD": 83.35228252410889,
-    "NEAR-USD": 83.3552553653717,
-    "POL-USD": 83.31372785568237,
-    "RPL-USD": 83.2232084274292,
-    "SNX-USD": 83.32708549499512,
-    "SOL-USD": 83.31507778167725,
-    "SUI-USD": 82.9679605960846,
-    "TIA-USD": 84.61146879196167,
-    "UNI-USD": 84.59395956993103,
-    "XRP-USD": 83.99831295013428
+    "AAVE-USD": 89.87904977798462,
+    "ATOM-USD": 89.9143500328064,
+    "AVAX-USD": 89.92929172515869,
+    "BTC-USD": 89.80868458747864,
+    "CRV-USD": 89.85458302497864,
+    "CVX-USD": 89.85027813911438,
+    "DOT-USD": 89.72014570236206,
+    "FIL-USD": 89.69423317909241,
+    "GLM-USD": 89.68381404876709,
+    "HBAR-USD": 89.39575839042664,
+    "ICP-USD": 89.41718912124634,
+    "JASMY-USD": 89.3761568069458,
+    "LINK-USD": 87.31301522254944,
+    "LTC-USD": 87.28705978393555,
+    "NEAR-USD": 87.28493213653564,
+    "POL-USD": 87.42909121513367,
+    "RPL-USD": 87.6276490688324,
+    "SNX-USD": 87.70953488349915,
+    "SOL-USD": 103.61141538619995,
+    "SUI-USD": 103.77772903442383,
+    "TIA-USD": 103.66267490386963,
+    "UNI-USD": 103.41228199005127,
+    "XRP-USD": 101.51435232162476,
+    "XLM-USD": 100.95064115524292,
+    "XTZ-USD": 0.0,
+    "XYO-USD": 0.0,
+    "ZK-USD": 0.0,
+    "ZKJ-USD": 0.0,
+    "ZRX-USD": 103.74504661560059
   },
   "last_failed_gates": {
     "AAVE-USD": [
@@ -1121,61 +1335,79 @@
       "low_confidence"
     ],
     "CRV-USD": [
-      "mean_reversion_fallback"
+      "low_confidence"
     ],
     "CVX-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "DOT-USD": [
-      "core_timeframe_not_ready"
+      "mean_reversion_fallback"
     ],
     "FIL-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "GLM-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "HBAR-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "ICP-USD": [
-      "core_timeframe_not_ready"
+      "mean_reversion_fallback"
     ],
     "JASMY-USD": [
-      "core_timeframe_not_ready"
+      "mean_reversion_fallback"
     ],
     "LINK-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "LTC-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "NEAR-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "POL-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "RPL-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "SNX-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "SOL-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "SUI-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "TIA-USD": [
-      "core_timeframe_not_ready"
+      "mean_reversion_fallback"
     ],
     "UNI-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "XRP-USD": [
+      "low_confidence"
+    ],
+    "XLM-USD": [
+      "low_confidence"
+    ],
+    "XTZ-USD": [
       "core_timeframe_not_ready"
+    ],
+    "XYO-USD": [
+      "core_timeframe_not_ready"
+    ],
+    "ZK-USD": [
+      "core_timeframe_not_ready"
+    ],
+    "ZKJ-USD": [
+      "core_timeframe_not_ready"
+    ],
+    "ZRX-USD": [
+      "low_confidence"
     ]
   },
   "last_decision_diagnostics": {
@@ -1189,13 +1421,13 @@
       },
       "observed": {
         "detected_regime": "MIXED_OR_UNCLEAR",
-        "confidence_score": 52.5,
-        "stability_score": 52.5,
-        "persistence_score": 52.5,
-        "route_timestamp_age_seconds": 177.52002334594727,
+        "confidence_score": 52.01,
+        "stability_score": 52.01,
+        "persistence_score": 52.01,
+        "route_timestamp_age_seconds": 89.87904977798462,
         "route_timestamp_fresh": true,
         "shadow_continuity_state": "healthy",
-        "shadow_age_seconds": 177.52002334594727,
+        "shadow_age_seconds": 89.87904977798462,
         "regime_data_quality_status": "PARTIAL",
         "regime_key_windows_supported": true,
         "route_quality_promoted": null,
@@ -1226,13 +1458,13 @@
       },
       "observed": {
         "detected_regime": "MIXED_OR_UNCLEAR",
-        "confidence_score": 54.35,
-        "stability_score": 54.35,
-        "persistence_score": 54.35,
-        "route_timestamp_age_seconds": 163.95197868347168,
+        "confidence_score": 52.04,
+        "stability_score": 52.04,
+        "persistence_score": 52.04,
+        "route_timestamp_age_seconds": 89.9143500328064,
         "route_timestamp_fresh": true,
         "shadow_continuity_state": "healthy",
-        "shadow_age_seconds": 163.95197868347168,
+        "shadow_age_seconds": 89.9143500328064,
         "regime_data_quality_status": "PARTIAL",
         "regime_key_windows_supported": true,
         "route_quality_promoted": null,
@@ -1263,13 +1495,13 @@
       },
       "observed": {
         "detected_regime": "MIXED_OR_UNCLEAR",
-        "confidence_score": 58.52,
-        "stability_score": 58.52,
-        "persistence_score": 58.52,
-        "route_timestamp_age_seconds": 150.12597107887268,
+        "confidence_score": 52.11,
+        "stability_score": 52.11,
+        "persistence_score": 52.11,
+        "route_timestamp_age_seconds": 89.92929172515869,
         "route_timestamp_fresh": true,
         "shadow_continuity_state": "healthy",
-        "shadow_age_seconds": 150.12597107887268,
+        "shadow_age_seconds": 89.92929172515869,
         "regime_data_quality_status": "PARTIAL",
         "regime_key_windows_supported": true,
         "route_quality_promoted": null,
@@ -1300,13 +1532,13 @@
       },
       "observed": {
         "detected_regime": "MIXED_OR_UNCLEAR",
-        "confidence_score": 55.910000000000004,
-        "stability_score": 55.910000000000004,
-        "persistence_score": 55.910000000000004,
-        "route_timestamp_age_seconds": 136.41934466362,
+        "confidence_score": 52.07000000000001,
+        "stability_score": 52.07000000000001,
+        "persistence_score": 52.07000000000001,
+        "route_timestamp_age_seconds": 89.80868458747864,
         "route_timestamp_fresh": true,
         "shadow_continuity_state": "healthy",
-        "shadow_age_seconds": 136.41934466362,
+        "shadow_age_seconds": 89.80868458747864,
         "regime_data_quality_status": "PARTIAL",
         "regime_key_windows_supported": true,
         "route_quality_promoted": null,
@@ -1337,13 +1569,87 @@
       },
       "observed": {
         "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 52.51,
+        "stability_score": 52.51,
+        "persistence_score": 52.51,
+        "route_timestamp_age_seconds": 89.85458302497864,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 89.85458302497864,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "CVX-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 47.64,
+        "stability_score": 47.64,
+        "persistence_score": 47.64,
+        "route_timestamp_age_seconds": 89.85027813911438,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 89.85027813911438,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "DOT-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
         "confidence_score": 82.19,
         "stability_score": 82.19,
         "persistence_score": 82.19,
-        "route_timestamp_age_seconds": 135.26821970939636,
+        "route_timestamp_age_seconds": 89.72014570236206,
         "route_timestamp_fresh": true,
         "shadow_continuity_state": "healthy",
-        "shadow_age_seconds": 135.26821970939636,
+        "shadow_age_seconds": 89.72014570236206,
         "regime_data_quality_status": "PARTIAL",
         "regime_key_windows_supported": true,
         "route_quality_promoted": null,
@@ -1363,15 +1669,829 @@
           "mean_reversion_fallback"
         ]
       }
+    },
+    "FIL-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 49.07,
+        "stability_score": 49.07,
+        "persistence_score": 49.07,
+        "route_timestamp_age_seconds": 89.69423317909241,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 89.69423317909241,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "GLM-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 14.719999999999999,
+        "stability_score": 14.719999999999999,
+        "persistence_score": 14.719999999999999,
+        "route_timestamp_age_seconds": 89.68381404876709,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 89.68381404876709,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "HBAR-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 52.51,
+        "stability_score": 52.51,
+        "persistence_score": 52.51,
+        "route_timestamp_age_seconds": 89.39575839042664,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 89.39575839042664,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "ICP-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 82.39999999999999,
+        "stability_score": 82.39999999999999,
+        "persistence_score": 82.39999999999999,
+        "route_timestamp_age_seconds": 89.41718912124634,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 89.41718912124634,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "mixed_or_unclear_regime",
+        "fallback_reason": "mixed_or_unclear_regime",
+        "fallback_gate": "mean_reversion_fallback",
+        "failed_gates": [
+          "mean_reversion_fallback"
+        ]
+      }
+    },
+    "JASMY-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 68.96,
+        "stability_score": 68.96,
+        "persistence_score": 68.96,
+        "route_timestamp_age_seconds": 89.3761568069458,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 89.3761568069458,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "mixed_or_unclear_regime",
+        "fallback_reason": "mixed_or_unclear_regime",
+        "fallback_gate": "mean_reversion_fallback",
+        "failed_gates": [
+          "mean_reversion_fallback"
+        ]
+      }
+    },
+    "LINK-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 52.54,
+        "stability_score": 52.54,
+        "persistence_score": 52.54,
+        "route_timestamp_age_seconds": 87.31301522254944,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 87.31301522254944,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "LTC-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 52.04,
+        "stability_score": 52.04,
+        "persistence_score": 52.04,
+        "route_timestamp_age_seconds": 87.28705978393555,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 87.28705978393555,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "NEAR-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 52.839999999999996,
+        "stability_score": 52.839999999999996,
+        "persistence_score": 52.839999999999996,
+        "route_timestamp_age_seconds": 87.28493213653564,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 87.28493213653564,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "POL-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 30.59,
+        "stability_score": 30.59,
+        "persistence_score": 30.59,
+        "route_timestamp_age_seconds": 87.42909121513367,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 87.42909121513367,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "RPL-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 25.56,
+        "stability_score": 25.56,
+        "persistence_score": 25.56,
+        "route_timestamp_age_seconds": 87.6276490688324,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 87.6276490688324,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "SNX-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 25.040000000000003,
+        "stability_score": 25.040000000000003,
+        "persistence_score": 25.040000000000003,
+        "route_timestamp_age_seconds": 87.70953488349915,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 87.70953488349915,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "SOL-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 52.07000000000001,
+        "stability_score": 52.07000000000001,
+        "persistence_score": 52.07000000000001,
+        "route_timestamp_age_seconds": 103.61141538619995,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 103.61141538619995,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "SUI-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 52.01,
+        "stability_score": 52.01,
+        "persistence_score": 52.01,
+        "route_timestamp_age_seconds": 103.77772903442383,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 103.77772903442383,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "TIA-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 82.27,
+        "stability_score": 82.27,
+        "persistence_score": 82.27,
+        "route_timestamp_age_seconds": 103.66267490386963,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 103.66267490386963,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "mixed_or_unclear_regime",
+        "fallback_reason": "mixed_or_unclear_regime",
+        "fallback_gate": "mean_reversion_fallback",
+        "failed_gates": [
+          "mean_reversion_fallback"
+        ]
+      }
+    },
+    "UNI-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 52.11,
+        "stability_score": 52.11,
+        "persistence_score": 52.11,
+        "route_timestamp_age_seconds": 103.41228199005127,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 103.41228199005127,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "XLM-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MEAN_REVERSION_FRIENDLY",
+        "confidence_score": 33.18,
+        "stability_score": 33.18,
+        "persistence_score": 33.18,
+        "route_timestamp_age_seconds": 100.95064115524292,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 100.95064115524292,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "XRP-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 52.11,
+        "stability_score": 52.11,
+        "persistence_score": 52.11,
+        "route_timestamp_age_seconds": 101.51435232162476,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 101.51435232162476,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "XTZ-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 16.63,
+        "stability_score": 16.63,
+        "persistence_score": 16.63,
+        "route_timestamp_age_seconds": null,
+        "route_timestamp_fresh": false,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 0.0,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "core_timeframe_not_ready:4h:stale,1d:stale",
+        "fallback_reason": "core_timeframe_not_ready:4h:stale,1d:stale",
+        "fallback_gate": "core_timeframe_not_ready",
+        "failed_gates": [
+          "core_timeframe_not_ready"
+        ]
+      }
+    },
+    "XYO-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 12.19,
+        "stability_score": 12.19,
+        "persistence_score": 12.19,
+        "route_timestamp_age_seconds": null,
+        "route_timestamp_fresh": false,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 0.0,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "core_timeframe_not_ready:4h:stale,1d:stale",
+        "fallback_reason": "core_timeframe_not_ready:4h:stale,1d:stale",
+        "fallback_gate": "core_timeframe_not_ready",
+        "failed_gates": [
+          "core_timeframe_not_ready"
+        ]
+      }
+    },
+    "ZK-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 16.36,
+        "stability_score": 16.36,
+        "persistence_score": 16.36,
+        "route_timestamp_age_seconds": null,
+        "route_timestamp_fresh": false,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 0.0,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "core_timeframe_not_ready:1h:stale,4h:stale,1d:stale",
+        "fallback_reason": "core_timeframe_not_ready:1h:stale,4h:stale,1d:stale",
+        "fallback_gate": "core_timeframe_not_ready",
+        "failed_gates": [
+          "core_timeframe_not_ready"
+        ]
+      }
+    },
+    "ZKJ-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 6.0600000000000005,
+        "stability_score": 6.0600000000000005,
+        "persistence_score": 6.0600000000000005,
+        "route_timestamp_age_seconds": null,
+        "route_timestamp_fresh": false,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 0.0,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "core_timeframe_not_ready:4h:stale,1d:stale",
+        "fallback_reason": "core_timeframe_not_ready:4h:stale,1d:stale",
+        "fallback_gate": "core_timeframe_not_ready",
+        "failed_gates": [
+          "core_timeframe_not_ready"
+        ]
+      }
+    },
+    "ZRX-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MEAN_REVERSION_FRIENDLY",
+        "confidence_score": 18.86,
+        "stability_score": 18.86,
+        "persistence_score": 18.86,
+        "route_timestamp_age_seconds": 103.74504661560059,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 103.74504661560059,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
     }
   },
   "shadow_regime_state": {
     "BTC-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 2400,
-      "confidence": 0.5435,
-      "last_update_ts": 1774733610.3141594,
+      "confirmations": 2408,
+      "confidence": 0.5204,
+      "last_update_ts": 1774734552.2597423,
       "last_switch_ts": 1774561139.8851824,
       "switched": false
     },
@@ -1387,9 +2507,9 @@
     "SOL-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 1998,
-      "confidence": 0.5435,
-      "last_update_ts": 1774733487.393895,
+      "confirmations": 2006,
+      "confidence": 0.5204,
+      "last_update_ts": 1774734551.8359277,
       "last_switch_ts": 1774561536.4690173,
       "switched": false
     },
@@ -1405,9 +2525,9 @@
     "XRP-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 1999,
-      "confidence": 0.5436,
-      "last_update_ts": 1774733431.6484916,
+      "confirmations": 2006,
+      "confidence": 0.7087,
+      "last_update_ts": 1774734521.6389024,
       "last_switch_ts": 1774561554.5442064,
       "switched": false
     },
@@ -1423,27 +2543,27 @@
     "DOT-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 1998,
-      "confidence": 0.5854,
-      "last_update_ts": 1774733431.0149825,
+      "confirmations": 2007,
+      "confidence": 0.7011,
+      "last_update_ts": 1774734566.180071,
       "last_switch_ts": 1774561781.3306928,
       "switched": false
     },
     "XLM-USD": {
-      "candidate_regime": "unknown",
-      "stable_regime": "unknown",
-      "confirmations": 3,
-      "confidence": 0.1851,
-      "last_update_ts": 1774732592.4880514,
-      "last_switch_ts": 1774646185.9394023,
+      "candidate_regime": "range",
+      "stable_regime": "range",
+      "confirmations": 6,
+      "confidence": 0.3384,
+      "last_update_ts": 1774734507.1544058,
+      "last_switch_ts": 1774734011.2737374,
       "switched": false
     },
     "SUI-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 1997,
-      "confidence": 0.5251,
-      "last_update_ts": 1774733500.371802,
+      "confirmations": 2005,
+      "confidence": 0.7081,
+      "last_update_ts": 1774734565.780281,
       "last_switch_ts": 1774561652.1652305,
       "switched": false
     },
@@ -1540,9 +2660,9 @@
     "CRV-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 2400,
-      "confidence": 0.7011,
-      "last_update_ts": 1774733622.934426,
+      "confirmations": 2408,
+      "confidence": 0.5231,
+      "last_update_ts": 1774734552.5779335,
       "last_switch_ts": 1774561410.8618014,
       "switched": false
     },
@@ -1657,9 +2777,9 @@
     "XYO-USD": {
       "candidate_regime": "unknown",
       "stable_regime": "unknown",
-      "confirmations": 3,
-      "confidence": 0.1565,
-      "last_update_ts": 1774732608.7259226,
+      "confirmations": 4,
+      "confidence": 0.1219,
+      "last_update_ts": 1774733927.615666,
       "last_switch_ts": 1774646200.790009,
       "switched": false
     },
@@ -1729,9 +2849,9 @@
     "AVAX-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 2401,
-      "confidence": 0.5591,
-      "last_update_ts": 1774733610.0281217,
+      "confirmations": 2409,
+      "confidence": 0.5207,
+      "last_update_ts": 1774734539.1129375,
       "last_switch_ts": 1774561463.315427,
       "switched": false
     },
@@ -1747,18 +2867,18 @@
     "LTC-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 2004,
-      "confidence": 0.5341,
-      "last_update_ts": 1774733459.6247785,
+      "confirmations": 2012,
+      "confidence": 0.5202,
+      "last_update_ts": 1774734508.0846722,
       "last_switch_ts": 1774561185.9169877,
       "switched": false
     },
     "HBAR-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 1998,
-      "confidence": 0.8227,
-      "last_update_ts": 1774733445.1979804,
+      "confirmations": 2007,
+      "confidence": 0.5231,
+      "last_update_ts": 1774734580.0682683,
       "last_switch_ts": 1774561795.72029,
       "switched": false
     },
@@ -1774,9 +2894,9 @@
     "JASMY-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 2001,
-      "confidence": 0.7008,
-      "last_update_ts": 1774733458.9033892,
+      "confirmations": 2010,
+      "confidence": 0.8098,
+      "last_update_ts": 1774734580.6537554,
       "last_switch_ts": 1774561496.8234866,
       "switched": false
     },
@@ -1801,9 +2921,9 @@
     "CVX-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 2003,
-      "confidence": 0.6971,
-      "last_update_ts": 1774733486.6457732,
+      "confirmations": 2012,
+      "confidence": 0.4738,
+      "last_update_ts": 1774734552.874625,
       "last_switch_ts": 1774561357.128596,
       "switched": false
     },
@@ -1855,9 +2975,9 @@
     "AAVE-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 2403,
-      "confidence": 0.523,
-      "last_update_ts": 1774733609.4524014,
+      "confirmations": 2411,
+      "confidence": 0.5201,
+      "last_update_ts": 1774734538.4876356,
       "last_switch_ts": 1774561344.2367237,
       "switched": false
     },
@@ -1873,9 +2993,9 @@
     "XTZ-USD": {
       "candidate_regime": "unknown",
       "stable_regime": "unknown",
-      "confirmations": 3,
-      "confidence": 0.1972,
-      "last_update_ts": 1774732608.4042501,
+      "confirmations": 4,
+      "confidence": 0.1663,
+      "last_update_ts": 1774733927.1396499,
       "last_switch_ts": 1774646200.448234,
       "switched": false
     },
@@ -1900,9 +3020,9 @@
     "LINK-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 2002,
-      "confidence": 0.7131,
-      "last_update_ts": 1774733459.3455935,
+      "confirmations": 2010,
+      "confidence": 0.7112,
+      "last_update_ts": 1774734507.7925248,
       "last_switch_ts": 1774561392.7246552,
       "switched": false
     },
@@ -1927,9 +3047,9 @@
     "NEAR-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 2002,
-      "confidence": 0.8212,
-      "last_update_ts": 1774733472.9299636,
+      "confirmations": 2010,
+      "confidence": 0.525,
+      "last_update_ts": 1774734508.3675282,
       "last_switch_ts": 1774561409.9311316,
       "switched": false
     },
@@ -1963,9 +3083,9 @@
     "POL-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 1532,
-      "confidence": 0.51,
-      "last_update_ts": 1774733473.3160071,
+      "confirmations": 1540,
+      "confidence": 0.3035,
+      "last_update_ts": 1774734522.2194638,
       "last_switch_ts": 1774601705.774601,
       "switched": false
     },
@@ -1981,9 +3101,9 @@
     "TIA-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 2002,
-      "confidence": 0.5861,
-      "last_update_ts": 1774733417.784119,
+      "confirmations": 2010,
+      "confidence": 0.7016,
+      "last_update_ts": 1774734579.6889389,
       "last_switch_ts": 1774561234.647337,
       "switched": false
     },
@@ -1999,22 +3119,236 @@
     "ICP-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 2001,
-      "confidence": 0.7091,
-      "last_update_ts": 1774733445.4859169,
+      "confirmations": 2010,
+      "confidence": 0.7024,
+      "last_update_ts": 1774734580.367417,
       "last_switch_ts": 1774561478.682161,
       "switched": false
     },
     "UNI-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 2003,
-      "confidence": 0.5597,
-      "last_update_ts": 1774733418.0575745,
+      "confirmations": 2011,
+      "confidence": 0.7087,
+      "last_update_ts": 1774734593.6303961,
       "last_switch_ts": 1774516684.2737465,
       "switched": false
     },
     "ATOM-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "conf
+      "confirmations": 2406,
+      "confidence": 0.5202,
+      "last_update_ts": 1774734538.8146975,
+      "last_switch_ts": 1774561712.6264827,
+      "switched": false
+    },
+    "APT-USD": {
+      "candidate_regime": "accumulation",
+      "stable_regime": "accumulation",
+      "confirmations": 2,
+      "confidence": 0.6651,
+      "last_update_ts": 1774300380.8245223,
+      "last_switch_ts": 1774300380.8245223,
+      "switched": true
+    },
+    "CRO-USD": {
+      "candidate_regime": "dump",
+      "stable_regime": "dump",
+      "confirmations": 655,
+      "confidence": 0.9899,
+      "last_update_ts": 1773980033.8785179,
+      "last_switch_ts": 1773902939.8047504,
+      "switched": false
+    },
+    "IP-USD": {
+      "candidate_regime": "dump",
+      "stable_regime": "dump",
+      "confirmations": 550,
+      "confidence": 0.9899,
+      "last_update_ts": 1773980034.7668312,
+      "last_switch_ts": 1773913697.2613053,
+      "switched": false
+    },
+    "RPL-USD": {
+      "candidate_regime": "dump",
+      "stable_regime": "dump",
+      "confirmations": 2007,
+      "confidence": 0.4614,
+      "last_update_ts": 1774734522.5521247,
+      "last_switch_ts": 1774561726.344257,
+      "switched": false
+    },
+    "ZK-USD": {
+      "candidate_regime": "unknown",
+      "stable_regime": "unknown",
+      "confirmations": 4,
+      "confidence": 0.1636,
+      "last_update_ts": 1774733927.871508,
+      "last_switch_ts": 1774646201.036225,
+      "switched": false
+    },
+    "ZRX-USD": {
+      "candidate_regime": "dump",
+      "stable_regime": "range",
+      "confirmations": 1,
+      "confidence": 0.5092,
+      "last_update_ts": 1774734538.033468,
+      "last_switch_ts": 1774734434.2875357,
+      "switched": false
+    },
+    "ZKJ-USD": {
+      "candidate_regime": "unknown",
+      "stable_regime": "unknown",
+      "confirmations": 4,
+      "confidence": 0.0606,
+      "last_update_ts": 1774733928.1214314,
+      "last_switch_ts": 1774646201.2881958,
+      "switched": false
+    },
+    "FIL-USD": {
+      "candidate_regime": "dump",
+      "stable_regime": "dump",
+      "confirmations": 2012,
+      "confidence": 0.5024,
+      "last_update_ts": 1774734566.4665382,
+      "last_switch_ts": 1774561252.7765203,
+      "switched": false
+    },
+    "PYR-USD": {
+      "candidate_regime": "dump",
+      "stable_regime": "dump",
+      "confirmations": 68,
+      "confidence": 0.7699,
+      "last_update_ts": 1773980037.7309144,
+      "last_switch_ts": 1773972723.2575545,
+      "switched": false
+    },
+    "CELR-USD": {
+      "candidate_regime": "accumulation",
+      "stable_regime": "trend_down",
+      "confirmations": 1,
+      "confidence": 0.9437,
+      "last_update_ts": 1773980038.2301428,
+      "last_switch_ts": 1773975185.3426309,
+      "switched": false
+    },
+    "SNX-USD": {
+      "candidate_regime": "dump",
+      "stable_regime": "dump",
+      "confirmations": 2008,
+      "confidence": 0.2502,
+      "last_update_ts": 1774734522.9198148,
+      "last_switch_ts": 1774561651.5116725,
+      "switched": false
+    },
+    "PRO-USD": {
+      "candidate_regime": "trend_up",
+      "stable_regime": "trend_up",
+      "confirmations": 9,
+      "confidence": 0.9409,
+      "last_update_ts": 1773980039.3176677,
+      "last_switch_ts": 1773977656.7824028,
+      "switched": false
+    },
+    "BIGTIME-USD": {
+      "candidate_regime": "range",
+      "stable_regime": "range",
+      "confirmations": 21,
+      "confidence": 0.8901,
+      "last_update_ts": 1773980040.1158714,
+      "last_switch_ts": 1773977866.4446108,
+      "switched": false
+    },
+    "CVC-USD": {
+      "candidate_regime": "trend_up",
+      "stable_regime": "trend_up",
+      "confirmations": 18,
+      "confidence": 0.766,
+      "last_update_ts": 1773980045.9961965,
+      "last_switch_ts": 1773978211.8400729,
+      "switched": false
+    },
+    "SPELL-USD": {
+      "candidate_regime": "dump",
+      "stable_regime": "dump",
+      "confirmations": 186,
+      "confidence": 0.7699,
+      "last_update_ts": 1773980046.4992568,
+      "last_switch_ts": 1773959715.5089738,
+      "switched": false
+    },
+    "FLR-USD": {
+      "candidate_regime": "dump",
+      "stable_regime": "dump",
+      "confirmations": 575,
+      "confidence": 0.7699,
+      "last_update_ts": 1773980046.9991555,
+      "last_switch_ts": 1773912576.0863333,
+      "switched": false
+    },
+    "GLM-USD": {
+      "candidate_regime": "chop",
+      "stable_regime": "chop",
+      "confirmations": 86,
+      "confidence": 0.1483,
+      "last_update_ts": 1774734566.7593362,
+      "last_switch_ts": 1774726902.516107,
+      "switched": false
+    },
+    "FLOW-USD": {
+      "candidate_regime": "chop",
+      "stable_regime": "chop",
+      "confirmations": 11,
+      "confidence": 0.8825,
+      "last_update_ts": 1773980047.9973977,
+      "last_switch_ts": 1773979002.260281,
+      "switched": false
+    },
+    "PUNDIX-USD": {
+      "candidate_regime": "range",
+      "stable_regime": "range",
+      "confirmations": 9,
+      "confidence": 0.7205,
+      "last_update_ts": 1773980048.4726307,
+      "last_switch_ts": 1773979239.4214482,
+      "switched": false
+    },
+    "HONEY-USD": {
+      "candidate_regime": "dump",
+      "stable_regime": "dump",
+      "confirmations": 424,
+      "confidence": 0.3601,
+      "last_update_ts": 1773980048.9633136,
+      "last_switch_ts": 1773931128.6778398,
+      "switched": false
+    },
+    "GODS-USD": {
+      "candidate_regime": "trend_up",
+      "stable_regime": "trend_up",
+      "confirmations": 5,
+      "confidence": 0.5582,
+      "last_update_ts": 1773980049.4698017,
+      "last_switch_ts": 1773979684.4105887,
+      "switched": false
+    },
+    "ACS-USD": {
+      "candidate_regime": "accumulation",
+      "stable_regime": "accumulation",
+      "confirmations": 389,
+      "confidence": 0.0399,
+      "last_update_ts": 1773980049.9602451,
+      "last_switch_ts": 1773935770.8259509,
+      "switched": false
+    },
+    "GHST-USD": {
+      "candidate_regime": "dump",
+      "stable_regime": "dump",
+      "confirmations": 369,
+      "confidence": 0.6626,
+      "last_update_ts": 1773980051.2833414,
+      "last_switch_ts": 1773938382.215183,
+      "switched": false
+    }
+  }
+}
