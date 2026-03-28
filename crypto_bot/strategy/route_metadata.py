@@ -31,6 +31,7 @@ ROUTE_METADATA_KEYS = (
     "last_shadow_continuity_state",
     "last_shadow_age_seconds",
     "last_failed_gates",
+    "last_decision_diagnostics",
 )
 
 
@@ -90,6 +91,7 @@ def record_route_metadata(
     shadow_continuity_state = route.get("shadow_continuity_state")
     shadow_age_seconds = parse_numeric(route.get("shadow_age_seconds"), None)
     failed_gates = route.get("failed_gates")
+    decision_diagnostics = route.get("decision_diagnostics")
 
     changed = False
     changed |= _update_optional(route_maps["last_configured_regime"], symbol, configured, validator=lambda x: isinstance(x, str) and bool(x))
@@ -212,6 +214,12 @@ def record_route_metadata(
         symbol,
         failed_gates,
         validator=lambda x: isinstance(x, list),
+    )
+    changed |= _update_optional(
+        route_maps["last_decision_diagnostics"],
+        symbol,
+        decision_diagnostics,
+        validator=lambda x: isinstance(x, dict),
     )
     return changed
 

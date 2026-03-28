@@ -9,7 +9,9 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-STATE_DIR = Path(__file__).resolve().parent.parent / "state"
+from utils.state_paths import resolve_state_dir
+
+STATE_DIR = resolve_state_dir(Path(__file__).resolve().parent.parent / "state")
 CONFIG_PATH = STATE_DIR / "config.json"
 PAPER_STATE_PATH = STATE_DIR / "paper_state.json"
 STRATEGY_STATE_PATH = STATE_DIR / "strategy_state.json"

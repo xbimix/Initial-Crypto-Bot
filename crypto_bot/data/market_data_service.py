@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 import time
 from pathlib import Path
 
@@ -44,10 +45,21 @@ class MarketDataService:
         except Exception:
             supported_timeframe = False
 
-        latest_open = self.store.get_latest_open_time(symbol, timeframe)
-        earliest_open = self.store.get_earliest_open_time(symbol, timeframe)
-        count = self.store.get_count(symbol, timeframe)
-        updated_at = self.store.get_last_updated_at(symbol, timeframe)
+        latest_open = None
+        earliest_open = None
+        count = 0
+        updated_at = None
+        quality_reason = "ok"
+        try:
+            latest_open = self.store.get_latest_open_time(symbol, timeframe)
+            earliest_open = self.store.get_earliest_open_time(symbol, timeframe)
+            count = self.store.get_count(symbol, timeframe)
+            updated_at = self.store.get_last_updated_at(symbol, timeframe)
+        except sqlite3.OperationalError:
+            # Keep timeframe support semantics intact on transient DB contention.
+            quality_reason = "meta_fetch_failed"
+        except Exception:
+            quality_reason = "meta_fetch_failed"
         now_ms = int(time.time() * 1000)
         stale = True
         if updated_at is not None:
@@ -58,7 +70,7 @@ class MarketDataService:
                 min_required=120,
                 stale=bool(stale),
                 supported=bool(supported_timeframe),
-                reason="stale_data" if stale else "ok",
+                reason=quality_reason if quality_reason != "ok" else ("stale_data" if stale else "ok"),
             )
         )
         return {
@@ -121,8 +133,17 @@ def get_latest_closed_candle(symbol: str, timeframe: str) -> dict | None:
     return _service().get_latest_closed_candle(symbol=symbol, timeframe=timeframe)
 
 
-def get_candle_meta(symbol: str, timeframe: str) -> dict:
-    return _service().get_candle_meta(symbol=symbol, timeframe=timeframe)
+def get_candle_meta(
+    symbol: str,
+    timeframe: str,
+    *,
+    stale_after_seconds: int = 120,
+) -> dict:
+    return _service().get_candle_meta(
+        symbol=symbol,
+        timeframe=timeframe,
+        stale_after_seconds=stale_after_seconds,
+    )
 
 
 def get_orderbook_top5(symbol: str) -> dict | None:

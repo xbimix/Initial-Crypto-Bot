@@ -1,13 +1,41 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 import time
 from pathlib import Path
 from typing import Iterable
 
 from data.revolut_candle_fetcher import timeframe_to_interval_minutes
+from utils.state_paths import resolve_state_dir
 
-DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "state" / "market_data.db"
+DEFAULT_DB_PATH = resolve_state_dir(Path(__file__).resolve().parent.parent / "state") / "market_data.db"
+
+
+def _float_env(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(float(raw))
+    except ValueError:
+        return default
+
+
+DB_CONNECT_TIMEOUT_SECONDS = max(_float_env("REVBOT_DB_CONNECT_TIMEOUT_SECONDS", 10.0), 1.0)
+DB_BUSY_TIMEOUT_MS = max(_int_env("REVBOT_DB_BUSY_TIMEOUT_MS", 10000), 1000)
+_SCHEMA_READY_BASE: set[str] = set()
+_SCHEMA_READY_WITH_ORDERBOOK: set[str] = set()
 
 
 def resolve_db_path(db_path: str | Path | None = None) -> Path:
@@ -17,8 +45,23 @@ def resolve_db_path(db_path: str | Path | None = None) -> Path:
 
 
 def connect(db_path: str | Path | None = None) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(resolve_db_path(db_path)))
+    conn = sqlite3.connect(
+        str(resolve_db_path(db_path)),
+        timeout=DB_CONNECT_TIMEOUT_SECONDS,
+    )
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute(f"PRAGMA busy_timeout={DB_BUSY_TIMEOUT_MS}")
+    except sqlite3.Error:
+        pass
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+    except sqlite3.Error:
+        pass
+    try:
+        conn.execute("PRAGMA synchronous=NORMAL")
+    except sqlite3.Error:
+        pass
     return conn
 
 
@@ -27,7 +70,14 @@ def ensure_schema(
     *,
     include_orderbook_snapshots: bool = True,
 ) -> None:
-    with connect(db_path) as conn:
+    path = resolve_db_path(db_path)
+    key = str(path)
+    if include_orderbook_snapshots and key in _SCHEMA_READY_WITH_ORDERBOOK:
+        return
+    if (not include_orderbook_snapshots) and key in _SCHEMA_READY_BASE:
+        return
+
+    with connect(path) as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS candles (
@@ -119,6 +169,9 @@ def ensure_schema(
                 ON orderbook_snapshots(symbol, ts)
                 """
             )
+    _SCHEMA_READY_BASE.add(key)
+    if include_orderbook_snapshots:
+        _SCHEMA_READY_WITH_ORDERBOOK.add(key)
 
 
 def upsert_candles(

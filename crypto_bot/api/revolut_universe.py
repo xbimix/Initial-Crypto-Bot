@@ -7,11 +7,12 @@ from api.revolut_api import _get
 from data.market_data import fetch_market_snapshot
 from strategy.regime import detect_regime
 from utils.logger import setup_logger
+from utils.state_paths import resolve_state_dir
 from utils.state_io import read_json_file, write_json_file
 
 logger = setup_logger("revolut_universe")
 
-STATE_DIR = Path(__file__).resolve().parent.parent / "state"
+STATE_DIR = resolve_state_dir(Path(__file__).resolve().parent.parent / "state")
 UNIVERSE_SNAPSHOT_PATH = STATE_DIR / "revolut_universe_snapshot.json"
 UNIVERSE_PRICE_HISTORY_PATH = STATE_DIR / "revolut_universe_price_history.json"
 DEFAULT_UNIVERSE_TTL_SECONDS = 60.0

@@ -14,6 +14,8 @@ DEFAULT_LOCK_TIMEOUT = 8.0
 DEFAULT_LOCK_POLL_SECONDS = 0.05
 DEFAULT_STALE_LOCK_SECONDS = 120.0
 LOCK_WAIT_LOG_THRESHOLD_SECONDS = 1.0
+DEFAULT_REPLACE_RETRIES = 8
+DEFAULT_REPLACE_RETRY_DELAY_SECONDS = 0.05
 
 logger = logging.getLogger("state_io")
 
@@ -41,11 +43,32 @@ def _parse_float_env(name: str, default: float, *, minimum: float = 0.0) -> floa
     return max(value, minimum)
 
 
+def _parse_int_env(name: str, default: int, *, minimum: int = 0) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(float(raw))
+    except ValueError:
+        return default
+    return max(value, minimum)
+
+
 STATE_IO_METRICS_ENABLED = _parse_bool_env("REVBOT_STATE_IO_METRICS", default=False)
 STATE_IO_METRICS_INTERVAL_SECONDS = _parse_float_env(
     "REVBOT_STATE_IO_METRICS_INTERVAL_SECONDS",
     60.0,
     minimum=1.0,
+)
+STATE_IO_REPLACE_RETRIES = _parse_int_env(
+    "REVBOT_STATE_IO_REPLACE_RETRIES",
+    DEFAULT_REPLACE_RETRIES,
+    minimum=0,
+)
+STATE_IO_REPLACE_RETRY_DELAY_SECONDS = _parse_float_env(
+    "REVBOT_STATE_IO_REPLACE_RETRY_DELAY_SECONDS",
+    DEFAULT_REPLACE_RETRY_DELAY_SECONDS,
+    minimum=0.0,
 )
 _state_io_metrics: dict[str, dict[str, float | int]] = {}
 _state_io_last_emit_at = time.monotonic()
@@ -233,7 +256,24 @@ def write_json_atomic(
             os.fsync(handle.fileno())
             temp_file_path = handle.name
 
-        os.replace(temp_file_path, json_path)
+        attempts = max(int(STATE_IO_REPLACE_RETRIES), 0)
+        for attempt in range(attempts + 1):
+            try:
+                os.replace(temp_file_path, json_path)
+                break
+            except PermissionError:
+                if attempt >= attempts:
+                    raise
+                sleep_seconds = STATE_IO_REPLACE_RETRY_DELAY_SECONDS * (attempt + 1)
+                if sleep_seconds > 0:
+                    time.sleep(sleep_seconds)
+            except OSError as exc:
+                winerror = getattr(exc, "winerror", None)
+                if (winerror not in {5, 32}) or attempt >= attempts:
+                    raise
+                sleep_seconds = STATE_IO_REPLACE_RETRY_DELAY_SECONDS * (attempt + 1)
+                if sleep_seconds > 0:
+                    time.sleep(sleep_seconds)
     finally:
         if temp_file_path and os.path.exists(temp_file_path):
             try:

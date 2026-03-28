@@ -593,6 +593,13 @@ def resolve_entry_route(
     manual_scalper_toggle = _is_manual_scalper_toggle_enabled(cfg, symbol)
     max_route_age_seconds = _auto_max_route_age_seconds(cfg)
     route_eval_ts = _as_float(snapshot.get("router_eval_ts")) or time.time()
+    min_confidence_score: float | None = None
+    min_stability_score: float | None = None
+    min_persistence_score: float | None = None
+    promoted_state: bool | None = None
+    promotion_reason: str | None = None
+    route_share_pct: float | None = None
+    route_share_cap_pct: float | None = None
 
     result = {
         "configured_regime": configured_regime,
@@ -624,6 +631,7 @@ def resolve_entry_route(
         "shadow_continuity_state": "missing",
         "shadow_age_seconds": None,
         "fallback_gate": None,
+        "decision_diagnostics": {},
     }
 
     symbol_key = normalize_symbol(symbol)
@@ -640,6 +648,43 @@ def resolve_entry_route(
         result["shadow_continuity_state"] = "missing"
         result["shadow_age_seconds"] = None
 
+    def _sync_decision_diagnostics():
+        result["decision_diagnostics"] = {
+            "thresholds": {
+                "min_confidence_score": min_confidence_score,
+                "min_stability_score": min_stability_score,
+                "min_persistence_score": min_persistence_score,
+                "max_route_age_seconds": max_route_age_seconds,
+                "min_shadow_confirmations": min_confirmations if "min_confirmations" in locals() else None,
+            },
+            "observed": {
+                "detected_regime": result.get("detected_regime"),
+                "confidence_score": result.get("detected_regime_confidence"),
+                "stability_score": result.get("detected_regime_stability"),
+                "persistence_score": result.get("detected_regime_persistence"),
+                "route_timestamp_age_seconds": result.get("route_timestamp_age_seconds"),
+                "route_timestamp_fresh": result.get("route_timestamp_fresh"),
+                "shadow_continuity_state": result.get("shadow_continuity_state"),
+                "shadow_age_seconds": result.get("shadow_age_seconds"),
+                "regime_data_quality_status": result.get("regime_data_quality_status"),
+                "regime_key_windows_supported": result.get("regime_key_windows_supported"),
+                "route_quality_promoted": promoted_state,
+                "route_quality_promotion_reason": promotion_reason,
+                "route_share_pct": route_share_pct,
+                "route_share_cap_pct": route_share_cap_pct,
+            },
+            "outcome": {
+                "effective_strategy": result.get("effective_strategy"),
+                "effective_route": result.get("effective_route"),
+                "route_readiness_state": result.get("route_readiness_state"),
+                "ready_for_non_mr_route": result.get("ready_for_non_mr_route"),
+                "non_mr_ready_reason": result.get("non_mr_ready_reason"),
+                "fallback_reason": result.get("fallback_reason"),
+                "fallback_gate": result.get("fallback_gate"),
+                "failed_gates": list(result.get("failed_gates") or []),
+            },
+        }
+
     def _mark_not_ready(reason: str, gate: str | None = None):
         result["ready_for_non_mr_route"] = False
         result["non_mr_ready_reason"] = str(reason or "not_ready")
@@ -652,6 +697,7 @@ def resolve_entry_route(
                 gates.append(gate)
             result["failed_gates"] = gates
             result["fallback_gate"] = gate
+        _sync_decision_diagnostics()
 
     def _mark_ready(reason: str):
         result["ready_for_non_mr_route"] = True
@@ -659,6 +705,7 @@ def resolve_entry_route(
         result["route_readiness_state"] = "READY"
         result["failed_gates"] = []
         result["fallback_gate"] = None
+        _sync_decision_diagnostics()
 
     # Manual scalper mode must not clash with AUTO/manual regime routing.
     # When explicitly selected per-symbol, force scalper route.
@@ -848,6 +895,7 @@ def resolve_entry_route(
 
     if _auto_use_route_quality_gates(cfg) and mapped_strategy in {STRATEGY_TREND_PULLBACK, STRATEGY_BREAKOUT_MOMENTUM}:
         promoted, promotion_reason = _is_route_promoted(snapshot, mapped_strategy)
+        promoted_state = promoted
         if not promoted:
             result["auto_fallback_reason"] = "route_not_promoted"
             result["fallback_reason"] = f"route_not_promoted:{promotion_reason}"
@@ -855,8 +903,10 @@ def resolve_entry_route(
             return result
 
         max_share_pct = _auto_strategy_max_route_share_pct(cfg, mapped_strategy)
+        route_share_cap_pct = max_share_pct
         if max_share_pct is not None:
             current_share = _route_share_pct(snapshot, mapped_strategy)
+            route_share_pct = current_share
             if current_share is not None and current_share >= max_share_pct:
                 result["auto_fallback_reason"] = "route_share_cap"
                 result["fallback_reason"] = f"route_share_cap:{current_share:.2f}%>={max_share_pct:.2f}%"
@@ -905,4 +955,5 @@ def resolve_entry_route(
         _mark_ready("auto_quality_gates_passed")
     else:
         _mark_not_ready(result.get("fallback_reason") or "mean_reversion_fallback", gate="mean_reversion_fallback")
+    _sync_decision_diagnostics()
     return result

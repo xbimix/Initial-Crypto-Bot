@@ -857,6 +857,41 @@ def test_market_data_service_unsupported_timeframe_meta(tmp_path: Path):
     assert meta["supported_timeframe"] is False
 
 
+def test_market_data_service_meta_handles_transient_db_errors_without_unsupported(tmp_path: Path, monkeypatch):
+    db_path = _db_path(tmp_path)
+    service = market_data_service.MarketDataService(db_path=db_path)
+
+    def _locked(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(service.store, "get_latest_open_time", _locked)
+    meta = service.get_candle_meta("BTC-USD", "1h")
+    assert meta["supported"] is True
+    assert meta["supported_timeframe"] is True
+    assert meta["reason"] == "meta_fetch_failed"
+
+
+def test_market_data_service_module_meta_forwards_stale_after_seconds(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class _FakeService:
+        def get_candle_meta(self, symbol: str, timeframe: str, *, stale_after_seconds: int = 120):
+            captured["symbol"] = symbol
+            captured["timeframe"] = timeframe
+            captured["stale_after_seconds"] = stale_after_seconds
+            return {"supported": True, "reason": "ok"}
+
+    monkeypatch.setattr(market_data_service, "_default_service", _FakeService())
+
+    meta = market_data_service.get_candle_meta("BTC-USD", "1h", stale_after_seconds=7_200)
+    assert meta["supported"] is True
+    assert captured == {
+        "symbol": "BTC-USD",
+        "timeframe": "1h",
+        "stale_after_seconds": 7_200,
+    }
+
+
 def test_candle_trim_to_lookback_limit(tmp_path: Path):
     db_path = _db_path(tmp_path)
     symbol = "BTC-USD"

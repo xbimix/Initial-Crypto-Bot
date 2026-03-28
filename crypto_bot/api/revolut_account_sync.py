@@ -6,11 +6,12 @@ from pathlib import Path
 from api.revolut_balances import get_balances
 from api.revolut_order_book import get_order_book
 from utils.logger import setup_logger
+from utils.state_paths import resolve_state_dir
 from utils.state_io import read_json_file, write_json_file
 
 logger = setup_logger("revolut_account_sync")
 
-STATE_DIR = Path(__file__).resolve().parent.parent / "state"
+STATE_DIR = resolve_state_dir(Path(__file__).resolve().parent.parent / "state")
 ACCOUNT_SNAPSHOT_PATH = STATE_DIR / "revolut_account_snapshot.json"
 USD_LIKE_ASSETS = {"USD", "USDT", "USDC", "DAI", "EURC"}
 

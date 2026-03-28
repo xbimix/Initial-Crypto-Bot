@@ -99,6 +99,7 @@ def reset_strategy_globals(monkeypatch, tmp_path: Path):
         "_last_shadow_continuity_state",
         "_last_shadow_age_seconds",
         "_last_failed_gates",
+        "_last_decision_diagnostics",
         "_last_buy_block_reason",
         "_last_buy_block_route",
         "_buy_block_counts_by_symbol",

@@ -2,11 +2,12 @@ import time
 from pathlib import Path
 
 from utils.logger import setup_logger
+from utils.state_paths import resolve_state_dir
 from utils.state_storage import get_state_storage
 
 logger = setup_logger("paper")
 
-STATE_DIR = Path(__file__).resolve().parent.parent / "state"
+STATE_DIR = resolve_state_dir(Path(__file__).resolve().parent.parent / "state")
 BALANCE_FILE = STATE_DIR / "paper_state.json"
 TRADES_FILE = STATE_DIR / "trades.json"
 

@@ -6,7 +6,9 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-STATE_DIR = Path(__file__).resolve().parent.parent / "state"
+from utils.state_paths import resolve_state_dir
+
+STATE_DIR = resolve_state_dir(Path(__file__).resolve().parent.parent / "state")
 REPORTS_DIR = STATE_DIR / "reports"
 
 

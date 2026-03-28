@@ -1,17 +1,17 @@
 ﻿{
-    "generated_at_utc":  "2026-03-23T14:21:49.6608086Z",
+    "generated_at_utc":  "2026-03-28T07:26:20.5637156Z",
     "hash_scope":  "behavior_sensitive",
     "repo_root":  "D:\\Python-Codes\\RevBot",
     "files":  {
-                  "crypto_bot/strategy/strategy_engine.py":  "482B3A3E337C4190E707E6B5BA63FBDEFD73A66FE363CBA0A52251A78D9D6464",
-                  "crypto_bot/strategy/regime_router.py":  "39019A81A6FAE2797BFE9DA62556B60DE49A534E37E9151F1284610512A6A879",
+                  "crypto_bot/strategy/strategy_engine.py":  "77E4A79BCCFE95246616218EBFA62B1925BB23F914C737F1A9694745B04C26F3",
+                  "crypto_bot/strategy/regime_router.py":  "4347830D843809C7F1498C3284781AACA359A9C2E2F6EBCA83B4A13EAE8B59B9",
                   "crypto_bot/strategy/trend_pullback.py":  "4819A6B074832E8C85607A270F1D9D6651A67550E57591500D77A66C2018D385",
                   "crypto_bot/strategy/breakout_momentum.py":  "2D74BB524527F7E80EF9474E5DAD00426CD1C4310A162D9664FE7AF97A9172A0",
                   "crypto_bot/strategy/regime.py":  "546DC789C80A898A042245F8BD9B54894508EA82F55041D3CD647F47D6452CD4",
-                  "crypto_bot/strategy/scoring.py":  "EDF97342F7193086F1970D8842DE71376AF094EAEA7B3E8486265DFF5BE45D44",
+                  "crypto_bot/strategy/scoring.py":  "62B6B51A07FCDDDA56AD564B044431D5A493A9054CD32BF7447E9AF1AD18C6DA",
                   "crypto_bot/trading/executor.py":  "BA6448D7ED517FEDB578C5D43C0E56B98FA1BC4212E1496510F1BCFD15A69CEA",
                   "crypto_bot/risk/risk_manager.py":  "52AC1E45F63BCFD0C4B61DF5A1C954BB7823FF9657777B856E1D30D7B8E6A5A3",
-                  "crypto_bot/main.py":  "FA536BFB00A2CDC836AB0DF4F33F79FB962AA777773BE006E868405386A8270D",
-                  "crypto_bot/paper/paper_broker.py":  "4379DAE78C03EF07CD43F63B0C4BC25B2A1008CB4B4F8A6B2164ACAC2A2425F8"
+                  "crypto_bot/main.py":  "1C2DA0791FB8164D367715CB532CE2CDA8D6A1053EFBDB4D8D801DD640DD1745",
+                  "crypto_bot/paper/paper_broker.py":  "6EE4D672ADB0C579AF3F71610B965001264F2D33D068D449A4EBCFF99400C8C7"
               }
 }

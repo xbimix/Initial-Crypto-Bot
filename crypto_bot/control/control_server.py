@@ -24,6 +24,7 @@ from utils.runtime_guard import (
     cleanup_temp_files,
 )
 from utils.state_snapshot import create_state_snapshot, ensure_daily_snapshot
+from utils.state_paths import resolve_state_dir
 from utils.state_storage import get_state_storage
 from utils.state_validator import validate_state_files
 from utils.token_regimes import (
@@ -37,7 +38,7 @@ from utils.token_regimes import (
 logger = setup_logger("control")
 app = Flask(__name__)
 
-STATE_DIR = Path(__file__).resolve().parent.parent / "state"
+STATE_DIR = resolve_state_dir(Path(__file__).resolve().parent.parent / "state")
 PAPER_STATE_PATH = STATE_DIR / "paper_state.json"
 STRATEGY_STATE_PATH = STATE_DIR / "strategy_state.json"
 TRADES_PATH = STATE_DIR / "trades.json"

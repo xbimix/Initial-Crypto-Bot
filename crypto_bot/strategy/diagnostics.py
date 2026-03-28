@@ -1,5 +1,5 @@
 from strategy.regime import detect_regime
-from strategy.scoring import score_indicators
+from strategy.legacy.scoring_adapter import score_indicators
 
 try:
     from analysis.data_analysis import calculate_support_resistance

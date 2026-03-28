@@ -35,6 +35,8 @@ Optional controls:
 - `REVBOT_MUTATING_PAYLOAD_MAX_BYTES` (default: `65536`).
 - `REVBOT_RATE_LIMIT_WINDOW_SECONDS` / `REVBOT_RATE_LIMIT_MAX_REQUESTS` for control server rate limit.
 - `REVBOT_UI_RATE_LIMIT_WINDOW_SECONDS` / `REVBOT_UI_RATE_LIMIT_MAX_REQUESTS` for Next API route limit.
+- `REVBOT_STATE_DIR` to override runtime state root (default: `crypto_bot/state`).
+  Useful for isolating tests/replay from live paper state.
 
 ## 2) Restore state
 

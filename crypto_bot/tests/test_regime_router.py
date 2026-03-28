@@ -92,6 +92,7 @@ def reset_strategy_globals(monkeypatch, tmp_path: Path):
         "_last_shadow_continuity_state",
         "_last_shadow_age_seconds",
         "_last_failed_gates",
+        "_last_decision_diagnostics",
         "_last_buy_block_reason",
         "_last_buy_block_route",
         "_buy_block_counts_by_symbol",
@@ -1101,3 +1102,39 @@ def test_breakout_route_gates_read_from_strategy_defaults_route_gates():
     assert decision["effective_strategy"] == "breakout_momentum"
     assert decision["action"] == "HOLD"
     assert decision["reason"] == "breakout_momentum_not_ready"
+
+
+def test_auto_decision_exposes_router_diagnostics_payload():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "auto_use_route_quality_gates": False,
+            "auto_min_confidence": 70,
+            "auto_min_stability": 55,
+            "auto_min_persistence": 55,
+        }
+    }
+
+    decision = se.generate_decision(
+        _snapshot(
+            regime_advisory={
+                "suggestedRegime": "TREND_CONTINUATION",
+                "confidenceScore": 40,
+                "stabilityScore": 54,
+                "persistenceScore": 53,
+                "dataQuality": {"status": "GOOD", "supportedKeyWindows": True},
+            },
+        ),
+        cfg,
+    )
+
+    diag = decision.get("decision_diagnostics")
+    assert isinstance(diag, dict)
+    assert isinstance(diag.get("thresholds"), dict)
+    assert isinstance(diag.get("observed"), dict)
+    assert isinstance(diag.get("outcome"), dict)
+    assert diag["thresholds"]["min_confidence_score"] >= 70
+    assert diag["outcome"]["fallback_gate"] == "low_confidence"
+    assert "low_confidence" in list(diag["outcome"]["failed_gates"])

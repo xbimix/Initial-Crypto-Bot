@@ -1,3 +1,11 @@
+"""
+Legacy indicator scoring module.
+
+Status: legacy-only. Keep behavior stable for compatibility and route all new usage
+through strategy.legacy.scoring_adapter.
+"""
+
+
 def score_indicators(regime, indicators, range_pos):
     # Hard block above preferred range for mean-reversion entries.
     if range_pos > 0.30:

@@ -9,9 +9,10 @@ from pathlib import Path
 
 from utils.config_schema import normalize_config
 from utils.logger import setup_logger
+from utils.state_paths import resolve_state_dir
 from utils.state_io import mutate_json_file, read_json_file, write_json_file
 
-STATE_DIR = Path(__file__).resolve().parent.parent / "state"
+STATE_DIR = resolve_state_dir(Path(__file__).resolve().parent.parent / "state")
 CONFIG_PATH = STATE_DIR / "config.json"
 logger = setup_logger("config_loader")
 

@@ -12,8 +12,9 @@ from data.revolut_candle_fetcher import (
     timeframe_to_interval_minutes,
 )
 from data.revolut_candle_store import RevolutCandleStore
+from utils.state_paths import resolve_state_dir
 
-STATE_DIR = Path(__file__).resolve().parent.parent / "state"
+STATE_DIR = resolve_state_dir(Path(__file__).resolve().parent.parent / "state")
 PRICE_HISTORY_PATH = STATE_DIR / "revolut_universe_price_history.json"
 DEFAULT_BOOTSTRAP_LOOKBACK_DAYS = {
     "1m": 7,

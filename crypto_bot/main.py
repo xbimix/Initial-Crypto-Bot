@@ -26,6 +26,7 @@ from utils.runtime_guard import (
     cleanup_stale_locks,
     cleanup_temp_files,
 )
+from utils.state_paths import resolve_state_dir
 from utils.state_io import read_json_file
 from utils.state_snapshot import create_state_snapshot, ensure_daily_snapshot
 from utils.state_validator import validate_state_files
@@ -52,7 +53,7 @@ DEFAULT_ROUTE_QUALITY_MIN_CONFIDENCE = 75.0
 DEFAULT_ROUTE_QUALITY_MIN_STABILITY = 60.0
 DEFAULT_ROUTE_QUALITY_MIN_PERSISTENCE = 60.0
 DEFAULT_ROUTE_QUALITY_MAX_RATE_LIMITED = 2
-STATE_DIR = Path(__file__).resolve().parent / "state"
+STATE_DIR = resolve_state_dir(Path(__file__).resolve().parent / "state")
 MARKET_SYNC_HEALTH_PATH = STATE_DIR / "market_sync_health.json"
 MARKET_SYNC_HEALTH_HISTORY_PATH = STATE_DIR / "market_sync_health_history.jsonl"
 DECISION_AUDIT_PATH = STATE_DIR / "decision_audit.jsonl"

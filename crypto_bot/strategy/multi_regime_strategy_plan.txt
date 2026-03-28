@@ -1,54 +1,1369 @@
-Implemented. I actioned the full ordered gap list in `RevBot` and validated it end-to-end.
+## 🏆 Best Crypto Strategies (Ranked for BOT use)
 
-**What I changed (in order)**
-- Passed `latestSnapshot` into regime advisory analysis in both dashboard/token API paths (participation no longer defaults neutral):
-  - [dashboard route](d:/Python-Codes/RevBot/web-ui/src/app/api/dashboard/route.ts)
-  - [token route](d:/Python-Codes/RevBot/web-ui/src/app/api/token/[symbol]/route.ts)
-- Added explicit advisory component scores + stability score + detection metadata:
-  - [regime analyzer](d:/Python-Codes/RevBot/web-ui/src/app/lib/regimeGovernorAnalyzer.mjs)
-- Exposed detection source/timestamp + component/stability fields into API/UI payloads:
-  - [dashboard route](d:/Python-Codes/RevBot/web-ui/src/app/api/dashboard/route.ts)
-  - [dashboard UI](d:/Python-Codes/RevBot/web-ui/src/app/components/RevbotDashboard.tsx)
-  - [token route](d:/Python-Codes/RevBot/web-ui/src/app/api/token/[symbol]/route.ts)
-  - [token page](d:/Python-Codes/RevBot/web-ui/src/app/token/[symbol]/page.tsx)
-- Improved precision-report observability:
-  - SNAPSHOT logs now include EMA fields: [market_data.py](d:/Python-Codes/RevBot/crypto_bot/data/market_data.py)
-  - precision report now tracks runtime detection source/timestamp: [regime_precision_report.py](d:/Python-Codes/RevBot/scripts/regime_precision_report.py)
-- Added safe runtime flags in router/config/runtime:
-  - `auto_use_current_cycle_shadow`
-  - `auto_use_multitimeframe_advisory`
-  - [regime_router.py](d:/Python-Codes/RevBot/crypto_bot/strategy/regime_router.py)
-  - [strategy_engine.py](d:/Python-Codes/RevBot/crypto_bot/strategy/strategy_engine.py)
-  - [config_schema.py](d:/Python-Codes/RevBot/crypto_bot/utils/config_schema.py)
-- Tightened manual mode entry guards (additive, isolated):
-  - [trend_pullback.py](d:/Python-Codes/RevBot/crypto_bot/strategy/trend_pullback.py)
-  - [breakout_momentum.py](d:/Python-Codes/RevBot/crypto_bot/strategy/breakout_momentum.py)
-- Added regime-route effectiveness to reporting:
-  - [daily_summary.py](d:/Python-Codes/RevBot/crypto_bot/reporting/daily_summary.py)
-  - [weekly_summary.py](d:/Python-Codes/RevBot/crypto_bot/reporting/weekly_summary.py)
-- Updated/extended tests:
-  - [test_regime_router.py](d:/Python-Codes/RevBot/crypto_bot/tests/test_regime_router.py)
-  - [test_strategy_regression.py](d:/Python-Codes/RevBot/crypto_bot/tests/test_strategy_regression.py)
-  - [test_daily_summary.py](d:/Python-Codes/RevBot/crypto_bot/tests/test_daily_summary.py)
-  - [test_weekly_summary.py](d:/Python-Codes/RevBot/crypto_bot/tests/test_weekly_summary.py)
-  - [regime-governor-phase2.test.mjs](d:/Python-Codes/RevBot/web-ui/tests/regime-governor-phase2.test.mjs)
+### 1. 🥇 Trend Following
 
-**Additional fix during validation**
-- Prevented runtime advisory injection from overwriting an already provided `snapshot.regime_advisory`:
-  - [strategy_engine.py](d:/Python-Codes/RevBot/crypto_bot/strategy/strategy_engine.py)
-- Added JS doc typing so TS accepts `latestSnapshot` object:
-  - [regimeGovernorAnalyzer.mjs](d:/Python-Codes/RevBot/web-ui/src/app/lib/regimeGovernorAnalyzer.mjs)
+* Most reliable long-term
+* Works well with automation
+* Scales easily
 
-**Validation status**
-- Focused Python suite: `27 passed`
-- Full local gate: `check_local.ps1` passed fully
-  - behavior hash check: pass
-  - replay regression: pass (78/78)
-  - pytest suite in local gate: pass (88 passed)
-  - web advisory tests: pass
-  - lint + TS + Next build: pass
-- Behavior hash baseline updated to reflect intended behavior-sensitive changes:
-  - [strategy_hash_baseline.json](d:/Python-Codes/RevBot/crypto_bot/strategy/strategy_hash_baseline.json)
+---
 
-**Note**
-- `check_local` generated new replay report artifacts in `crypto_bot/state/reports/` and runtime state files changed during execution, as expected.
+### 2. 🥈 Mean Reversion
+
+* Very consistent in ranging markets
+* Pairs well with regime detection
+
+---
+
+### 3. 🥉 Breakout Trading
+
+* High reward setups
+* Works well with filters
+
+---
+
+### 4. Momentum Trading
+
+* Good short-term gains
+* Needs strong filtering
+
+---
+
+### 5. Grid Trading
+
+* Stable in sideways markets
+* Easy to automate
+
+---
+
+### 6. Market Making
+
+* Consistent small profits
+* More complex to build
+
+---
+
+### 7. Swing Trading
+
+* Slower, less bot-efficient
+* More discretionary
+
+---
+
+### 8. Scalping
+
+* Requires ultra-fast execution
+* Hard to do well without latency edge
+
+---
+
+### 9. Arbitrage
+
+* Very competitive
+* Needs infrastructure advantage
+
+---
+
+### 10. News/Event Trading
+
+* Unpredictable
+* Hard to automate reliably
+
+---
+
+## ⚠️ Key takeaway
+
+* Top bots usually combine:
+
+  * **Trend + Mean Reversion + Regime detection**
+
+---
+
+If you want:
+👉 I can map these directly into your **Final Boss architecture (plug-and-play)**.
+
+
+
+
+
+## 🧠 Regime Engine (for strategies 1–8)
+
+### 🎯 Output
+
+```python
+regime = {
+    "type": "TREND / RANGE / BREAKOUT / MOMENTUM / VOLATILE / LOW_VOL / CHOPPY",
+    "confidence": float
+}
+```
+
+---
+
+## 🔧 Core Inputs
+
+* EMA (50, 200)
+* RSI (14)
+* ATR (volatility)
+* Bollinger Bands
+* Volume
+* ADX (trend strength)
+
+---
+
+## 🧩 Regime Logic (clean + effective)
+
+### 1. 🥇 TRENDING
+
+```python
+if ADX > 25 and abs(EMA50 - EMA200) / price > threshold:
+    regime = "TREND"
+```
+
+---
+
+### 2. 🥈 RANGE
+
+```python
+if ADX < 20 and price within Bollinger Bands mid-range:
+    regime = "RANGE"
+```
+
+---
+
+### 3. 🥉 BREAKOUT
+
+```python
+if price breaks recent high/low and volume spike:
+    regime = "BREAKOUT"
+```
+
+---
+
+### 4. MOMENTUM
+
+```python
+if RSI > 60 or RSI < 40 and strong volume:
+    regime = "MOMENTUM"
+```
+
+---
+
+### 5. VOLATILE
+
+```python
+if ATR / price > high_vol_threshold:
+    regime = "VOLATILE"
+```
+
+---
+
+### 6. LOW VOL
+
+```python
+if ATR / price < low_vol_threshold:
+    regime = "LOW_VOL"
+```
+
+---
+
+### 7. CHOPPY (avoid zone)
+
+```python
+if ADX low and frequent EMA crosses:
+    regime = "CHOPPY"
+```
+
+---
+
+## 🔄 Strategy Mapping
+
+| Regime   | Strategy              |
+| -------- | --------------------- |
+| TREND    | Trend Following       |
+| RANGE    | Mean Reversion / Grid |
+| BREAKOUT | Breakout              |
+| MOMENTUM | Momentum              |
+| VOLATILE | Breakout / Momentum   |
+| LOW_VOL  | Grid                  |
+| CHOPPY   | Avoid / reduce size   |
+
+---
+
+## ⚠️ Critical Rules
+
+* Use **multi-timeframe confirmation** (e.g. 5m + 1h)
+* Add **hysteresis** (avoid rapid switching)
+* Output **confidence score**
+* Regime must NOT change every tick
+
+---
+
+## 💬 Core idea
+
+> Detect **trend strength + volatility + structure** → map to strategy
+
+---
+
+If you want:
+👉 I can turn this into a **plug-and-play Python module for your bot**.
+
+
+
+
+
+
+
+
+
+## 🧠 Indicators Needed for Full Regime Detection
+
+### 🔑 Core Set (covers everything)
+
+* **EMA (50, 200)** → trend direction
+* **ADX** → trend strength
+* **RSI (14)** → momentum / overbought-oversold
+* **ATR** → volatility
+* **Bollinger Bands** → range vs expansion
+* **Volume** → confirmation / breakout strength
+
+---
+
+## 🔧 Optional (but strong upgrades)
+
+* **MACD** → momentum confirmation
+* **VWAP** → mean reference (better than EMA in some cases)
+* **Donchian Channels** → breakout levels
+* **OBV (On-Balance Volume)** → volume flow
+
+---
+
+## ⚡ Minimal Efficient Set (if optimizing)
+
+👉 You can run the whole engine with just:
+
+* EMA
+* ADX
+* RSI
+* ATR
+* Volume
+
+---
+
+## 💬 Bottom line
+
+* **5 indicators = enough for full regime system**
+* Everything else = refinement, not required
+
+
+
+
+
+
+## 🧠 Maximum Efficient Regime Detection (Best Setup)
+
+### 🔥 Use ONLY these 5
+
+* **EMA (50, 200)** → direction
+* **ADX (14)** → trend strength
+* **ATR (14)** → volatility
+* **RSI (14)** → momentum
+* **Volume** → confirmation
+
+---
+
+## ⚡ Why this is optimal
+
+* Covers **trend + strength + volatility + momentum + confirmation**
+* No redundancy
+* Fast + stable for bots
+
+---
+
+## 🎯 Regime Mapping (clean)
+
+* **TREND**
+
+  * EMA aligned + ADX > 25
+
+* **RANGE**
+
+  * ADX < 20 + price near EMA
+
+* **BREAKOUT**
+
+  * ATR rising + volume spike
+
+* **MOMENTUM**
+
+  * RSI > 60 or < 40
+
+* **VOLATILE**
+
+  * ATR high
+
+* **LOW VOL**
+
+  * ATR low
+
+* **CHOPPY**
+
+  * ADX low + EMA crossing
+
+---
+
+## ⚠️ Final rule
+
+> Don’t add more indicators — you’ll reduce performance, not improve it.
+
+
+
+
+## 🧠 Buy/Sell Logic per Regime (Clean + Bot-ready)
+
+---
+
+## 🥇 TREND (Trend Following)
+
+**Buy**
+
+* EMA50 > EMA200
+* Pullback to EMA50
+* RSI ~40–60
+
+**Sell**
+
+* EMA50 < EMA200
+* Or RSI > 70 (take profit / exit)
+
+---
+
+## 🥈 RANGE (Mean Reversion / Grid)
+
+**Buy**
+
+* Price near lower range
+* RSI < 30
+
+**Sell**
+
+* Price near upper range
+* RSI > 70
+
+---
+
+## 🥉 BREAKOUT
+
+**Buy**
+
+* Break above resistance
+* Volume spike
+
+**Sell**
+
+* Break below support
+* Or failed breakout (fakeout)
+
+---
+
+## ⚡ MOMENTUM
+
+**Buy**
+
+* RSI > 60
+* Strong upward move + volume
+
+**Sell**
+
+* RSI < 40
+* Momentum fading
+
+---
+
+## 🌊 VOLATILE
+
+**Buy**
+
+* Only on strong breakout + volume
+* (otherwise avoid)
+
+**Sell**
+
+* Quick exits / tight stops
+* Or volatility spike reversal
+
+---
+
+## 🧊 LOW VOL
+
+**Buy**
+
+* Near support (tight range)
+
+**Sell**
+
+* Near resistance
+
+---
+
+## ⚠️ CHOPPY (Avoid Zone)
+
+**Buy**
+
+* ❌ Avoid
+
+**Sell**
+
+* ❌ Avoid / exit positions
+
+---
+
+## 🧠 Key Rule
+
+> Regime decides strategy → strategy decides entry/exit
+
+---
+
+If you want:
+👉 I can convert this into **exact code logic functions for your bot**.
+
+
+
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal, Optional
+
+
+RegimeType = Literal[
+    "TREND",
+    "RANGE",
+    "BREAKOUT",
+    "MOMENTUM",
+    "VOLATILE",
+    "LOW_VOL",
+    "CHOPPY",
+    "UNKNOWN",
+]
+
+SignalType = Literal["BUY", "SELL", "HOLD"]
+
+
+@dataclass
+class MarketState:
+    price: float
+    ema_fast: float          # e.g. EMA 50
+    ema_slow: float          # e.g. EMA 200
+    adx: float               # e.g. ADX 14
+    rsi: float               # e.g. RSI 14
+    atr_pct: float           # ATR / price, e.g. 0.018 = 1.8%
+    volume_ratio: float      # current volume / average volume
+    near_support: bool = False
+    near_resistance: bool = False
+    pullback_to_fast_ema: bool = False
+    breakout_up: bool = False
+    breakout_down: bool = False
+    ema_cross_count_recent: int = 0
+    breakout_failed: bool = False
+
+
+@dataclass
+class RegimeResult:
+    regime: RegimeType
+    confidence: float
+
+
+@dataclass
+class TradeSignal:
+    regime: RegimeType
+    action: SignalType
+    reason: str
+
+
+class RegimeEngine:
+    def __init__(
+        self,
+        trend_adx: float = 25.0,
+        range_adx: float = 20.0,
+        high_vol_atr_pct: float = 0.025,
+        low_vol_atr_pct: float = 0.008,
+        strong_volume_ratio: float = 1.5,
+        momentum_rsi_buy: float = 60.0,
+        momentum_rsi_sell: float = 40.0,
+        overbought_rsi: float = 70.0,
+        oversold_rsi: float = 30.0,
+        min_trend_gap_pct: float = 0.01,
+        choppy_cross_count: int = 3,
+    ) -> None:
+        self.trend_adx = trend_adx
+        self.range_adx = range_adx
+        self.high_vol_atr_pct = high_vol_atr_pct
+        self.low_vol_atr_pct = low_vol_atr_pct
+        self.strong_volume_ratio = strong_volume_ratio
+        self.momentum_rsi_buy = momentum_rsi_buy
+        self.momentum_rsi_sell = momentum_rsi_sell
+        self.overbought_rsi = overbought_rsi
+        self.oversold_rsi = oversold_rsi
+        self.min_trend_gap_pct = min_trend_gap_pct
+        self.choppy_cross_count = choppy_cross_count
+
+    def detect_regime(self, m: MarketState) -> RegimeResult:
+        ema_gap_pct = abs(m.ema_fast - m.ema_slow) / m.price if m.price > 0 else 0.0
+
+        # 1. Breakout first: highest urgency
+        if (m.breakout_up or m.breakout_down) and m.volume_ratio >= self.strong_volume_ratio:
+            confidence = min(1.0, 0.6 + (m.volume_ratio - 1.0) * 0.2)
+            return RegimeResult("BREAKOUT", round(confidence, 3))
+
+        # 2. Choppy: avoid zone
+        if m.adx < self.range_adx and m.ema_cross_count_recent >= self.choppy_cross_count:
+            confidence = min(1.0, 0.55 + (m.ema_cross_count_recent * 0.08))
+            return RegimeResult("CHOPPY", round(confidence, 3))
+
+        # 3. Trend
+        if m.adx >= self.trend_adx and ema_gap_pct >= self.min_trend_gap_pct:
+            confidence = min(1.0, 0.55 + ((m.adx - self.trend_adx) * 0.02))
+            return RegimeResult("TREND", round(confidence, 3))
+
+        # 4. High volatility
+        if m.atr_pct >= self.high_vol_atr_pct:
+            confidence = min(1.0, 0.5 + ((m.atr_pct - self.high_vol_atr_pct) / max(self.high_vol_atr_pct, 1e-9)))
+            return RegimeResult("VOLATILE", round(confidence, 3))
+
+        # 5. Low volatility
+        if m.atr_pct <= self.low_vol_atr_pct:
+            confidence = min(1.0, 0.5 + ((self.low_vol_atr_pct - m.atr_pct) / max(self.low_vol_atr_pct, 1e-9)))
+            return RegimeResult("LOW_VOL", round(confidence, 3))
+
+        # 6. Momentum
+        if (m.rsi >= self.momentum_rsi_buy or m.rsi <= self.momentum_rsi_sell) and m.volume_ratio >= 1.1:
+            confidence = min(1.0, 0.5 + abs(m.rsi - 50.0) / 40.0)
+            return RegimeResult("MOMENTUM", round(confidence, 3))
+
+        # 7. Range
+        if m.adx < self.range_adx:
+            return RegimeResult("RANGE", 0.6)
+
+        return RegimeResult("UNKNOWN", 0.3)
+
+    def generate_signal(self, m: MarketState, regime: Optional[RegimeType] = None) -> TradeSignal:
+        detected = regime or self.detect_regime(m).regime
+
+        if detected == "TREND":
+            return self._trend_logic(m)
+        if detected == "RANGE":
+            return self._range_logic(m)
+        if detected == "BREAKOUT":
+            return self._breakout_logic(m)
+        if detected == "MOMENTUM":
+            return self._momentum_logic(m)
+        if detected == "VOLATILE":
+            return self._volatile_logic(m)
+        if detected == "LOW_VOL":
+            return self._low_vol_logic(m)
+        if detected == "CHOPPY":
+            return TradeSignal("CHOPPY", "HOLD", "Choppy market: avoid entries")
+        return TradeSignal("UNKNOWN", "HOLD", "No valid regime detected")
+
+    def _trend_logic(self, m: MarketState) -> TradeSignal:
+        if m.ema_fast > m.ema_slow and m.pullback_to_fast_ema and 40 <= m.rsi <= 60:
+            return TradeSignal("TREND", "BUY", "Uptrend pullback entry")
+        if m.ema_fast < m.ema_slow or m.rsi >= self.overbought_rsi:
+            return TradeSignal("TREND", "SELL", "Trend exit or reversal")
+        return TradeSignal("TREND", "HOLD", "Trend regime but no entry trigger")
+
+    def _range_logic(self, m: MarketState) -> TradeSignal:
+        if m.near_support and m.rsi <= self.oversold_rsi:
+            return TradeSignal("RANGE", "BUY", "Range buy near support")
+        if m.near_resistance and m.rsi >= self.overbought_rsi:
+            return TradeSignal("RANGE", "SELL", "Range sell near resistance")
+        return TradeSignal("RANGE", "HOLD", "Range regime but no edge")
+
+    def _breakout_logic(self, m: MarketState) -> TradeSignal:
+        if m.breakout_up and m.volume_ratio >= self.strong_volume_ratio:
+            return TradeSignal("BREAKOUT", "BUY", "Bullish breakout confirmed by volume")
+        if m.breakout_down or m.breakout_failed:
+            return TradeSignal("BREAKOUT", "SELL", "Bearish or failed breakout")
+        return TradeSignal("BREAKOUT", "HOLD", "Breakout regime but no confirmation")
+
+    def _momentum_logic(self, m: MarketState) -> TradeSignal:
+        if m.rsi >= self.momentum_rsi_buy and m.volume_ratio >= 1.2:
+            return TradeSignal("MOMENTUM", "BUY", "Bullish momentum confirmed")
+        if m.rsi <= self.momentum_rsi_sell:
+            return TradeSignal("MOMENTUM", "SELL", "Momentum fading or bearish")
+        return TradeSignal("MOMENTUM", "HOLD", "Momentum regime but no trigger")
+
+    def _volatile_logic(self, m: MarketState) -> TradeSignal:
+        if m.breakout_up and m.volume_ratio >= self.strong_volume_ratio:
+            return TradeSignal("VOLATILE", "BUY", "Volatile bullish breakout")
+        if m.breakout_down or m.breakout_failed:
+            return TradeSignal("VOLATILE", "SELL", "Volatile downside or failed move")
+        return TradeSignal("VOLATILE", "HOLD", "High volatility without clean setup")
+
+    def _low_vol_logic(self, m: MarketState) -> TradeSignal:
+        if m.near_support:
+            return TradeSignal("LOW_VOL", "BUY", "Low-volatility support buy")
+        if m.near_resistance:
+            return TradeSignal("LOW_VOL", "SELL", "Low-volatility resistance sell")
+        return TradeSignal("LOW_VOL", "HOLD", "Low-volatility regime but no level touch")
+```
+
+Example usage:
+
+```python
+engine = RegimeEngine()
+
+market = MarketState(
+    price=100.0,
+    ema_fast=102.0,
+    ema_slow=98.0,
+    adx=29.0,
+    rsi=52.0,
+    atr_pct=0.012,
+    volume_ratio=1.1,
+    pullback_to_fast_ema=True,
+)
+
+regime_result = engine.detect_regime(market)
+signal = engine.generate_signal(market, regime_result.regime)
+
+print(regime_result)
+print(signal)
+```
+
+If you want, next I can turn this into:
+
+1. a full `regime_engine.py` file for your bot, or
+2. a version wired to pandas DataFrame indicators.
+
+
+
+```python
+# regime_engine.py
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal, Optional
+
+
+RegimeType = Literal[
+    "TREND",
+    "RANGE",
+    "BREAKOUT",
+    "MOMENTUM",
+    "VOLATILE",
+    "LOW_VOL",
+    "CHOPPY",
+    "UNKNOWN",
+]
+
+SignalType = Literal["BUY", "SELL", "HOLD"]
+
+
+@dataclass(frozen=True)
+class MarketState:
+    price: float
+    ema_fast: float          # e.g. EMA 50
+    ema_slow: float          # e.g. EMA 200
+    adx: float               # e.g. ADX 14
+    rsi: float               # e.g. RSI 14
+    atr_pct: float           # ATR / price, e.g. 0.015 = 1.5%
+    volume_ratio: float      # current volume / avg volume
+    near_support: bool = False
+    near_resistance: bool = False
+    pullback_to_fast_ema: bool = False
+    breakout_up: bool = False
+    breakout_down: bool = False
+    ema_cross_count_recent: int = 0
+    breakout_failed: bool = False
+
+
+@dataclass(frozen=True)
+class RegimeResult:
+    regime: RegimeType
+    confidence: float
+    reason: str
+
+
+@dataclass(frozen=True)
+class TradeSignal:
+    regime: RegimeType
+    action: SignalType
+    reason: str
+
+
+class RegimeEngine:
+    def __init__(
+        self,
+        trend_adx: float = 25.0,
+        range_adx: float = 20.0,
+        high_vol_atr_pct: float = 0.025,
+        low_vol_atr_pct: float = 0.008,
+        strong_volume_ratio: float = 1.5,
+        momentum_rsi_buy: float = 60.0,
+        momentum_rsi_sell: float = 40.0,
+        overbought_rsi: float = 70.0,
+        oversold_rsi: float = 30.0,
+        min_trend_gap_pct: float = 0.01,
+        choppy_cross_count: int = 3,
+    ) -> None:
+        self.trend_adx = trend_adx
+        self.range_adx = range_adx
+        self.high_vol_atr_pct = high_vol_atr_pct
+        self.low_vol_atr_pct = low_vol_atr_pct
+        self.strong_volume_ratio = strong_volume_ratio
+        self.momentum_rsi_buy = momentum_rsi_buy
+        self.momentum_rsi_sell = momentum_rsi_sell
+        self.overbought_rsi = overbought_rsi
+        self.oversold_rsi = oversold_rsi
+        self.min_trend_gap_pct = min_trend_gap_pct
+        self.choppy_cross_count = choppy_cross_count
+
+    def detect_regime(self, m: MarketState) -> RegimeResult:
+        if m.price <= 0:
+            return RegimeResult("UNKNOWN", 0.0, "Invalid price")
+
+        ema_gap_pct = abs(m.ema_fast - m.ema_slow) / m.price
+
+        # 1. Breakout
+        if (m.breakout_up or m.breakout_down) and m.volume_ratio >= self.strong_volume_ratio:
+            confidence = min(1.0, 0.60 + max(0.0, m.volume_ratio - 1.0) * 0.20)
+            side = "upside" if m.breakout_up else "downside"
+            return RegimeResult("BREAKOUT", round(confidence, 3), f"{side} breakout with volume")
+
+        # 2. Choppy
+        if m.adx < self.range_adx and m.ema_cross_count_recent >= self.choppy_cross_count:
+            confidence = min(1.0, 0.55 + m.ema_cross_count_recent * 0.08)
+            return RegimeResult("CHOPPY", round(confidence, 3), "Low ADX with frequent EMA crosses")
+
+        # 3. Trend
+        if m.adx >= self.trend_adx and ema_gap_pct >= self.min_trend_gap_pct:
+            confidence = min(1.0, 0.55 + max(0.0, m.adx - self.trend_adx) * 0.02)
+            direction = "bullish" if m.ema_fast > m.ema_slow else "bearish"
+            return RegimeResult("TREND", round(confidence, 3), f"{direction} trend strength confirmed")
+
+        # 4. Volatile
+        if m.atr_pct >= self.high_vol_atr_pct:
+            confidence = min(1.0, 0.50 + (m.atr_pct - self.high_vol_atr_pct) / max(self.high_vol_atr_pct, 1e-9))
+            return RegimeResult("VOLATILE", round(confidence, 3), "ATR indicates elevated volatility")
+
+        # 5. Low vol
+        if m.atr_pct <= self.low_vol_atr_pct:
+            confidence = min(1.0, 0.50 + (self.low_vol_atr_pct - m.atr_pct) / max(self.low_vol_atr_pct, 1e-9))
+            return RegimeResult("LOW_VOL", round(confidence, 3), "ATR indicates compressed volatility")
+
+        # 6. Momentum
+        if (m.rsi >= self.momentum_rsi_buy or m.rsi <= self.momentum_rsi_sell) and m.volume_ratio >= 1.1:
+            confidence = min(1.0, 0.50 + abs(m.rsi - 50.0) / 40.0)
+            direction = "bullish" if m.rsi >= self.momentum_rsi_buy else "bearish"
+            return RegimeResult("MOMENTUM", round(confidence, 3), f"{direction} momentum with volume support")
+
+        # 7. Range
+        if m.adx < self.range_adx:
+            return RegimeResult("RANGE", 0.60, "Low ADX without breakout/trend conditions")
+
+        return RegimeResult("UNKNOWN", 0.30, "No strong regime conditions detected")
+
+    def generate_signal(self, m: MarketState, regime: Optional[RegimeType] = None) -> TradeSignal:
+        active_regime = regime or self.detect_regime(m).regime
+
+        if active_regime == "TREND":
+            return self._trend_logic(m)
+        if active_regime == "RANGE":
+            return self._range_logic(m)
+        if active_regime == "BREAKOUT":
+            return self._breakout_logic(m)
+        if active_regime == "MOMENTUM":
+            return self._momentum_logic(m)
+        if active_regime == "VOLATILE":
+            return self._volatile_logic(m)
+        if active_regime == "LOW_VOL":
+            return self._low_vol_logic(m)
+        if active_regime == "CHOPPY":
+            return TradeSignal("CHOPPY", "HOLD", "Choppy regime: avoid entries")
+        return TradeSignal("UNKNOWN", "HOLD", "Unknown regime: no action")
+
+    def evaluate(self, m: MarketState) -> tuple[RegimeResult, TradeSignal]:
+        regime_result = self.detect_regime(m)
+        signal = self.generate_signal(m, regime_result.regime)
+        return regime_result, signal
+
+    def _trend_logic(self, m: MarketState) -> TradeSignal:
+        if m.ema_fast > m.ema_slow and m.pullback_to_fast_ema and 40 <= m.rsi <= 60:
+            return TradeSignal("TREND", "BUY", "Uptrend pullback entry")
+        if m.ema_fast < m.ema_slow or m.rsi >= self.overbought_rsi:
+            return TradeSignal("TREND", "SELL", "Trend exit or bearish reversal")
+        return TradeSignal("TREND", "HOLD", "Trend present, no clean entry/exit")
+
+    def _range_logic(self, m: MarketState) -> TradeSignal:
+        if m.near_support and m.rsi <= self.oversold_rsi:
+            return TradeSignal("RANGE", "BUY", "Range buy near support")
+        if m.near_resistance and m.rsi >= self.overbought_rsi:
+            return TradeSignal("RANGE", "SELL", "Range sell near resistance")
+        return TradeSignal("RANGE", "HOLD", "Range regime, no edge at current level")
+
+    def _breakout_logic(self, m: MarketState) -> TradeSignal:
+        if m.breakout_up and m.volume_ratio >= self.strong_volume_ratio:
+            return TradeSignal("BREAKOUT", "BUY", "Bullish breakout confirmed by volume")
+        if m.breakout_down or m.breakout_failed:
+            return TradeSignal("BREAKOUT", "SELL", "Bearish or failed breakout")
+        return TradeSignal("BREAKOUT", "HOLD", "Breakout regime, confirmation incomplete")
+
+    def _momentum_logic(self, m: MarketState) -> TradeSignal:
+        if m.rsi >= self.momentum_rsi_buy and m.volume_ratio >= 1.2:
+            return TradeSignal("MOMENTUM", "BUY", "Bullish momentum confirmed")
+        if m.rsi <= self.momentum_rsi_sell:
+            return TradeSignal("MOMENTUM", "SELL", "Momentum fading or bearish pressure")
+        return TradeSignal("MOMENTUM", "HOLD", "Momentum regime, no trigger")
+
+    def _volatile_logic(self, m: MarketState) -> TradeSignal:
+        if m.breakout_up and m.volume_ratio >= self.strong_volume_ratio:
+            return TradeSignal("VOLATILE", "BUY", "Volatile breakout long")
+        if m.breakout_down or m.breakout_failed:
+            return TradeSignal("VOLATILE", "SELL", "Volatile downside or failed move")
+        return TradeSignal("VOLATILE", "HOLD", "High volatility without clean structure")
+
+    def _low_vol_logic(self, m: MarketState) -> TradeSignal:
+        if m.near_support:
+            return TradeSignal("LOW_VOL", "BUY", "Low-volatility support entry")
+        if m.near_resistance:
+            return TradeSignal("LOW_VOL", "SELL", "Low-volatility resistance exit")
+        return TradeSignal("LOW_VOL", "HOLD", "Low volatility, waiting for level touch")
+
+
+if __name__ == "__main__":
+    engine = RegimeEngine()
+
+    market = MarketState(
+        price=100.0,
+        ema_fast=102.0,
+        ema_slow=98.0,
+        adx=28.0,
+        rsi=52.0,
+        atr_pct=0.012,
+        volume_ratio=1.2,
+        pullback_to_fast_ema=True,
+        near_support=False,
+        near_resistance=False,
+        breakout_up=False,
+        breakout_down=False,
+        ema_cross_count_recent=1,
+        breakout_failed=False,
+    )
+
+    regime_result, signal = engine.evaluate(market)
+
+    print("Regime:", regime_result)
+    print("Signal:", signal)
+```
+
+Use as:
+
+```python
+from regime_engine import RegimeEngine, MarketState
+
+engine = RegimeEngine()
+regime_result, signal = engine.evaluate(market_state)
+```
+
+Next step should be wiring this to your indicator pipeline.
+
+
+## ✅ What’s USEFUL (for your bot)
+
+### 🔥 KEEP (core engine)
+
+* **EMA 50, EMA 200** → trend
+* **ADX (14)** → trend strength
+* **RSI (14)** → momentum
+* **Volume** → confirmation
+
+---
+
+## 👍 GOOD ADDITIONS (optional upgrade)
+
+* **MACD** → momentum confirmation
+* **VWMA** → better mean than SMA
+* **Pivot levels** → support/resistance
+
+---
+
+## ❌ REMOVE (noise / redundant)
+
+* Stochastic
+* Stochastic RSI
+* CCI
+* Williams %R
+* Ultimate Oscillator
+* Bull Bear Power
+* Awesome Oscillator
+* Momentum (10) → redundant with RSI
+* Multiple SMAs (10,20,30,100 etc.) → overkill
+* Hull MA → unnecessary
+* Ichimoku → too heavy for your system
+
+---
+
+## ⚠️ IMPORTANT OBSERVATION (your XRP data)
+
+* ADX ≈ 20 → **no strong trend**
+* RSI ≈ 47 → **neutral**
+* EMAs mostly SELL → **weak/down bias**
+
+👉 Current regime likely:
+
+> **RANGE → CHOPPY**
+
+---
+
+## 🎯 Final setup (what you should actually use)
+
+**ONLY:**
+
+* EMA 50
+* EMA 200
+* ADX
+* RSI
+* Volume
+* * Pivot levels (optional)
+
+---
+
+## 💬 Bottom line
+
+> 90% of those indicators = noise
+> Your edge = **clean signal, not more indicators**
+
+
+
+
+Yes. Based on your current branch, the safe move is:
+
+* **replace** `crypto_bot/strategy/regime.py`
+* **replace** `crypto_bot/strategy/scoring.py`
+* make **2 small edits** in `crypto_bot/strategy/strategy_engine.py`
+
+Your current repo already has:
+
+* a basic `regime.py` that returns `dump / trend_up / trend_down / spike / accumulation / range / chop` ([GitHub][1])
+* a `scoring.py` that is still mostly **mean-reversion only** ([GitHub][2])
+* a `_compute_buy_diagnostics()` path that calls `detect_regime()` and then passes only `rsi / momentum / structure` into `score_indicators()` ([GitHub][3])
+
+## 1) Replace `crypto_bot/strategy/regime.py`
+
+```python
+def _to_float(value, default=None):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def detect_regime(snapshot: dict, regime_cfg: dict = None) -> str:
+    """
+    Multi-regime detector with safe fallbacks.
+
+    Primary regimes:
+    - trend_up
+    - trend_down
+    - range
+    - breakout_up
+    - breakout_down
+    - momentum_up
+    - momentum_down
+    - volatile
+    - low_vol
+    - choppy
+    - unknown
+
+    Notes:
+    - Works even if ADX / volume_ratio are missing.
+    - Uses existing bot fields first.
+    """
+
+    regime_cfg = regime_cfg or {}
+
+    price = _to_float(snapshot.get("price"), 0.0)
+    high = _to_float(snapshot.get("high_24h"), 0.0)
+    low = _to_float(snapshot.get("low_24h"), 0.0)
+    atr = _to_float(snapshot.get("atr"), 0.0) or 0.0
+    momentum = _to_float(snapshot.get("momentum_norm"), 0.0) or 0.0
+
+    ema_50 = _to_float(snapshot.get("ema_50"))
+    ema_200 = _to_float(snapshot.get("ema_200"))
+    ema_50_slope = _to_float(snapshot.get("ema_50_slope"), 0.0) or 0.0
+    ema_200_slope = _to_float(snapshot.get("ema_200_slope"), 0.0) or 0.0
+
+    rsi = _to_float(snapshot.get("rsi"))
+    adx = _to_float(snapshot.get("adx"))
+    volume_ratio = _to_float(snapshot.get("volume_ratio"))
+    trades = _to_float(snapshot.get("trade_count"), 0.0) or 0.0
+
+    if price <= 0 or high is None or low is None or high <= low:
+        return "unknown"
+
+    range_width = high - low
+    range_pos = _clamp((price - low) / range_width, 0.0, 1.0)
+    range_pct = range_width / price
+    atr_pct = atr if atr > 0 else 0.0
+
+    # -----------------------------
+    # Config
+    # -----------------------------
+    trend_adx = regime_cfg.get("trend_adx", 25.0)
+    range_adx = regime_cfg.get("range_adx", 20.0)
+
+    min_trend_gap_pct = regime_cfg.get("min_trend_gap_pct", 0.01)
+    breakout_margin = regime_cfg.get("breakout_margin", 0.02)
+    breakout_momentum = regime_cfg.get("breakout_momentum", 0.35)
+    breakout_volume_ratio = regime_cfg.get("breakout_volume_ratio", 1.20)
+
+    momentum_rsi_buy = regime_cfg.get("momentum_rsi_buy", 60.0)
+    momentum_rsi_sell = regime_cfg.get("momentum_rsi_sell", 40.0)
+    momentum_norm_buy = regime_cfg.get("momentum_norm_buy", 0.30)
+    momentum_norm_sell = regime_cfg.get("momentum_norm_sell", -0.30)
+
+    high_vol_atr_pct = regime_cfg.get("high_vol_atr_pct", 0.020)
+    low_vol_atr_pct = regime_cfg.get("low_vol_atr_pct", 0.006)
+    range_max_width_pct = regime_cfg.get("range_max_width_pct", 0.040)
+
+    choppy_cross_threshold = regime_cfg.get("choppy_cross_threshold", 0.0025)
+    choppy_momentum_abs = regime_cfg.get("choppy_momentum_abs", 0.12)
+
+    # -----------------------------
+    # Helpers
+    # -----------------------------
+    ema_gap_pct = 0.0
+    if ema_50 is not None and ema_200 is not None and price > 0:
+        ema_gap_pct = abs(ema_50 - ema_200) / price
+
+    has_trend_alignment = (
+        ema_50 is not None
+        and ema_200 is not None
+        and ema_gap_pct >= min_trend_gap_pct
+    )
+
+    trend_up = (
+        has_trend_alignment
+        and price > ema_50
+        and ema_50 > ema_200
+        and ema_50_slope > 0
+    )
+    trend_down = (
+        has_trend_alignment
+        and price < ema_50
+        and ema_50 < ema_200
+        and ema_50_slope < 0
+    )
+
+    adx_trend_ok = adx is None or adx >= trend_adx
+    adx_range_ok = adx is None or adx < range_adx
+
+    vol_breakout_ok = volume_ratio is None or volume_ratio >= breakout_volume_ratio
+
+    breakout_up = (
+        range_pos >= (1.0 - breakout_margin)
+        and momentum >= breakout_momentum
+        and atr_pct >= low_vol_atr_pct
+        and vol_breakout_ok
+    )
+    breakout_down = (
+        range_pos <= breakout_margin
+        and momentum <= -breakout_momentum
+        and atr_pct >= low_vol_atr_pct
+        and vol_breakout_ok
+    )
+
+    momentum_up = (
+        ((rsi is not None and rsi >= momentum_rsi_buy) or momentum >= momentum_norm_buy)
+        and range_pos > 0.55
+    )
+    momentum_down = (
+        ((rsi is not None and rsi <= momentum_rsi_sell) or momentum <= momentum_norm_sell)
+        and range_pos < 0.45
+    )
+
+    # -----------------------------
+    # Priority order
+    # -----------------------------
+    if breakout_up:
+        return "breakout_up"
+
+    if breakout_down:
+        return "breakout_down"
+
+    if trend_up and adx_trend_ok:
+        return "trend_up"
+
+    if trend_down and adx_trend_ok:
+        return "trend_down"
+
+    if atr_pct >= high_vol_atr_pct:
+        return "volatile"
+
+    if atr_pct <= low_vol_atr_pct and range_pct <= range_max_width_pct:
+        return "low_vol"
+
+    if momentum_up and not trend_down:
+        return "momentum_up"
+
+    if momentum_down and not trend_up:
+        return "momentum_down"
+
+    ema_compressed = (
+        ema_50 is not None
+        and ema_200 is not None
+        and abs(ema_50 - ema_200) / price <= choppy_cross_threshold
+    )
+    if adx_range_ok and ema_compressed and abs(momentum) <= choppy_momentum_abs:
+        return "choppy"
+
+    if adx_range_ok and range_pct <= range_max_width_pct:
+        return "range"
+
+    if trades < 3 and atr_pct <= low_vol_atr_pct:
+        return "low_vol"
+
+    return "choppy"
+```
+
+---
+
+## 2) Replace `crypto_bot/strategy/scoring.py`
+
+```python
+def _safe(indicators, key, default=0.0):
+    value = indicators.get(key, default)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def score_indicators(regime, indicators, range_pos):
+    """
+    Regime-aware score from 0..100.
+    Keeps the existing interface, but stops being mean-reversion only.
+    """
+
+    rsi = _safe(indicators, "rsi", 50.0)
+    momentum = _safe(indicators, "momentum", 0.0)
+    structure = _safe(indicators, "structure", 0.0)
+    trend_bias = _safe(indicators, "trend_bias", 0.0)
+    volatility = _safe(indicators, "volatility", 0.0)
+    breakout_strength = _safe(indicators, "breakout_strength", 0.0)
+
+    score = 0.0
+
+    if regime == "trend_up":
+        if trend_bias > 0:
+            score += 35
+        if 40 <= rsi <= 62:
+            score += 25
+        elif 62 < rsi <= 70:
+            score += 10
+        if momentum > -0.10:
+            score += 20
+        if structure > 0:
+            score += 20
+
+    elif regime == "range":
+        if range_pos > 0.35:
+            return 0.0
+        if rsi < 32:
+            score += 40
+        elif rsi < 42:
+            score += 20
+        if momentum > -0.20:
+            score += 20
+        if structure > 0:
+            score += 20
+        if range_pos <= 0.25:
+            score += 20
+
+    elif regime == "breakout_up":
+        score += 35
+        if breakout_strength > 0:
+            score += 30
+        if momentum > 0.20:
+            score += 20
+        if trend_bias >= 0:
+            score += 15
+
+    elif regime == "momentum_up":
+        if rsi >= 58:
+            score += 30
+        if momentum > 0.25:
+            score += 30
+        if trend_bias >= 0:
+            score += 20
+        if structure > 0:
+            score += 20
+
+    elif regime == "volatile":
+        if breakout_strength > 0:
+            score += 35
+        if momentum > 0.20:
+            score += 20
+        if volatility > 0:
+            score += 15
+        if trend_bias >= 0:
+            score += 15
+        if structure > 0:
+            score += 15
+
+    elif regime == "low_vol":
+        if range_pos <= 0.25:
+            score += 35
+        if structure > 0:
+            score += 20
+        if rsi < 45:
+            score += 20
+        if abs(momentum) < 0.25:
+            score += 15
+
+    elif regime in ("trend_down", "breakout_down", "momentum_down"):
+        score -= 40
+
+    elif regime == "choppy":
+        score -= 20
+
+    else:
+        score += 0
+
+    return max(0.0, min(score, 100.0))
+```
+
+---
+
+## 3) Edit `crypto_bot/strategy/strategy_engine.py`
+
+### A) Change default blocked regimes
+
+Your current buy flow blocks only `unknown` by default. ([GitHub][3])
+
+Replace this:
+
+```python
+blocked_regimes = set(
+    regime_cfg.get(
+        "hard_blocked_regimes",
+        regime_cfg.get("blocked_regimes", ["unknown"]),
+    )
+)
+```
+
+with this:
+
+```python
+blocked_regimes = set(
+    regime_cfg.get(
+        "hard_blocked_regimes",
+        regime_cfg.get(
+            "blocked_regimes",
+            ["unknown", "choppy", "trend_down", "breakout_down", "momentum_down"],
+        ),
+    )
+)
+```
+
+---
+
+### B) Upgrade `_compute_buy_diagnostics()`
+
+Your current version only feeds `rsi`, `momentum`, and `structure` into scoring. ([GitHub][3])
+
+Inside `_compute_buy_diagnostics()`, replace the `indicators = {...}` block with this:
+
+```python
+    ema_50 = _parse_numeric(snapshot.get("ema_50"), fallback=None)
+    ema_200 = _parse_numeric(snapshot.get("ema_200"), fallback=None)
+    ema_50_slope = _parse_numeric(snapshot.get("ema_50_slope"), fallback=0.0) or 0.0
+    volume_ratio = _parse_numeric(snapshot.get("volume_ratio"), fallback=1.0) or 1.0
+
+    trend_bias = 0.0
+    if ema_50 is not None and ema_200 is not None:
+        if price > ema_50 > ema_200 and ema_50_slope > 0:
+            trend_bias = 1.0
+        elif price < ema_50 < ema_200 and ema_50_slope < 0:
+            trend_bias = -1.0
+
+    breakout_strength = 0.0
+    if range_pos is not None:
+        if range_pos >= 0.98 and momentum > 0:
+            breakout_strength = 1.0
+        elif range_pos <= 0.02 and momentum < 0:
+            breakout_strength = -1.0
+
+    indicators = {
+        "rsi": rsi,
+        "momentum": _parse_numeric(momentum, fallback=0.0),
+        "structure": structure,
+        "trend_bias": trend_bias,
+        "volatility": volatility if volatility is not None else 0.0,
+        "breakout_strength": breakout_strength * max(volume_ratio, 1.0),
+    }
+```
+
+---
+
+## 4) Add config
+
+In your config under `market_regime`, use:
+
+```python
+"market_regime": {
+    "trend_adx": 25,
+    "range_adx": 20,
+    "min_trend_gap_pct": 0.01,
+    "breakout_margin": 0.02,
+    "breakout_momentum": 0.35,
+    "breakout_volume_ratio": 1.2,
+    "momentum_rsi_buy": 60,
+    "momentum_rsi_sell": 40,
+    "momentum_norm_buy": 0.30,
+    "momentum_norm_sell": -0.30,
+    "high_vol_atr_pct": 0.020,
+    "low_vol_atr_pct": 0.006,
+    "range_max_width_pct": 0.040,
+    "blocked_regimes": [
+        "unknown",
+        "choppy",
+        "trend_down",
+        "breakout_down",
+        "momentum_down"
+    ]
+}
+```
+
+---
+
+## 5) Result
+
+This keeps your current architecture intact:
+
+* regime detection still plugs into `detect_regime()` inside `_compute_buy_diagnostics()` and `_compute_scalper_diagnostics()` ([GitHub][3])
+* buy path still goes through `_evaluate_buy()` ([GitHub][3])
+* sell path stays untouched, which is the safer move for now ([GitHub][3])
+
+## 6) Blunt advice
+
+Do **not** try to add every regime-specific entry rule into `_evaluate_buy()` yet.
+First upgrade:
+
+* regime detection
+* scoring
+* blocked regimes
+
+That gives you a safer step 1.
+
+If you want, next I’ll give you the **step 2 patch** for `_evaluate_buy()` so entries are explicitly different for `range`, `trend_up`, `breakout_up`, and `momentum_up`.
+
+[1]: https://github.com/xbimix/Initial-Crypto-Bot/blob/stable/revolut-paper-v9-added-improvements/crypto_bot/strategy/regime.py "Initial-Crypto-Bot/crypto_bot/strategy/regime.py at stable/revolut-paper-v9-added-improvements · xbimix/Initial-Crypto-Bot · GitHub"
+[2]: https://github.com/xbimix/Initial-Crypto-Bot/blob/stable/revolut-paper-v9-added-improvements/crypto_bot/strategy/scoring.py "Initial-Crypto-Bot/crypto_bot/strategy/scoring.py at stable/revolut-paper-v9-added-improvements · xbimix/Initial-Crypto-Bot · GitHub"
+[3]: https://github.com/xbimix/Initial-Crypto-Bot/blob/stable/revolut-paper-v9-added-improvements/crypto_bot/strategy/strategy_engine.py "Initial-Crypto-Bot/crypto_bot/strategy/strategy_engine.py at stable/revolut-paper-v9-added-improvements · xbimix/Initial-Crypto-Bot · GitHub"

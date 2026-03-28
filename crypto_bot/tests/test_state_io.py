@@ -40,6 +40,24 @@ def test_mutate_json_file_applies_update(tmp_path: Path):
     assert state_io.read_json_file(path, strict=True)["counter"] == 2
 
 
+def test_write_json_atomic_retries_replace_on_transient_permission_error(tmp_path: Path, monkeypatch):
+    path = tmp_path / "state.json"
+    real_replace = state_io.os.replace
+    calls = {"count": 0}
+
+    def _flaky_replace(src, dst):
+        calls["count"] += 1
+        if calls["count"] < 3:
+            raise PermissionError("transient lock")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(state_io.os, "replace", _flaky_replace)
+    state_io.write_json_atomic(path, {"ok": True})
+
+    assert calls["count"] == 3
+    assert state_io.read_json_file(path, strict=True)["ok"] is True
+
+
 def test_file_lock_creates_and_removes_lock_file(tmp_path: Path):
     target = tmp_path / "state.json"
     lock_path = tmp_path / "state.json.lock"

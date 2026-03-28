@@ -314,94 +314,76 @@
     "RPL-USD": "dump",
     "SNX-USD": "dump",
     "JASMY-USD": "dump",
-    "ATOM-USD": "trend_down",
+    "ATOM-USD": "dump",
     "LTC-USD": "dump",
     "AVAX-USD": "dump",
-    "CVX-USD": "accumulation",
-    "SOL-USD": "chop",
-    "LINK-USD": "chop",
+    "CVX-USD": "dump",
+    "SOL-USD": "dump",
+    "LINK-USD": "dump",
     "UNI-USD": "dump",
-    "GLM-USD": "dump",
+    "GLM-USD": "chop",
     "HBAR-USD": "dump",
-    "POL-USD": "dump",
-    "XLM-USD": "accumulation",
-    "XTZ-USD": "dump",
-    "XYO-USD": "dump",
-    "ZK-USD": "accumulation",
-    "ZKJ-USD": "dump",
-    "ZRX-USD": "dump"
+    "POL-USD": "dump"
   },
   "last_score": {
-    "CRV-USD": 0.0,
-    "SUI-USD": 0.0,
-    "BTC-USD": 0,
-    "XRP-USD": 0.0,
-    "DOT-USD": 0.0,
+    "CRV-USD": 30.0,
+    "SUI-USD": 30.0,
+    "BTC-USD": 30.0,
+    "XRP-USD": 30.0,
+    "DOT-USD": 30.0,
     "ICP-USD": 30.0,
     "TIA-USD": 0.0,
     "NEAR-USD": 30.0,
-    "FIL-USD": 0.0,
-    "AAVE-USD": 0,
+    "FIL-USD": 30.0,
+    "AAVE-USD": 10.0,
     "RPL-USD": 30.0,
-    "SNX-USD": 0.0,
-    "JASMY-USD": 0.0,
-    "ATOM-USD": 60.0,
-    "LTC-USD": 0,
-    "AVAX-USD": 0,
-    "CVX-USD": 60.0,
-    "SOL-USD": 0,
-    "LINK-USD": 0,
-    "UNI-USD": 0,
+    "SNX-USD": 30.0,
+    "JASMY-USD": 30.0,
+    "ATOM-USD": 30.0,
+    "LTC-USD": 0.0,
+    "AVAX-USD": 30.0,
+    "CVX-USD": 30.0,
+    "SOL-USD": 30.0,
+    "LINK-USD": 30.0,
+    "UNI-USD": 0.0,
     "GLM-USD": 0.0,
     "HBAR-USD": 0.0,
-    "POL-USD": 0.0,
-    "XLM-USD": 60.0,
-    "XTZ-USD": 0.0,
-    "XYO-USD": 0.0,
-    "ZK-USD": 60.0,
-    "ZKJ-USD": 0.0,
-    "ZRX-USD": 0.0
+    "POL-USD": 30.0
   },
   "last_volatility": {
-    "CRV-USD": 0.0004004805766920975,
-    "SUI-USD": 0.000212924518258254,
-    "BTC-USD": 0.000300390507660036,
-    "XRP-USD": 0.00021680217056925424,
-    "DOT-USD": 0.0002178966280861053,
-    "ICP-USD": 0.00033087931177099505,
-    "TIA-USD": 0.00030646644192474563,
-    "NEAR-USD": 0.0003305967361254904,
-    "FIL-USD": 0.0003301056338029027,
-    "AAVE-USD": 0.0003574460479870608,
-    "RPL-USD": 0.00010116849638921656,
+    "CRV-USD": 0.0003520042240506743,
+    "SUI-USD": 0.00010640561821663012,
+    "BTC-USD": 0.00024023403137070085,
+    "XRP-USD": 0.00013900472616067415,
+    "DOT-USD": 0.0002031556849732288,
+    "ICP-USD": 0.00028687348879132034,
+    "TIA-USD": 0.00030525030525027164,
+    "NEAR-USD": 0.0003041593795148323,
+    "FIL-USD": 0.00033348154735446644,
+    "AAVE-USD": 0.0003190091949708371,
+    "RPL-USD": 0.0,
     "SNX-USD": 0.0,
-    "JASMY-USD": 0.0002331964051877385,
-    "ATOM-USD": 0.0001692572590971979,
-    "LTC-USD": 0.00023494118731252206,
-    "AVAX-USD": 0.00031146179401994535,
-    "CVX-USD": 0.0003356831151392715,
-    "SOL-USD": 0.00024370790499828927,
-    "LINK-USD": 0.0002228039881913641,
-    "UNI-USD": 0.0003295978905735128,
-    "GLM-USD": 0,
-    "HBAR-USD": 0.00013251615040581,
-    "POL-USD": 0.0,
-    "XLM-USD": 0.00030058614373318024,
-    "XTZ-USD": 0.0002577984016498814,
-    "XYO-USD": 0.0002995506739889835,
-    "ZK-USD": 0.000300571085061584,
-    "ZKJ-USD": 0.00030054097375272187,
-    "ZRX-USD": 0.0003008272757625671
+    "JASMY-USD": 0.0001602592638757562,
+    "ATOM-USD": 0.00011014428901860224,
+    "LTC-USD": 0.00019799128838336128,
+    "AVAX-USD": 0.00021598272138236154,
+    "CVX-USD": 0.0003782965845223438,
+    "SOL-USD": 0.0001725030188028356,
+    "LINK-USD": 0.00021929824561391358,
+    "UNI-USD": 0.00027946231450685796,
+    "GLM-USD": 0.0,
+    "HBAR-USD": 1.1196452963712297e-05,
+    "POL-USD": 0.0
   },
   "last_buy_block_reason": {
     "VET-USD": "warming_up_history",
     "XCN-USD": "candle_history_stale",
-    "XLM-USD": "candle_history_stale",
-    "XYO-USD": "candle_history_stale",
-    "ZK-USD": "candle_history_stale",
-    "ZRX-USD": "candle_history_stale",
-    "ZKJ-USD": "candle_history_stale",
-    "XTZ-USD": "candle_history_stale"
+    "XLM-USD": "warming_up_history",
+    "XYO-USD": "warming_up_history",
+    "ZK-USD": "warming_up_history",
+    "ZRX-USD": "warming_up_history",
+    "ZKJ-USD": "warming_up_history",
+    "XTZ-USD": "warming_up_history"
   },
   "last_buy_block_route": {
     "VET-USD": "mean_reversion",
@@ -421,22 +403,28 @@
       "candle_history_stale": 6
     },
     "XLM-USD": {
-      "candle_history_stale": 9
+      "candle_history_stale": 9,
+      "warming_up_history": 3
     },
     "XYO-USD": {
-      "candle_history_stale": 9
+      "candle_history_stale": 9,
+      "warming_up_history": 3
     },
     "ZK-USD": {
-      "candle_history_stale": 9
+      "candle_history_stale": 9,
+      "warming_up_history": 3
     },
     "ZRX-USD": {
-      "candle_history_stale": 9
+      "candle_history_stale": 9,
+      "warming_up_history": 3
     },
     "ZKJ-USD": {
-      "candle_history_stale": 9
+      "candle_history_stale": 9,
+      "warming_up_history": 3
     },
     "XTZ-USD": {
-      "candle_history_stale": 3
+      "candle_history_stale": 3,
+      "warming_up_history": 3
     }
   },
   "buy_block_counts_by_symbol_route": {
@@ -452,32 +440,38 @@
     },
     "XLM-USD": {
       "mean_reversion": {
-        "candle_history_stale": 9
+        "candle_history_stale": 9,
+        "warming_up_history": 3
       }
     },
     "XYO-USD": {
       "mean_reversion": {
-        "candle_history_stale": 9
+        "candle_history_stale": 9,
+        "warming_up_history": 3
       }
     },
     "ZK-USD": {
       "mean_reversion": {
-        "candle_history_stale": 9
+        "candle_history_stale": 9,
+        "warming_up_history": 3
       }
     },
     "ZRX-USD": {
       "mean_reversion": {
-        "candle_history_stale": 9
+        "candle_history_stale": 9,
+        "warming_up_history": 3
       }
     },
     "ZKJ-USD": {
       "mean_reversion": {
-        "candle_history_stale": 9
+        "candle_history_stale": 9,
+        "warming_up_history": 3
       }
     },
     "XTZ-USD": {
       "mean_reversion": {
-        "candle_history_stale": 3
+        "candle_history_stale": 3,
+        "warming_up_history": 3
       }
     }
   },
@@ -504,79 +498,61 @@
     "UNI-USD": "AUTO",
     "GLM-USD": "AUTO",
     "HBAR-USD": "AUTO",
-    "POL-USD": "AUTO",
-    "XLM-USD": "AUTO",
-    "XTZ-USD": "AUTO",
-    "XYO-USD": "AUTO",
-    "ZK-USD": "AUTO",
-    "ZKJ-USD": "AUTO",
-    "ZRX-USD": "AUTO"
+    "POL-USD": "AUTO"
   },
   "last_detected_regime": {
-    "DOT-USD": "MIXED_OR_UNCLEAR",
-    "SNX-USD": "MIXED_OR_UNCLEAR",
-    "ICP-USD": "MIXED_OR_UNCLEAR",
-    "CRV-USD": "MIXED_OR_UNCLEAR",
-    "FIL-USD": "MIXED_OR_UNCLEAR",
-    "HBAR-USD": "MIXED_OR_UNCLEAR",
-    "JASMY-USD": "MIXED_OR_UNCLEAR",
-    "POL-USD": "MIXED_OR_UNCLEAR",
-    "GLM-USD": "MIXED_OR_UNCLEAR",
+    "UNI-USD": "MIXED_OR_UNCLEAR",
+    "LTC-USD": "MIXED_OR_UNCLEAR",
     "TIA-USD": "MIXED_OR_UNCLEAR",
-    "RPL-USD": "MIXED_OR_UNCLEAR",
-    "NEAR-USD": "MIXED_OR_UNCLEAR",
-    "XRP-USD": "MIXED_OR_UNCLEAR",
-    "CVX-USD": "MEAN_REVERSION_FRIENDLY",
-    "ATOM-USD": "MIXED_OR_UNCLEAR",
-    "SOL-USD": "MIXED_OR_UNCLEAR",
-    "LINK-USD": "MIXED_OR_UNCLEAR",
-    "XLM-USD": "MEAN_REVERSION_FRIENDLY",
-    "XTZ-USD": "MIXED_OR_UNCLEAR",
-    "XYO-USD": "MIXED_OR_UNCLEAR",
-    "ZK-USD": "MEAN_REVERSION_FRIENDLY",
-    "ZKJ-USD": "MIXED_OR_UNCLEAR",
-    "ZRX-USD": "MIXED_OR_UNCLEAR",
-    "SUI-USD": "MIXED_OR_UNCLEAR",
+    "FIL-USD": "MIXED_OR_UNCLEAR",
     "AAVE-USD": "MIXED_OR_UNCLEAR",
+    "CVX-USD": "MIXED_OR_UNCLEAR",
+    "LINK-USD": "MIXED_OR_UNCLEAR",
+    "CRV-USD": "MIXED_OR_UNCLEAR",
+    "NEAR-USD": "MIXED_OR_UNCLEAR",
     "AVAX-USD": "MIXED_OR_UNCLEAR",
     "BTC-USD": "MIXED_OR_UNCLEAR",
-    "LTC-USD": "MIXED_OR_UNCLEAR",
-    "UNI-USD": "MIXED_OR_UNCLEAR"
+    "ICP-USD": "MIXED_OR_UNCLEAR",
+    "JASMY-USD": "MIXED_OR_UNCLEAR",
+    "SOL-USD": "MIXED_OR_UNCLEAR",
+    "XRP-USD": "MIXED_OR_UNCLEAR",
+    "SNX-USD": "MIXED_OR_UNCLEAR",
+    "SUI-USD": "MIXED_OR_UNCLEAR",
+    "ATOM-USD": "MIXED_OR_UNCLEAR",
+    "RPL-USD": "MIXED_OR_UNCLEAR",
+    "DOT-USD": "MIXED_OR_UNCLEAR",
+    "HBAR-USD": "MIXED_OR_UNCLEAR",
+    "POL-USD": "MIXED_OR_UNCLEAR",
+    "GLM-USD": "MIXED_OR_UNCLEAR"
   },
   "last_detected_regime_confidence": {
-    "BTC-USD": 55.88999999999999,
-    "SUI-USD": 53.39,
-    "CRV-USD": 58.5,
-    "XRP-USD": 55.910000000000004,
-    "DOT-USD": 55.910000000000004,
-    "ICP-USD": 55.88999999999999,
-    "TIA-USD": 54.35,
-    "NEAR-USD": 54.35,
-    "FIL-USD": 67.09,
-    "AAVE-USD": 53.400000000000006,
-    "RPL-USD": 47.12,
-    "SNX-USD": 58.35,
-    "JASMY-USD": 53.36,
-    "ATOM-USD": 53.410000000000004,
-    "LTC-USD": 58.52,
-    "AVAX-USD": 52.04,
-    "CVX-USD": 40.22,
-    "SOL-USD": 43.49,
-    "LINK-USD": 54.05,
-    "UNI-USD": 82.15,
-    "GLM-USD": 58.36,
-    "HBAR-USD": 53.410000000000004,
-    "POL-USD": 33.660000000000004,
-    "XLM-USD": 42.13,
-    "XTZ-USD": 47.72,
-    "XYO-USD": 47.010000000000005,
-    "ZK-USD": 45.61,
-    "ZKJ-USD": 38.98,
-    "ZRX-USD": 49.82
+    "BTC-USD": 55.910000000000004,
+    "SUI-USD": 52.849999999999994,
+    "CRV-USD": 82.19,
+    "XRP-USD": 55.94,
+    "DOT-USD": 62.9,
+    "ICP-USD": 52.190000000000005,
+    "TIA-USD": 63.01,
+    "NEAR-USD": 70.87,
+    "FIL-USD": 54.26,
+    "AAVE-USD": 52.5,
+    "RPL-USD": 58.4,
+    "SNX-USD": 27.6,
+    "JASMY-USD": 82.13000000000001,
+    "ATOM-USD": 54.35,
+    "LTC-USD": 54.35,
+    "AVAX-USD": 58.52,
+    "CVX-USD": 81.51,
+    "SOL-USD": 55.92,
+    "LINK-USD": 52.849999999999994,
+    "UNI-USD": 58.60999999999999,
+    "GLM-USD": 8.0,
+    "HBAR-USD": 71.11,
+    "POL-USD": 30.330000000000002
   },
   "last_detected_regime_confidence_label": {
     "SUI-USD": "MEDIUM",
-    "CRV-USD": "MEDIUM",
+    "CRV-USD": "HIGH",
     "XRP-USD": "MEDIUM",
     "DOT-USD": "MEDIUM",
     "ICP-USD": "MEDIUM",
@@ -584,88 +560,70 @@
     "NEAR-USD": "MEDIUM",
     "FIL-USD": "MEDIUM",
     "AAVE-USD": "MEDIUM",
-    "RPL-USD": "LOW",
-    "SNX-USD": "MEDIUM",
-    "JASMY-USD": "MEDIUM",
+    "RPL-USD": "MEDIUM",
+    "SNX-USD": "LOW",
+    "JASMY-USD": "HIGH",
     "ATOM-USD": "MEDIUM",
     "LTC-USD": "MEDIUM",
     "AVAX-USD": "MEDIUM",
-    "CVX-USD": "LOW",
-    "SOL-USD": "LOW",
+    "CVX-USD": "HIGH",
+    "SOL-USD": "MEDIUM",
     "LINK-USD": "MEDIUM",
-    "UNI-USD": "HIGH",
-    "GLM-USD": "MEDIUM",
+    "UNI-USD": "MEDIUM",
+    "GLM-USD": "LOW",
     "HBAR-USD": "MEDIUM",
     "POL-USD": "LOW",
-    "BTC-USD": "MEDIUM",
-    "XLM-USD": "LOW",
-    "XTZ-USD": "LOW",
-    "XYO-USD": "LOW",
-    "ZK-USD": "LOW",
-    "ZKJ-USD": "LOW",
-    "ZRX-USD": "MEDIUM"
+    "BTC-USD": "MEDIUM"
   },
   "last_detected_regime_stability": {
-    "BTC-USD": 55.88999999999999,
-    "SOL-USD": 43.49,
-    "XRP-USD": 55.910000000000004,
-    "DOT-USD": 55.910000000000004,
-    "SUI-USD": 53.39,
-    "AAVE-USD": 53.400000000000006,
-    "ATOM-USD": 53.410000000000004,
-    "AVAX-USD": 52.04,
-    "CRV-USD": 58.5,
-    "CVX-USD": 40.22,
-    "FIL-USD": 67.09,
-    "GLM-USD": 58.36,
-    "HBAR-USD": 53.410000000000004,
-    "ICP-USD": 55.88999999999999,
-    "JASMY-USD": 53.36,
-    "LINK-USD": 54.05,
-    "LTC-USD": 58.52,
-    "NEAR-USD": 54.35,
-    "POL-USD": 33.660000000000004,
-    "RPL-USD": 47.12,
-    "SNX-USD": 58.35,
-    "TIA-USD": 54.35,
-    "UNI-USD": 82.15,
-    "XLM-USD": 42.13,
-    "XTZ-USD": 47.72,
-    "XYO-USD": 47.010000000000005,
-    "ZK-USD": 45.61,
-    "ZKJ-USD": 38.98,
-    "ZRX-USD": 49.82
+    "BTC-USD": 55.910000000000004,
+    "SOL-USD": 55.92,
+    "XRP-USD": 55.94,
+    "DOT-USD": 62.9,
+    "SUI-USD": 52.849999999999994,
+    "AAVE-USD": 52.5,
+    "ATOM-USD": 54.35,
+    "AVAX-USD": 58.52,
+    "CRV-USD": 82.19,
+    "CVX-USD": 81.51,
+    "FIL-USD": 54.26,
+    "GLM-USD": 8.0,
+    "HBAR-USD": 71.11,
+    "ICP-USD": 52.190000000000005,
+    "JASMY-USD": 82.13000000000001,
+    "LINK-USD": 52.849999999999994,
+    "LTC-USD": 54.35,
+    "NEAR-USD": 70.87,
+    "POL-USD": 30.330000000000002,
+    "RPL-USD": 58.4,
+    "SNX-USD": 27.6,
+    "TIA-USD": 63.01,
+    "UNI-USD": 58.60999999999999
   },
   "last_detected_regime_persistence": {
-    "BTC-USD": 55.88999999999999,
-    "SOL-USD": 43.49,
-    "XRP-USD": 55.910000000000004,
-    "DOT-USD": 55.910000000000004,
-    "SUI-USD": 53.39,
-    "AAVE-USD": 53.400000000000006,
-    "ATOM-USD": 53.410000000000004,
-    "AVAX-USD": 52.04,
-    "CRV-USD": 58.5,
-    "CVX-USD": 40.22,
-    "FIL-USD": 67.09,
-    "GLM-USD": 58.36,
-    "HBAR-USD": 53.410000000000004,
-    "ICP-USD": 55.88999999999999,
-    "JASMY-USD": 53.36,
-    "LINK-USD": 54.05,
-    "LTC-USD": 58.52,
-    "NEAR-USD": 54.35,
-    "POL-USD": 33.660000000000004,
-    "RPL-USD": 47.12,
-    "SNX-USD": 58.35,
-    "TIA-USD": 54.35,
-    "UNI-USD": 82.15,
-    "XLM-USD": 42.13,
-    "XTZ-USD": 47.72,
-    "XYO-USD": 47.010000000000005,
-    "ZK-USD": 45.61,
-    "ZKJ-USD": 38.98,
-    "ZRX-USD": 49.82
+    "BTC-USD": 55.910000000000004,
+    "SOL-USD": 55.92,
+    "XRP-USD": 55.94,
+    "DOT-USD": 62.9,
+    "SUI-USD": 52.849999999999994,
+    "AAVE-USD": 52.5,
+    "ATOM-USD": 54.35,
+    "AVAX-USD": 58.52,
+    "CRV-USD": 82.19,
+    "CVX-USD": 81.51,
+    "FIL-USD": 54.26,
+    "GLM-USD": 8.0,
+    "HBAR-USD": 71.11,
+    "ICP-USD": 52.190000000000005,
+    "JASMY-USD": 82.13000000000001,
+    "LINK-USD": 52.849999999999994,
+    "LTC-USD": 54.35,
+    "NEAR-USD": 70.87,
+    "POL-USD": 30.330000000000002,
+    "RPL-USD": 58.4,
+    "SNX-USD": 27.6,
+    "TIA-USD": 63.01,
+    "UNI-USD": 58.60999999999999
   },
   "last_detected_regime_stability_inferred": {
     "AAVE-USD": true,
@@ -690,13 +648,7 @@
     "SUI-USD": true,
     "TIA-USD": true,
     "UNI-USD": true,
-    "XRP-USD": true,
-    "XLM-USD": true,
-    "XTZ-USD": true,
-    "XYO-USD": true,
-    "ZK-USD": true,
-    "ZKJ-USD": true,
-    "ZRX-USD": true
+    "XRP-USD": true
   },
   "last_detected_regime_persistence_inferred": {
     "AAVE-USD": true,
@@ -721,13 +673,7 @@
     "SUI-USD": true,
     "TIA-USD": true,
     "UNI-USD": true,
-    "XRP-USD": true,
-    "XLM-USD": true,
-    "XTZ-USD": true,
-    "XYO-USD": true,
-    "ZK-USD": true,
-    "ZKJ-USD": true,
-    "ZRX-USD": true
+    "XRP-USD": true
   },
   "last_regime_data_quality_status": {
     "BTC-USD": "PARTIAL",
@@ -752,13 +698,7 @@
     "RPL-USD": "PARTIAL",
     "SNX-USD": "PARTIAL",
     "TIA-USD": "PARTIAL",
-    "UNI-USD": "PARTIAL",
-    "XLM-USD": "PARTIAL",
-    "XTZ-USD": "PARTIAL",
-    "XYO-USD": "PARTIAL",
-    "ZK-USD": "PARTIAL",
-    "ZKJ-USD": "PARTIAL",
-    "ZRX-USD": "PARTIAL"
+    "UNI-USD": "PARTIAL"
   },
   "last_regime_key_windows_supported": {
     "BTC-USD": true,
@@ -783,44 +723,32 @@
     "RPL-USD": true,
     "SNX-USD": true,
     "TIA-USD": true,
-    "UNI-USD": true,
-    "XLM-USD": true,
-    "XTZ-USD": true,
-    "XYO-USD": true,
-    "ZK-USD": true,
-    "ZKJ-USD": true,
-    "ZRX-USD": true
+    "UNI-USD": true
   },
   "last_suggested_regime_v2": {
-    "DOT-USD": "MIXED_OR_UNCLEAR",
-    "SNX-USD": "MIXED_OR_UNCLEAR",
-    "ICP-USD": "MIXED_OR_UNCLEAR",
-    "CRV-USD": "MIXED_OR_UNCLEAR",
-    "FIL-USD": "MIXED_OR_UNCLEAR",
-    "HBAR-USD": "MIXED_OR_UNCLEAR",
-    "JASMY-USD": "MIXED_OR_UNCLEAR",
-    "POL-USD": "MIXED_OR_UNCLEAR",
-    "GLM-USD": "MIXED_OR_UNCLEAR",
+    "UNI-USD": "MIXED_OR_UNCLEAR",
+    "LTC-USD": "MIXED_OR_UNCLEAR",
     "TIA-USD": "MIXED_OR_UNCLEAR",
-    "RPL-USD": "MIXED_OR_UNCLEAR",
-    "NEAR-USD": "MIXED_OR_UNCLEAR",
-    "XRP-USD": "MIXED_OR_UNCLEAR",
-    "CVX-USD": "MEAN_REVERSION_FRIENDLY",
-    "ATOM-USD": "MIXED_OR_UNCLEAR",
-    "SOL-USD": "MIXED_OR_UNCLEAR",
-    "LINK-USD": "MIXED_OR_UNCLEAR",
-    "XLM-USD": "MEAN_REVERSION_FRIENDLY",
-    "XTZ-USD": "MIXED_OR_UNCLEAR",
-    "XYO-USD": "MIXED_OR_UNCLEAR",
-    "ZK-USD": "MEAN_REVERSION_FRIENDLY",
-    "ZKJ-USD": "MIXED_OR_UNCLEAR",
-    "ZRX-USD": "MIXED_OR_UNCLEAR",
-    "SUI-USD": "MIXED_OR_UNCLEAR",
+    "FIL-USD": "MIXED_OR_UNCLEAR",
     "AAVE-USD": "MIXED_OR_UNCLEAR",
+    "CVX-USD": "MIXED_OR_UNCLEAR",
+    "LINK-USD": "MIXED_OR_UNCLEAR",
+    "CRV-USD": "MIXED_OR_UNCLEAR",
+    "NEAR-USD": "MIXED_OR_UNCLEAR",
     "AVAX-USD": "MIXED_OR_UNCLEAR",
     "BTC-USD": "MIXED_OR_UNCLEAR",
-    "LTC-USD": "MIXED_OR_UNCLEAR",
-    "UNI-USD": "MIXED_OR_UNCLEAR"
+    "ICP-USD": "MIXED_OR_UNCLEAR",
+    "JASMY-USD": "MIXED_OR_UNCLEAR",
+    "SOL-USD": "MIXED_OR_UNCLEAR",
+    "XRP-USD": "MIXED_OR_UNCLEAR",
+    "SNX-USD": "MIXED_OR_UNCLEAR",
+    "SUI-USD": "MIXED_OR_UNCLEAR",
+    "ATOM-USD": "MIXED_OR_UNCLEAR",
+    "RPL-USD": "MIXED_OR_UNCLEAR",
+    "DOT-USD": "MIXED_OR_UNCLEAR",
+    "HBAR-USD": "MIXED_OR_UNCLEAR",
+    "POL-USD": "MIXED_OR_UNCLEAR",
+    "GLM-USD": "MIXED_OR_UNCLEAR"
   },
   "last_detection_source": {
     "BTC-USD": "runtime_shadow",
@@ -845,44 +773,32 @@
     "UNI-USD": "runtime_shadow",
     "GLM-USD": "runtime_shadow",
     "HBAR-USD": "runtime_shadow",
-    "POL-USD": "runtime_shadow",
-    "XLM-USD": "runtime_shadow",
-    "XTZ-USD": "runtime_shadow",
-    "XYO-USD": "runtime_shadow",
-    "ZK-USD": "runtime_shadow",
-    "ZKJ-USD": "runtime_shadow",
-    "ZRX-USD": "runtime_shadow"
+    "POL-USD": "runtime_shadow"
   },
   "last_detection_timestamp_epoch": {
-    "BTC-USD": 1774556810.5560946,
-    "XRP-USD": 1774556733.6585057,
-    "DOT-USD": 1774556747.4990213,
-    "SUI-USD": 1774556719.3672068,
-    "CRV-USD": 1774556748.063307,
-    "JASMY-USD": 1774556775.8786788,
-    "AAVE-USD": 1774556762.2684886,
-    "NEAR-USD": 1774556791.87461,
-    "TIA-USD": 1774556732.9892545,
-    "ICP-USD": 1774556761.9824765,
-    "RPL-USD": 1774556792.536043,
-    "FIL-USD": 1774556747.7879555,
-    "SNX-USD": 1774556809.5764654,
-    "ATOM-USD": 1774556776.7933993,
-    "LTC-USD": 1774556776.4987411,
-    "AVAX-USD": 1774556792.8084176,
-    "CVX-USD": 1774556747.1184556,
-    "SOL-USD": 1774556719.0894728,
-    "LINK-USD": 1774556776.2182493,
-    "UNI-USD": 1774556733.3830838,
-    "GLM-USD": 1774556761.3573833,
-    "HBAR-USD": 1774556761.7077265,
-    "POL-USD": 1774556792.258802,
-    "XLM-USD": 1774473896.9919415,
-    "XTZ-USD": 1774473910.8457782,
-    "XYO-USD": 1774473911.1826274,
-    "ZK-USD": 1774473911.4353836,
-    "ZKJ-USD": 1774473911.7137432,
-    "ZRX-USD": 1774473924.69016
+    "BTC-USD": 1774733473.8941483,
+    "XRP-USD": 1774733347.6496477,
+    "DOT-USD": 1774733347.0162003,
+    "SUI-USD": 1774733417.403332,
+    "CRV-USD": 1774733487.6656091,
+    "JASMY-USD": 1774733375.4961085,
+    "AAVE-USD": 1774733431.9228394,
+    "NEAR-USD": 1774733389.5741622,
+    "TIA-USD": 1774733333.169444,
+    "ICP-USD": 1774733362.3062937,
+    "RPL-USD": 1774733390.3921518,
+    "FIL-USD": 1774733347.3717794,
+    "SNX-USD": 1774733403.782409,
+    "ATOM-USD": 1774733445.7867095,
+    "LTC-USD": 1774733376.2719653,
+    "AVAX-USD": 1774733459.9015687,
+    "CVX-USD": 1774733403.387753,
+    "SOL-USD": 1774733404.0783012,
+    "LINK-USD": 1774733375.9738488,
+    "UNI-USD": 1774733333.4630947,
+    "GLM-USD": 1774733361.597152,
+    "HBAR-USD": 1774733362.023958,
+    "POL-USD": 1774733389.9992642
   },
   "last_effective_strategy": {
     "CRV-USD": "mean_reversion",
@@ -907,13 +823,7 @@
     "UNI-USD": "mean_reversion",
     "GLM-USD": "mean_reversion",
     "HBAR-USD": "mean_reversion",
-    "POL-USD": "mean_reversion",
-    "XLM-USD": "mean_reversion",
-    "XTZ-USD": "mean_reversion",
-    "XYO-USD": "mean_reversion",
-    "ZK-USD": "mean_reversion",
-    "ZKJ-USD": "mean_reversion",
-    "ZRX-USD": "mean_reversion"
+    "POL-USD": "mean_reversion"
   },
   "last_effective_route": {
     "BTC-USD": "mean_reversion",
@@ -938,87 +848,69 @@
     "RPL-USD": "mean_reversion",
     "SNX-USD": "mean_reversion",
     "TIA-USD": "mean_reversion",
-    "UNI-USD": "mean_reversion",
-    "XLM-USD": "mean_reversion",
-    "XTZ-USD": "mean_reversion",
-    "XYO-USD": "mean_reversion",
-    "ZK-USD": "mean_reversion",
-    "ZKJ-USD": "mean_reversion",
-    "ZRX-USD": "mean_reversion"
+    "UNI-USD": "mean_reversion"
   },
   "last_route_eval_ts": {
-    "BTC-USD": 1774556882.0116005,
-    "SOL-USD": 1774556809.961701,
-    "XRP-USD": 1774556824.5615063,
-    "DOT-USD": 1774556838.7351522,
-    "SUI-USD": 1774556810.2640345,
-    "AAVE-USD": 1774556839.2972987,
-    "ATOM-USD": 1774556853.1041586,
-    "AVAX-USD": 1774556867.3281622,
-    "CRV-USD": 1774556824.8379636,
-    "CVX-USD": 1774556838.3420248,
-    "FIL-USD": 1774556839.026052,
-    "GLM-USD": 1774556852.1790726,
-    "HBAR-USD": 1774556852.5516152,
-    "ICP-USD": 1774556852.8332117,
-    "JASMY-USD": 1774556866.3590558,
-    "LINK-USD": 1774556866.772642,
-    "LTC-USD": 1774556867.0541878,
-    "NEAR-USD": 1774556881.0229015,
-    "POL-USD": 1774556881.4495966,
-    "RPL-USD": 1774556881.7346423,
-    "SNX-USD": 1774556895.487765,
-    "TIA-USD": 1774556823.8674061,
-    "UNI-USD": 1774556824.28001,
-    "XLM-USD": 1774473896.9918094,
-    "XTZ-USD": 1774473910.8456476,
-    "XYO-USD": 1774473911.1824942,
-    "ZK-USD": 1774473911.435256,
-    "ZKJ-USD": 1774473911.7135928,
-    "ZRX-USD": 1774473924.690031
+    "BTC-USD": 1774733610.313493,
+    "SOL-USD": 1774733487.393379,
+    "XRP-USD": 1774733431.6479607,
+    "DOT-USD": 1774733431.014464,
+    "SUI-USD": 1774733500.3712926,
+    "AAVE-USD": 1774733609.4428627,
+    "ATOM-USD": 1774733609.7386882,
+    "AVAX-USD": 1774733610.0275397,
+    "CRV-USD": 1774733622.9338288,
+    "CVX-USD": 1774733486.6452243,
+    "FIL-USD": 1774733431.3670695,
+    "GLM-USD": 1774733444.775659,
+    "HBAR-USD": 1774733445.1948915,
+    "ICP-USD": 1774733445.4853432,
+    "JASMY-USD": 1774733458.9028335,
+    "LINK-USD": 1774733459.342369,
+    "LTC-USD": 1774733459.6242478,
+    "NEAR-USD": 1774733472.9294176,
+    "POL-USD": 1774733473.312992,
+    "RPL-USD": 1774733473.6153603,
+    "SNX-USD": 1774733487.1094944,
+    "TIA-USD": 1774733417.7809129,
+    "UNI-USD": 1774733418.0570543
   },
   "last_regime_eval_ts": {
-    "BTC-USD": 1774556881.9738808,
-    "SOL-USD": 1774556809.9247303,
-    "XRP-USD": 1774556824.5266693,
-    "DOT-USD": 1774556838.6971776,
-    "SUI-USD": 1774556810.2278497,
-    "AAVE-USD": 1774556839.260093,
-    "ATOM-USD": 1774556853.0671294,
-    "AVAX-USD": 1774556867.2879171,
-    "CRV-USD": 1774556824.8019583,
-    "CVX-USD": 1774556838.306222,
-    "FIL-USD": 1774556838.9785104,
-    "GLM-USD": 1774556852.1427057,
-    "HBAR-USD": 1774556852.51467,
-    "ICP-USD": 1774556852.7965827,
-    "JASMY-USD": 1774556866.3225918,
-    "LINK-USD": 1774556866.7368453,
-    "LTC-USD": 1774556867.0160792,
-    "NEAR-USD": 1774556880.9836564,
-    "POL-USD": 1774556881.402898,
-    "RPL-USD": 1774556881.6954799,
-    "SNX-USD": 1774556895.4477968,
-    "TIA-USD": 1774556823.830695,
-    "UNI-USD": 1774556824.232298,
-    "XLM-USD": 1774473896.9757886,
-    "XTZ-USD": 1774473910.81682,
-    "XYO-USD": 1774473911.169916,
-    "ZK-USD": 1774473911.4198318,
-    "ZKJ-USD": 1774473911.6966393,
-    "ZRX-USD": 1774473924.6723742
+    "BTC-USD": 1774733610.2638962,
+    "SOL-USD": 1774733487.3553276,
+    "XRP-USD": 1774733431.6094885,
+    "DOT-USD": 1774733430.9743192,
+    "SUI-USD": 1774733500.332567,
+    "AAVE-USD": 1774733609.2710888,
+    "ATOM-USD": 1774733609.6955445,
+    "AVAX-USD": 1774733609.983638,
+    "CRV-USD": 1774733622.8849523,
+    "CVX-USD": 1774733486.6051412,
+    "FIL-USD": 1774733431.3277788,
+    "GLM-USD": 1774733444.7355702,
+    "HBAR-USD": 1774733445.1547747,
+    "ICP-USD": 1774733445.4411705,
+    "JASMY-USD": 1774733458.8575234,
+    "LINK-USD": 1774733459.3007295,
+    "LTC-USD": 1774733459.5846255,
+    "NEAR-USD": 1774733472.8863637,
+    "POL-USD": 1774733473.273904,
+    "RPL-USD": 1774733473.564764,
+    "SNX-USD": 1774733487.0657692,
+    "TIA-USD": 1774733417.7407176,
+    "UNI-USD": 1774733418.0192885
   },
   "last_auto_fallback_reason": {
-    "AVAX-USD": "core_timeframe_not_ready",
+    "AVAX-USD": "low_confidence",
     "DOT-USD": "core_timeframe_not_ready",
     "ICP-USD": "core_timeframe_not_ready",
     "SNX-USD": "core_timeframe_not_ready",
     "NEAR-USD": "core_timeframe_not_ready",
     "UNI-USD": "core_timeframe_not_ready",
-    "AAVE-USD": "core_timeframe_not_ready",
+    "AAVE-USD": "low_confidence",
     "RPL-USD": "core_timeframe_not_ready",
     "XRP-USD": "core_timeframe_not_ready",
-    "CRV-USD": "core_timeframe_not_ready",
+    "CRV-USD": "mixed_or_unclear_regime",
     "FIL-USD": "core_timeframe_not_ready",
     "HBAR-USD": "core_timeframe_not_ready",
     "JASMY-USD": "core_timeframe_not_ready",
@@ -1029,15 +921,9 @@
     "TIA-USD": "core_timeframe_not_ready",
     "LINK-USD": "core_timeframe_not_ready",
     "SOL-USD": "core_timeframe_not_ready",
-    "ATOM-USD": "core_timeframe_not_ready",
+    "ATOM-USD": "low_confidence",
     "CVX-USD": "core_timeframe_not_ready",
-    "BTC-USD": "core_timeframe_not_ready",
-    "XLM-USD": "core_timeframe_not_ready",
-    "XTZ-USD": "core_timeframe_not_ready",
-    "XYO-USD": "core_timeframe_not_ready",
-    "ZK-USD": "core_timeframe_not_ready",
-    "ZKJ-USD": "core_timeframe_not_ready",
-    "ZRX-USD": "core_timeframe_not_ready"
+    "BTC-USD": "low_confidence"
   },
   "last_fallback_reason": {
     "AVAX-USD": "open_position_exit_policy_locked",
@@ -1062,13 +948,7 @@
     "SOL-USD": "open_position_exit_policy_locked",
     "ATOM-USD": "open_position_exit_policy_locked",
     "CVX-USD": "open_position_exit_policy_locked",
-    "BTC-USD": "open_position_exit_policy_locked",
-    "XLM-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "XTZ-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "XYO-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "ZK-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "ZKJ-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "ZRX-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported"
+    "BTC-USD": "open_position_exit_policy_locked"
   },
   "last_ready_for_non_mr_route": {
     "AAVE-USD": false,
@@ -1093,20 +973,14 @@
     "SUI-USD": false,
     "TIA-USD": false,
     "UNI-USD": false,
-    "XRP-USD": false,
-    "XLM-USD": false,
-    "XTZ-USD": false,
-    "XYO-USD": false,
-    "ZK-USD": false,
-    "ZKJ-USD": false,
-    "ZRX-USD": false
+    "XRP-USD": false
   },
   "last_non_mr_ready_reason": {
-    "AAVE-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "ATOM-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "AVAX-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "BTC-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "CRV-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
+    "AAVE-USD": "low_confidence",
+    "ATOM-USD": "low_confidence",
+    "AVAX-USD": "low_confidence",
+    "BTC-USD": "low_confidence",
+    "CRV-USD": "mixed_or_unclear_regime",
     "CVX-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
     "DOT-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
     "FIL-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
@@ -1124,13 +998,7 @@
     "SUI-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
     "TIA-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
     "UNI-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "XRP-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "XLM-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "XTZ-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "XYO-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "ZK-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "ZKJ-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported",
-    "ZRX-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported"
+    "XRP-USD": "core_timeframe_not_ready:1h:unsupported,4h:unsupported,1d:unsupported"
   },
   "last_route_readiness_state": {
     "AAVE-USD": "FALLBACK",
@@ -1155,23 +1023,21 @@
     "SUI-USD": "FALLBACK",
     "TIA-USD": "FALLBACK",
     "UNI-USD": "FALLBACK",
-    "XRP-USD": "FALLBACK",
-    "XLM-USD": "FALLBACK",
-    "XTZ-USD": "FALLBACK",
-    "XYO-USD": "FALLBACK",
-    "ZK-USD": "FALLBACK",
-    "ZKJ-USD": "FALLBACK",
-    "ZRX-USD": "FALLBACK"
+    "XRP-USD": "FALLBACK"
   },
   "last_route_timestamp_age_seconds": {
-    "BTC-USD": null
+    "BTC-USD": 136.41934466362,
+    "AAVE-USD": 177.52002334594727,
+    "ATOM-USD": 163.95197868347168,
+    "AVAX-USD": 150.12597107887268,
+    "CRV-USD": 135.26821970939636
   },
   "last_route_timestamp_fresh": {
-    "AAVE-USD": false,
-    "ATOM-USD": false,
-    "AVAX-USD": false,
-    "BTC-USD": false,
-    "CRV-USD": false,
+    "AAVE-USD": true,
+    "ATOM-USD": true,
+    "AVAX-USD": true,
+    "BTC-USD": true,
+    "CRV-USD": true,
     "CVX-USD": false,
     "DOT-USD": false,
     "FIL-USD": false,
@@ -1189,13 +1055,7 @@
     "SUI-USD": false,
     "TIA-USD": false,
     "UNI-USD": false,
-    "XRP-USD": false,
-    "XLM-USD": false,
-    "XTZ-USD": false,
-    "XYO-USD": false,
-    "ZK-USD": false,
-    "ZKJ-USD": false,
-    "ZRX-USD": false
+    "XRP-USD": false
   },
   "last_shadow_continuity_state": {
     "AAVE-USD": "healthy",
@@ -1220,60 +1080,48 @@
     "SUI-USD": "healthy",
     "TIA-USD": "healthy",
     "UNI-USD": "healthy",
-    "XRP-USD": "healthy",
-    "XLM-USD": "healthy",
-    "XTZ-USD": "healthy",
-    "XYO-USD": "healthy",
-    "ZK-USD": "healthy",
-    "ZKJ-USD": "healthy",
-    "ZRX-USD": "healthy"
+    "XRP-USD": "healthy"
   },
   "last_shadow_age_seconds": {
-    "AAVE-USD": 77.02881002426147,
-    "ATOM-USD": 76.31075930595398,
-    "AVAX-USD": 74.5197446346283,
-    "BTC-USD": 71.45550584793091,
-    "CRV-USD": 76.77465653419495,
-    "CVX-USD": 91.22356915473938,
-    "DOT-USD": 91.23613095283508,
-    "FIL-USD": 91.2380964756012,
-    "GLM-USD": 90.82168936729431,
-    "HBAR-USD": 90.84388875961304,
-    "ICP-USD": 90.85073518753052,
-    "JASMY-USD": 90.48037695884705,
-    "LINK-USD": 90.55439257621765,
-    "LTC-USD": 90.55544662475586,
-    "NEAR-USD": 89.14829158782959,
-    "POL-USD": 89.1907947063446,
-    "RPL-USD": 89.1985993385315,
-    "SNX-USD": 85.91129970550537,
-    "SOL-USD": 90.87222814559937,
-    "SUI-USD": 90.8968276977539,
-    "TIA-USD": 90.87815165519714,
-    "UNI-USD": 90.89692616462708,
-    "XRP-USD": 90.90300059318542,
-    "XLM-USD": 0.0,
-    "XTZ-USD": 0.0,
-    "XYO-USD": 0.0,
-    "ZK-USD": 0.0,
-    "ZKJ-USD": 0.0,
-    "ZRX-USD": 0.0
+    "AAVE-USD": 177.52002334594727,
+    "ATOM-USD": 163.95197868347168,
+    "AVAX-USD": 150.12597107887268,
+    "BTC-USD": 136.41934466362,
+    "CRV-USD": 135.26821970939636,
+    "CVX-USD": 83.2574713230133,
+    "DOT-USD": 83.9982635974884,
+    "FIL-USD": 83.99529004096985,
+    "GLM-USD": 83.17850708961487,
+    "HBAR-USD": 83.17093348503113,
+    "ICP-USD": 83.17904949188232,
+    "JASMY-USD": 83.40672492980957,
+    "LINK-USD": 83.36852025985718,
+    "LTC-USD": 83.35228252410889,
+    "NEAR-USD": 83.3552553653717,
+    "POL-USD": 83.31372785568237,
+    "RPL-USD": 83.2232084274292,
+    "SNX-USD": 83.32708549499512,
+    "SOL-USD": 83.31507778167725,
+    "SUI-USD": 82.9679605960846,
+    "TIA-USD": 84.61146879196167,
+    "UNI-USD": 84.59395956993103,
+    "XRP-USD": 83.99831295013428
   },
   "last_failed_gates": {
     "AAVE-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "ATOM-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "AVAX-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "BTC-USD": [
-      "core_timeframe_not_ready"
+      "low_confidence"
     ],
     "CRV-USD": [
-      "core_timeframe_not_ready"
+      "mean_reversion_fallback"
     ],
     "CVX-USD": [
       "core_timeframe_not_ready"
@@ -1328,34 +1176,203 @@
     ],
     "XRP-USD": [
       "core_timeframe_not_ready"
-    ],
-    "XLM-USD": [
-      "core_timeframe_not_ready"
-    ],
-    "XTZ-USD": [
-      "core_timeframe_not_ready"
-    ],
-    "XYO-USD": [
-      "core_timeframe_not_ready"
-    ],
-    "ZK-USD": [
-      "core_timeframe_not_ready"
-    ],
-    "ZKJ-USD": [
-      "core_timeframe_not_ready"
-    ],
-    "ZRX-USD": [
-      "core_timeframe_not_ready"
     ]
+  },
+  "last_decision_diagnostics": {
+    "AAVE-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 52.5,
+        "stability_score": 52.5,
+        "persistence_score": 52.5,
+        "route_timestamp_age_seconds": 177.52002334594727,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 177.52002334594727,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "ATOM-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 54.35,
+        "stability_score": 54.35,
+        "persistence_score": 54.35,
+        "route_timestamp_age_seconds": 163.95197868347168,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 163.95197868347168,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "AVAX-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 58.52,
+        "stability_score": 58.52,
+        "persistence_score": 58.52,
+        "route_timestamp_age_seconds": 150.12597107887268,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 150.12597107887268,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "BTC-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 55.910000000000004,
+        "stability_score": 55.910000000000004,
+        "persistence_score": 55.910000000000004,
+        "route_timestamp_age_seconds": 136.41934466362,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 136.41934466362,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "low_confidence",
+        "fallback_reason": "low_confidence",
+        "fallback_gate": "low_confidence",
+        "failed_gates": [
+          "low_confidence"
+        ]
+      }
+    },
+    "CRV-USD": {
+      "thresholds": {
+        "min_confidence_score": 68.0,
+        "min_stability_score": 58.0,
+        "min_persistence_score": 58.0,
+        "max_route_age_seconds": 900,
+        "min_shadow_confirmations": 2
+      },
+      "observed": {
+        "detected_regime": "MIXED_OR_UNCLEAR",
+        "confidence_score": 82.19,
+        "stability_score": 82.19,
+        "persistence_score": 82.19,
+        "route_timestamp_age_seconds": 135.26821970939636,
+        "route_timestamp_fresh": true,
+        "shadow_continuity_state": "healthy",
+        "shadow_age_seconds": 135.26821970939636,
+        "regime_data_quality_status": "PARTIAL",
+        "regime_key_windows_supported": true,
+        "route_quality_promoted": null,
+        "route_quality_promotion_reason": null,
+        "route_share_pct": null,
+        "route_share_cap_pct": null
+      },
+      "outcome": {
+        "effective_strategy": "mean_reversion",
+        "effective_route": "mean_reversion",
+        "route_readiness_state": "FALLBACK",
+        "ready_for_non_mr_route": false,
+        "non_mr_ready_reason": "mixed_or_unclear_regime",
+        "fallback_reason": "mixed_or_unclear_regime",
+        "fallback_gate": "mean_reversion_fallback",
+        "failed_gates": [
+          "mean_reversion_fallback"
+        ]
+      }
+    }
   },
   "shadow_regime_state": {
     "BTC-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 742,
-      "confidence": 0.5433,
-      "last_update_ts": 1774556882.0121052,
-      "last_switch_ts": 1774501699.1622553,
+      "confirmations": 2400,
+      "confidence": 0.5435,
+      "last_update_ts": 1774733610.3141594,
+      "last_switch_ts": 1774561139.8851824,
       "switched": false
     },
     "ETH-USD": {
@@ -1368,12 +1385,12 @@
       "switched": false
     },
     "SOL-USD": {
-      "candidate_regime": "chop",
-      "stable_regime": "chop",
-      "confirmations": 1238,
-      "confidence": 0.4289,
-      "last_update_ts": 1774556809.9712677,
-      "last_switch_ts": 1774447305.2098362,
+      "candidate_regime": "dump",
+      "stable_regime": "dump",
+      "confirmations": 1998,
+      "confidence": 0.5435,
+      "last_update_ts": 1774733487.393895,
+      "last_switch_ts": 1774561536.4690173,
       "switched": false
     },
     "BNB-USD": {
@@ -1388,10 +1405,10 @@
     "XRP-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 1336,
-      "confidence": 0.5435,
-      "last_update_ts": 1774556824.5620193,
-      "last_switch_ts": 1774438701.3519025,
+      "confirmations": 1999,
+      "confidence": 0.5436,
+      "last_update_ts": 1774733431.6484916,
+      "last_switch_ts": 1774561554.5442064,
       "switched": false
     },
     "ADA-USD": {
@@ -1406,28 +1423,28 @@
     "DOT-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 4685,
-      "confidence": 0.5435,
-      "last_update_ts": 1774556838.7443757,
-      "last_switch_ts": 1774048230.1228,
+      "confirmations": 1998,
+      "confidence": 0.5854,
+      "last_update_ts": 1774733431.0149825,
+      "last_switch_ts": 1774561781.3306928,
       "switched": false
     },
     "XLM-USD": {
-      "candidate_regime": "accumulation",
-      "stable_regime": "accumulation",
-      "confirmations": 9,
-      "confidence": 0.4213,
-      "last_update_ts": 1774473896.9919415,
-      "last_switch_ts": 1774285919.8894026,
+      "candidate_regime": "unknown",
+      "stable_regime": "unknown",
+      "confirmations": 3,
+      "confidence": 0.1851,
+      "last_update_ts": 1774732592.4880514,
+      "last_switch_ts": 1774646185.9394023,
       "switched": false
     },
     "SUI-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 727,
-      "confidence": 0.5283,
-      "last_update_ts": 1774556810.2645178,
-      "last_switch_ts": 1774492348.1658432,
+      "confirmations": 1997,
+      "confidence": 0.5251,
+      "last_update_ts": 1774733500.371802,
+      "last_switch_ts": 1774561652.1652305,
       "switched": false
     },
     "SEI-USD": {
@@ -1523,10 +1540,10 @@
     "CRV-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 5046,
-      "confidence": 0.559,
-      "last_update_ts": 1774556824.838455,
-      "last_switch_ts": 1774143576.5788276,
+      "confirmations": 2400,
+      "confidence": 0.7011,
+      "last_update_ts": 1774733622.934426,
+      "last_switch_ts": 1774561410.8618014,
       "switched": false
     },
     "TAI-USD": {
@@ -1638,12 +1655,12 @@
       "switched": false
     },
     "XYO-USD": {
-      "candidate_regime": "dump",
-      "stable_regime": "dump",
-      "confirmations": 169,
-      "confidence": 0.4701,
-      "last_update_ts": 1774473911.1826274,
-      "last_switch_ts": 1774144254.3215222,
+      "candidate_regime": "unknown",
+      "stable_regime": "unknown",
+      "confirmations": 3,
+      "confidence": 0.1565,
+      "last_update_ts": 1774732608.7259226,
+      "last_switch_ts": 1774646200.790009,
       "switched": false
     },
     "VTHO-USD": {
@@ -1712,10 +1729,10 @@
     "AVAX-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 829,
-      "confidence": 0.7082,
-      "last_update_ts": 1774556867.3288133,
-      "last_switch_ts": 1774495397.813522,
+      "confirmations": 2401,
+      "confidence": 0.5591,
+      "last_update_ts": 1774733610.0281217,
+      "last_switch_ts": 1774561463.315427,
       "switched": false
     },
     "BONK-USD": {
@@ -1730,19 +1747,19 @@
     "LTC-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 592,
-      "confidence": 0.5591,
-      "last_update_ts": 1774556867.0546784,
-      "last_switch_ts": 1774503983.9849708,
+      "confirmations": 2004,
+      "confidence": 0.5341,
+      "last_update_ts": 1774733459.6247785,
+      "last_switch_ts": 1774561185.9169877,
       "switched": false
     },
     "HBAR-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 4601,
-      "confidence": 0.5285,
-      "last_update_ts": 1774556852.5609756,
-      "last_switch_ts": 1774143591.2245107,
+      "confirmations": 1998,
+      "confidence": 0.8227,
+      "last_update_ts": 1774733445.1979804,
+      "last_switch_ts": 1774561795.72029,
       "switched": false
     },
     "GALA-USD": {
@@ -1757,10 +1774,10 @@
     "JASMY-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 4479,
-      "confidence": 0.5282,
-      "last_update_ts": 1774556866.359545,
-      "last_switch_ts": 1774143605.101959,
+      "confirmations": 2001,
+      "confidence": 0.7008,
+      "last_update_ts": 1774733458.9033892,
+      "last_switch_ts": 1774561496.8234866,
       "switched": false
     },
     "ALGO-USD": {
@@ -1782,12 +1799,12 @@
       "switched": false
     },
     "CVX-USD": {
-      "candidate_regime": "accumulation",
-      "stable_regime": "accumulation",
-      "confirmations": 1285,
-      "confidence": 0.3893,
-      "last_update_ts": 1774556838.3425088,
-      "last_switch_ts": 1774443439.1846347,
+      "candidate_regime": "dump",
+      "stable_regime": "dump",
+      "confirmations": 2003,
+      "confidence": 0.6971,
+      "last_update_ts": 1774733486.6457732,
+      "last_switch_ts": 1774561357.128596,
       "switched": false
     },
     "KAVA-USD": {
@@ -1838,10 +1855,10 @@
     "AAVE-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 849,
-      "confidence": 0.5284,
-      "last_update_ts": 1774556839.2977922,
-      "last_switch_ts": 1774494012.6433587,
+      "confirmations": 2403,
+      "confidence": 0.523,
+      "last_update_ts": 1774733609.4524014,
+      "last_switch_ts": 1774561344.2367237,
       "switched": false
     },
     "MLN-USD": {
@@ -1854,12 +1871,12 @@
       "switched": false
     },
     "XTZ-USD": {
-      "candidate_regime": "dump",
-      "stable_regime": "dump",
+      "candidate_regime": "unknown",
+      "stable_regime": "unknown",
       "confirmations": 3,
-      "confidence": 0.4772,
-      "last_update_ts": 1774473910.8457782,
-      "last_switch_ts": 1774359692.9581707,
+      "confidence": 0.1972,
+      "last_update_ts": 1774732608.4042501,
+      "last_switch_ts": 1774646200.448234,
       "switched": false
     },
     "ALCX-USD": {
@@ -1881,12 +1898,12 @@
       "switched": false
     },
     "LINK-USD": {
-      "candidate_regime": "chop",
-      "stable_regime": "chop",
-      "confirmations": 1090,
-      "confidence": 0.4923,
-      "last_update_ts": 1774556866.781438,
-      "last_switch_ts": 1774459965.3350635,
+      "candidate_regime": "dump",
+      "stable_regime": "dump",
+      "confirmations": 2002,
+      "confidence": 0.7131,
+      "last_update_ts": 1774733459.3455935,
+      "last_switch_ts": 1774561392.7246552,
       "switched": false
     },
     "ONDO-USD": {
@@ -1910,10 +1927,10 @@
     "NEAR-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 1991,
-      "confidence": 0.5341,
-      "last_update_ts": 1774556881.0233948,
-      "last_switch_ts": 1774381896.6287916,
+      "confirmations": 2002,
+      "confidence": 0.8212,
+      "last_update_ts": 1774733472.9299636,
+      "last_switch_ts": 1774561409.9311316,
       "switched": false
     },
     "JUP-USD": {
@@ -1946,10 +1963,10 @@
     "POL-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 4471,
-      "confidence": 0.302,
-      "last_update_ts": 1774556881.4589553,
-      "last_switch_ts": 1774143386.831486,
+      "confirmations": 1532,
+      "confidence": 0.51,
+      "last_update_ts": 1774733473.3160071,
+      "last_switch_ts": 1774601705.774601,
       "switched": false
     },
     "PYTH-USD": {
@@ -1964,10 +1981,10 @@
     "TIA-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 4380,
-      "confidence": 0.5341,
-      "last_update_ts": 1774556823.86792,
-      "last_switch_ts": 1774144584.8761356,
+      "confirmations": 2002,
+      "confidence": 0.5861,
+      "last_update_ts": 1774733417.784119,
+      "last_switch_ts": 1774561234.647337,
       "switched": false
     },
     "GTC-USD": {
@@ -1982,236 +1999,22 @@
     "ICP-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 4629,
-      "confidence": 0.5433,
-      "last_update_ts": 1774556852.8337047,
-      "last_switch_ts": 1774136937.1251135,
+      "confirmations": 2001,
+      "confidence": 0.7091,
+      "last_update_ts": 1774733445.4859169,
+      "last_switch_ts": 1774561478.682161,
       "switched": false
     },
     "UNI-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 443,
-      "confidence": 0.7009,
-      "last_update_ts": 1774556824.28985,
+      "confirmations": 2003,
+      "confidence": 0.5597,
+      "last_update_ts": 1774733418.0575745,
       "last_switch_ts": 1774516684.2737465,
       "switched": false
     },
     "ATOM-USD": {
-      "candidate_regime": "trend_down",
-      "stable_regime": "trend_down",
-      "confirmations": 1519,
-      "confidence": 0.5285,
-      "last_update_ts": 1774556853.1046555,
-      "last_switch_ts": 1774445040.074179,
-      "switched": false
-    },
-    "APT-USD": {
-      "candidate_regime": "accumulation",
-      "stable_regime": "accumulation",
-      "confirmations": 2,
-      "confidence": 0.6651,
-      "last_update_ts": 1774300380.8245223,
-      "last_switch_ts": 1774300380.8245223,
-      "switched": true
-    },
-    "CRO-USD": {
       "candidate_regime": "dump",
       "stable_regime": "dump",
-      "confirmations": 655,
-      "confidence": 0.9899,
-      "last_update_ts": 1773980033.8785179,
-      "last_switch_ts": 1773902939.8047504,
-      "switched": false
-    },
-    "IP-USD": {
-      "candidate_regime": "dump",
-      "stable_regime": "dump",
-      "confirmations": 550,
-      "confidence": 0.9899,
-      "last_update_ts": 1773980034.7668312,
-      "last_switch_ts": 1773913697.2613053,
-      "switched": false
-    },
-    "RPL-USD": {
-      "candidate_regime": "dump",
-      "stable_regime": "dump",
-      "confirmations": 2206,
-      "confidence": 0.6787,
-      "last_update_ts": 1774556881.7352152,
-      "last_switch_ts": 1774363433.6203353,
-      "switched": false
-    },
-    "ZK-USD": {
-      "candidate_regime": "accumulation",
-      "stable_regime": "accumulation",
-      "confirmations": 2,
-      "confidence": 0.4561,
-      "last_update_ts": 1774473911.4353836,
-      "last_switch_ts": 1774473911.4353836,
-      "switched": true
-    },
-    "ZRX-USD": {
-      "candidate_regime": "dump",
-      "stable_regime": "dump",
-      "confirmations": 3,
-      "confidence": 0.4982,
-      "last_update_ts": 1774473924.69016,
-      "last_switch_ts": 1774143547.6776922,
-      "switched": false
-    },
-    "ZKJ-USD": {
-      "candidate_regime": "dump",
-      "stable_regime": "dump",
-      "confirmations": 175,
-      "confidence": 0.3898,
-      "last_update_ts": 1774473911.7137432,
-      "last_switch_ts": 1774143430.5685325,
-      "switched": false
-    },
-    "FIL-USD": {
-      "candidate_regime": "dump",
-      "stable_regime": "dump",
-      "confirmations": 4605,
-      "confidence": 0.5905,
-      "last_update_ts": 1774556839.0265288,
-      "last_switch_ts": 1774143590.7408383,
-      "switched": false
-    },
-    "PYR-USD": {
-      "candidate_regime": "dump",
-      "stable_regime": "dump",
-      "confirmations": 68,
-      "confidence": 0.7699,
-      "last_update_ts": 1773980037.7309144,
-      "last_switch_ts": 1773972723.2575545,
-      "switched": false
-    },
-    "CELR-USD": {
-      "candidate_regime": "accumulation",
-      "stable_regime": "trend_down",
-      "confirmations": 1,
-      "confidence": 0.9437,
-      "last_update_ts": 1773980038.2301428,
-      "last_switch_ts": 1773975185.3426309,
-      "switched": false
-    },
-    "SNX-USD": {
-      "candidate_regime": "dump",
-      "stable_regime": "dump",
-      "confirmations": 4454,
-      "confidence": 0.4501,
-      "last_update_ts": 1774556895.4882615,
-      "last_switch_ts": 1774058767.9710479,
-      "switched": false
-    },
-    "PRO-USD": {
-      "candidate_regime": "trend_up",
-      "stable_regime": "trend_up",
-      "confirmations": 9,
-      "confidence": 0.9409,
-      "last_update_ts": 1773980039.3176677,
-      "last_switch_ts": 1773977656.7824028,
-      "switched": false
-    },
-    "BIGTIME-USD": {
-      "candidate_regime": "range",
-      "stable_regime": "range",
-      "confirmations": 21,
-      "confidence": 0.8901,
-      "last_update_ts": 1773980040.1158714,
-      "last_switch_ts": 1773977866.4446108,
-      "switched": false
-    },
-    "CVC-USD": {
-      "candidate_regime": "trend_up",
-      "stable_regime": "trend_up",
-      "confirmations": 18,
-      "confidence": 0.766,
-      "last_update_ts": 1773980045.9961965,
-      "last_switch_ts": 1773978211.8400729,
-      "switched": false
-    },
-    "SPELL-USD": {
-      "candidate_regime": "dump",
-      "stable_regime": "dump",
-      "confirmations": 186,
-      "confidence": 0.7699,
-      "last_update_ts": 1773980046.4992568,
-      "last_switch_ts": 1773959715.5089738,
-      "switched": false
-    },
-    "FLR-USD": {
-      "candidate_regime": "dump",
-      "stable_regime": "dump",
-      "confirmations": 575,
-      "confidence": 0.7699,
-      "last_update_ts": 1773980046.9991555,
-      "last_switch_ts": 1773912576.0863333,
-      "switched": false
-    },
-    "GLM-USD": {
-      "candidate_regime": "dump",
-      "stable_regime": "dump",
-      "confirmations": 4594,
-      "confidence": 0.4502,
-      "last_update_ts": 1774556852.1795497,
-      "last_switch_ts": 1774144421.041778,
-      "switched": false
-    },
-    "FLOW-USD": {
-      "candidate_regime": "chop",
-      "stable_regime": "chop",
-      "confirmations": 11,
-      "confidence": 0.8825,
-      "last_update_ts": 1773980047.9973977,
-      "last_switch_ts": 1773979002.260281,
-      "switched": false
-    },
-    "PUNDIX-USD": {
-      "candidate_regime": "range",
-      "stable_regime": "range",
-      "confirmations": 9,
-      "confidence": 0.7205,
-      "last_update_ts": 1773980048.4726307,
-      "last_switch_ts": 1773979239.4214482,
-      "switched": false
-    },
-    "HONEY-USD": {
-      "candidate_regime": "dump",
-      "stable_regime": "dump",
-      "confirmations": 424,
-      "confidence": 0.3601,
-      "last_update_ts": 1773980048.9633136,
-      "last_switch_ts": 1773931128.6778398,
-      "switched": false
-    },
-    "GODS-USD": {
-      "candidate_regime": "trend_up",
-      "stable_regime": "trend_up",
-      "confirmations": 5,
-      "confidence": 0.5582,
-      "last_update_ts": 1773980049.4698017,
-      "last_switch_ts": 1773979684.4105887,
-      "switched": false
-    },
-    "ACS-USD": {
-      "candidate_regime": "accumulation",
-      "stable_regime": "accumulation",
-      "confirmations": 389,
-      "confidence": 0.0399,
-      "last_update_ts": 1773980049.9602451,
-      "last_switch_ts": 1773935770.8259509,
-      "switched": false
-    },
-    "GHST-USD": {
-      "candidate_regime": "dump",
-      "stable_regime": "dump",
-      "confirmations": 369,
-      "confidence": 0.6626,
-      "last_update_ts": 1773980051.2833414,
-      "last_switch_ts": 1773938382.215183,
-      "switched": false
-    }
-  }
-}
+      "conf
