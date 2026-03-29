@@ -1,0 +1,2790 @@
+{
+  "generated_at_utc": "2026-03-29T05:06:48.553782+00:00",
+  "root": "D:\\Python-Codes\\RevBot\\crypto_bot",
+  "file_count": 345,
+  "categories": {
+    ".env": 1,
+    "analysis": 2,
+    "api": 9,
+    "config": 1,
+    "config.py": 1,
+    "control": 2,
+    "data": 17,
+    "desktop.ini": 1,
+    "main.py": 1,
+    "paper": 1,
+    "reporting": 2,
+    "requirements-dev.txt": 1,
+    "requirements.txt": 1,
+    "risk": 1,
+    "state": 213,
+    "strategy": 35,
+    "tests": 36,
+    "tools": 3,
+    "trading": 3,
+    "ui": 2,
+    "utils": 12
+  },
+  "files": [
+    {
+      "path": ".env",
+      "category": ".env",
+      "suffix": "",
+      "bytes": 120,
+      "lines": 0,
+      "modified_utc": "2026-01-26T19:47:10.176916+00:00"
+    },
+    {
+      "path": "analysis/data_analysis.py",
+      "category": "analysis",
+      "suffix": ".py",
+      "bytes": 3887,
+      "lines": 151,
+      "modified_utc": "2026-03-12T06:21:17.321678+00:00"
+    },
+    {
+      "path": "analysis/indicators.py",
+      "category": "analysis",
+      "suffix": ".py",
+      "bytes": 2156,
+      "lines": 97,
+      "modified_utc": "2026-02-01T03:28:50.918899+00:00"
+    },
+    {
+      "path": "api/revolut_account_sync.py",
+      "category": "api",
+      "suffix": ".py",
+      "bytes": 5711,
+      "lines": 177,
+      "modified_utc": "2026-03-28T07:24:01.275582+00:00"
+    },
+    {
+      "path": "api/revolut_api.py",
+      "category": "api",
+      "suffix": ".py",
+      "bytes": 8794,
+      "lines": 269,
+      "modified_utc": "2026-03-22T04:39:47.989920+00:00"
+    },
+    {
+      "path": "api/revolut_auth.py",
+      "category": "api",
+      "suffix": ".py",
+      "bytes": 302,
+      "lines": 11,
+      "modified_utc": "2026-03-17T03:00:24.001205+00:00"
+    },
+    {
+      "path": "api/revolut_balances.py",
+      "category": "api",
+      "suffix": ".py",
+      "bytes": 176,
+      "lines": 8,
+      "modified_utc": "2026-03-17T03:01:18.885451+00:00"
+    },
+    {
+      "path": "api/revolut_order_book.py",
+      "category": "api",
+      "suffix": ".py",
+      "bytes": 3646,
+      "lines": 100,
+      "modified_utc": "2026-03-23T14:15:30.289087+00:00"
+    },
+    {
+      "path": "api/revolut_orders.py",
+      "category": "api",
+      "suffix": ".py",
+      "bytes": 177,
+      "lines": 8,
+      "modified_utc": "2026-03-17T03:01:25.973770+00:00"
+    },
+    {
+      "path": "api/revolut_secrets.py",
+      "category": "api",
+      "suffix": ".py",
+      "bytes": 4425,
+      "lines": 139,
+      "modified_utc": "2026-03-17T03:37:23.389840+00:00"
+    },
+    {
+      "path": "api/revolut_trades.py",
+      "category": "api",
+      "suffix": ".py",
+      "bytes": 1698,
+      "lines": 60,
+      "modified_utc": "2026-03-14T01:19:27.209531+00:00"
+    },
+    {
+      "path": "api/revolut_universe.py",
+      "category": "api",
+      "suffix": ".py",
+      "bytes": 21483,
+      "lines": 574,
+      "modified_utc": "2026-03-28T07:24:05.662898+00:00"
+    },
+    {
+      "path": "config.py",
+      "category": "config.py",
+      "suffix": ".py",
+      "bytes": 1506,
+      "lines": 77,
+      "modified_utc": "2026-03-04T05:45:55.776724+00:00"
+    },
+    {
+      "path": "config/config.json",
+      "category": "config",
+      "suffix": ".json",
+      "bytes": 648,
+      "lines": 39,
+      "modified_utc": "2026-03-04T05:46:46.026989+00:00"
+    },
+    {
+      "path": "control/control_server.py",
+      "category": "control",
+      "suffix": ".py",
+      "bytes": 71314,
+      "lines": 2186,
+      "modified_utc": "2026-03-28T07:23:42.108742+00:00"
+    },
+    {
+      "path": "control/run_control.py",
+      "category": "control",
+      "suffix": ".py",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-03-13T06:12:53.760188+00:00"
+    },
+    {
+      "path": "data/candle_cache.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 1506,
+      "lines": 39,
+      "modified_utc": "2026-03-19T06:17:09.672924+00:00"
+    },
+    {
+      "path": "data/candle_coverage.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 3404,
+      "lines": 99,
+      "modified_utc": "2026-03-21T21:44:35.549672+00:00"
+    },
+    {
+      "path": "data/candle_store.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 185,
+      "lines": 8,
+      "modified_utc": "2026-03-19T06:17:00.631339+00:00"
+    },
+    {
+      "path": "data/data_quality.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 1729,
+      "lines": 52,
+      "modified_utc": "2026-03-19T06:17:20.385208+00:00"
+    },
+    {
+      "path": "data/db_maintenance.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 2222,
+      "lines": 65,
+      "modified_utc": "2026-03-22T04:40:01.453478+00:00"
+    },
+    {
+      "path": "data/indicator_engine.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 5622,
+      "lines": 175,
+      "modified_utc": "2026-03-19T06:17:53.681196+00:00"
+    },
+    {
+      "path": "data/live_sync_scheduler.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 7530,
+      "lines": 212,
+      "modified_utc": "2026-03-23T14:14:59.035016+00:00"
+    },
+    {
+      "path": "data/market_data.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 24904,
+      "lines": 739,
+      "modified_utc": "2026-03-23T20:22:56.234180+00:00"
+    },
+    {
+      "path": "data/market_data_service.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 5343,
+      "lines": 150,
+      "modified_utc": "2026-03-28T21:28:57.625047+00:00"
+    },
+    {
+      "path": "data/regime_engine.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 5424,
+      "lines": 158,
+      "modified_utc": "2026-03-19T06:18:43.303259+00:00"
+    },
+    {
+      "path": "data/revolut_backfill.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 4090,
+      "lines": 133,
+      "modified_utc": "2026-03-20T03:35:02.383106+00:00"
+    },
+    {
+      "path": "data/revolut_candle_fetcher.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 22227,
+      "lines": 585,
+      "modified_utc": "2026-03-23T14:25:06.485713+00:00"
+    },
+    {
+      "path": "data/revolut_candle_store.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 4308,
+      "lines": 147,
+      "modified_utc": "2026-03-22T14:30:27.517579+00:00"
+    },
+    {
+      "path": "data/revolut_incremental_sync.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 10197,
+      "lines": 308,
+      "modified_utc": "2026-03-28T07:24:10.431554+00:00"
+    },
+    {
+      "path": "data/revolut_market_db.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 16789,
+      "lines": 590,
+      "modified_utc": "2026-03-28T07:23:20.403973+00:00"
+    },
+    {
+      "path": "data/revolut_orderbook_cache.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 2903,
+      "lines": 88,
+      "modified_utc": "2026-03-19T06:07:25.981416+00:00"
+    },
+    {
+      "path": "data/volatility_engine.py",
+      "category": "data",
+      "suffix": ".py",
+      "bytes": 2665,
+      "lines": 82,
+      "modified_utc": "2026-03-19T06:18:10.049427+00:00"
+    },
+    {
+      "path": "desktop.ini",
+      "category": "desktop.ini",
+      "suffix": ".ini",
+      "bytes": 46,
+      "lines": 0,
+      "modified_utc": "2026-02-08T10:17:25.427103+00:00"
+    },
+    {
+      "path": "main.py",
+      "category": "main.py",
+      "suffix": ".py",
+      "bytes": 61228,
+      "lines": 1572,
+      "modified_utc": "2026-03-28T07:23:36.258320+00:00"
+    },
+    {
+      "path": "paper/paper_broker.py",
+      "category": "paper",
+      "suffix": ".py",
+      "bytes": 8900,
+      "lines": 261,
+      "modified_utc": "2026-03-28T07:23:56.114923+00:00"
+    },
+    {
+      "path": "reporting/daily_summary.py",
+      "category": "reporting",
+      "suffix": ".py",
+      "bytes": 54518,
+      "lines": 1423,
+      "modified_utc": "2026-03-28T07:24:14.629883+00:00"
+    },
+    {
+      "path": "reporting/weekly_summary.py",
+      "category": "reporting",
+      "suffix": ".py",
+      "bytes": 20020,
+      "lines": 536,
+      "modified_utc": "2026-03-28T07:24:18.737505+00:00"
+    },
+    {
+      "path": "requirements-dev.txt",
+      "category": "requirements-dev.txt",
+      "suffix": ".txt",
+      "bytes": 34,
+      "lines": 2,
+      "modified_utc": "2026-03-13T06:02:11.477573+00:00"
+    },
+    {
+      "path": "requirements.txt",
+      "category": "requirements.txt",
+      "suffix": ".txt",
+      "bytes": 78,
+      "lines": 5,
+      "modified_utc": "2026-03-17T03:23:49.247160+00:00"
+    },
+    {
+      "path": "risk/risk_manager.py",
+      "category": "risk",
+      "suffix": ".py",
+      "bytes": 14013,
+      "lines": 379,
+      "modified_utc": "2026-03-20T20:39:33.900114+00:00"
+    },
+    {
+      "path": "state/.last_daily_snapshot.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 201,
+      "lines": 5,
+      "modified_utc": "2026-03-29T00:08:00.326528+00:00"
+    },
+    {
+      "path": "state/audit_actions.jsonl",
+      "category": "state",
+      "suffix": ".jsonl",
+      "bytes": 521562,
+      "lines": 0,
+      "modified_utc": "2026-03-28T07:25:48.136947+00:00"
+    },
+    {
+      "path": "state/backups/20260313-055226/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 2283,
+      "lines": 121,
+      "modified_utc": "2026-03-13T05:44:18.780894+00:00"
+    },
+    {
+      "path": "state/backups/20260313-055226/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 1131,
+      "lines": 26,
+      "modified_utc": "2026-03-13T05:52:26.317943+00:00"
+    },
+    {
+      "path": "state/backups/20260313-055226/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 1436,
+      "lines": 53,
+      "modified_utc": "2026-03-13T00:57:38.655950+00:00"
+    },
+    {
+      "path": "state/backups/20260313-055226/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/backups/20260313-055226/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3877,
+      "lines": 152,
+      "modified_utc": "2026-03-13T05:51:53.641194+00:00"
+    },
+    {
+      "path": "state/backups/20260313-055226/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 16794,
+      "lines": 682,
+      "modified_utc": "2026-03-13T00:57:38.630594+00:00"
+    },
+    {
+      "path": "state/backups/20260314-013957/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 2428,
+      "lines": 122,
+      "modified_utc": "2026-03-13T05:53:35.148341+00:00"
+    },
+    {
+      "path": "state/backups/20260314-013957/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 1131,
+      "lines": 26,
+      "modified_utc": "2026-03-14T01:39:57.471571+00:00"
+    },
+    {
+      "path": "state/backups/20260314-013957/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 1771,
+      "lines": 65,
+      "modified_utc": "2026-03-13T22:20:27.568449+00:00"
+    },
+    {
+      "path": "state/backups/20260314-013957/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/backups/20260314-013957/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 4169,
+      "lines": 164,
+      "modified_utc": "2026-03-14T01:39:56.652300+00:00"
+    },
+    {
+      "path": "state/backups/20260314-013957/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 18171,
+      "lines": 738,
+      "modified_utc": "2026-03-13T22:20:27.505040+00:00"
+    },
+    {
+      "path": "state/backups/20260314-035051/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 2428,
+      "lines": 122,
+      "modified_utc": "2026-03-13T05:53:35.148341+00:00"
+    },
+    {
+      "path": "state/backups/20260314-035051/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 1131,
+      "lines": 26,
+      "modified_utc": "2026-03-14T03:50:52.010958+00:00"
+    },
+    {
+      "path": "state/backups/20260314-035051/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 1771,
+      "lines": 65,
+      "modified_utc": "2026-03-13T22:20:27.568449+00:00"
+    },
+    {
+      "path": "state/backups/20260314-035051/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/backups/20260314-035051/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 4208,
+      "lines": 164,
+      "modified_utc": "2026-03-14T03:45:33.625301+00:00"
+    },
+    {
+      "path": "state/backups/20260314-035051/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 18171,
+      "lines": 738,
+      "modified_utc": "2026-03-13T22:20:27.505040+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035105/baseline_manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 409,
+      "lines": 9,
+      "modified_utc": "2026-03-14T03:51:05.320859+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035121/BASELINE_POLICY.md",
+      "category": "state",
+      "suffix": ".md",
+      "bytes": 1453,
+      "lines": 62,
+      "modified_utc": "2026-03-14T01:46:18.131962+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035121/BEHAVIOR_LOCK.md",
+      "category": "state",
+      "suffix": ".md",
+      "bytes": 1832,
+      "lines": 43,
+      "modified_utc": "2026-03-14T01:46:08.115426+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035121/baseline_manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3494,
+      "lines": 58,
+      "modified_utc": "2026-03-14T03:51:21.500287+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035121/build_strategy_replay_fixture.py",
+      "category": "state",
+      "suffix": ".py",
+      "bytes": 10252,
+      "lines": 336,
+      "modified_utc": "2026-03-14T03:45:26.216775+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035121/check_local.ps1",
+      "category": "state",
+      "suffix": ".ps1",
+      "bytes": 1691,
+      "lines": 68,
+      "modified_utc": "2026-03-14T01:46:22.414370+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035121/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 1131,
+      "lines": 26,
+      "modified_utc": "2026-03-14T03:50:52.010958+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035121/replay_strategy_regression.py",
+      "category": "state",
+      "suffix": ".py",
+      "bytes": 1772,
+      "lines": 64,
+      "modified_utc": "2026-03-14T01:44:56.145395+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035121/run_strategy_replay.ps1",
+      "category": "state",
+      "suffix": ".ps1",
+      "bytes": 925,
+      "lines": 30,
+      "modified_utc": "2026-03-14T01:45:52.462144+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035121/strategy_hash_baseline.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 413,
+      "lines": 8,
+      "modified_utc": "2026-03-14T01:39:57.410480+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035121/strategy_replay_20260314-034939.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 21787,
+      "lines": 850,
+      "modified_utc": "2026-03-14T03:49:39.903834+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035121/strategy_replay_cases.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 109758,
+      "lines": 5086,
+      "modified_utc": "2026-03-14T03:49:35.997435+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035725/BASELINE_POLICY.md",
+      "category": "state",
+      "suffix": ".md",
+      "bytes": 1453,
+      "lines": 62,
+      "modified_utc": "2026-03-14T01:46:18.131962+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035725/BEHAVIOR_LOCK.md",
+      "category": "state",
+      "suffix": ".md",
+      "bytes": 1832,
+      "lines": 43,
+      "modified_utc": "2026-03-14T01:46:08.115426+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035725/baseline_manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3819,
+      "lines": 63,
+      "modified_utc": "2026-03-14T03:57:25.734957+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035725/build_strategy_replay_fixture.py",
+      "category": "state",
+      "suffix": ".py",
+      "bytes": 10279,
+      "lines": 338,
+      "modified_utc": "2026-03-14T03:56:49.005630+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035725/check_local.ps1",
+      "category": "state",
+      "suffix": ".ps1",
+      "bytes": 1676,
+      "lines": 70,
+      "modified_utc": "2026-03-14T03:55:08.730598+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035725/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 1131,
+      "lines": 26,
+      "modified_utc": "2026-03-14T03:50:52.010958+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035725/replay_strategy_regression.py",
+      "category": "state",
+      "suffix": ".py",
+      "bytes": 1772,
+      "lines": 64,
+      "modified_utc": "2026-03-14T01:44:56.145395+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035725/run_strategy_replay.ps1",
+      "category": "state",
+      "suffix": ".ps1",
+      "bytes": 925,
+      "lines": 30,
+      "modified_utc": "2026-03-14T01:45:52.462144+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035725/strategy_hash_baseline.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 413,
+      "lines": 8,
+      "modified_utc": "2026-03-14T01:39:57.410480+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035725/strategy_replay_20260314-035708.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 28482,
+      "lines": 1102,
+      "modified_utc": "2026-03-14T03:57:09.145427+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035725/strategy_replay_cases.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 121478,
+      "lines": 5525,
+      "modified_utc": "2026-03-14T03:56:59.918491+00:00"
+    },
+    {
+      "path": "state/baseline/20260314-035725/test_strategy_replay_fixture.py",
+      "category": "state",
+      "suffix": ".py",
+      "bytes": 411,
+      "lines": 13,
+      "modified_utc": "2026-03-14T01:45:58.108553+00:00"
+    },
+    {
+      "path": "state/bot.audit.log",
+      "category": "state",
+      "suffix": ".log",
+      "bytes": 50182,
+      "lines": 0,
+      "modified_utc": "2026-03-28T07:27:38.903710+00:00"
+    },
+    {
+      "path": "state/bot.errors.log",
+      "category": "state",
+      "suffix": ".log",
+      "bytes": 193543,
+      "lines": 0,
+      "modified_utc": "2026-03-28T07:28:10.941804+00:00"
+    },
+    {
+      "path": "state/bot.log",
+      "category": "state",
+      "suffix": ".log",
+      "bytes": 143242,
+      "lines": 0,
+      "modified_utc": "2026-03-29T05:06:34.403295+00:00"
+    },
+    {
+      "path": "state/bot.log.1",
+      "category": "state",
+      "suffix": ".1",
+      "bytes": 5776075,
+      "lines": 0,
+      "modified_utc": "2026-03-29T04:57:51.703322+00:00"
+    },
+    {
+      "path": "state/bot.log.5",
+      "category": "state",
+      "suffix": ".5",
+      "bytes": 5242831,
+      "lines": 0,
+      "modified_utc": "2026-03-28T19:12:00.165771+00:00"
+    },
+    {
+      "path": "state/bot.risk.log",
+      "category": "state",
+      "suffix": ".log",
+      "bytes": 27283,
+      "lines": 0,
+      "modified_utc": "2026-03-29T05:02:36.040009+00:00"
+    },
+    {
+      "path": "state/bot.runtime.log",
+      "category": "state",
+      "suffix": ".log",
+      "bytes": 21458,
+      "lines": 0,
+      "modified_utc": "2026-03-29T05:06:34.395316+00:00"
+    },
+    {
+      "path": "state/bot.runtime.log.1",
+      "category": "state",
+      "suffix": ".1",
+      "bytes": 2981628,
+      "lines": 0,
+      "modified_utc": "2026-03-29T05:05:04.279995+00:00"
+    },
+    {
+      "path": "state/bot.runtime.log.5",
+      "category": "state",
+      "suffix": ".5",
+      "bytes": 2096885,
+      "lines": 0,
+      "modified_utc": "2026-03-28T23:37:42.093410+00:00"
+    },
+    {
+      "path": "state/bot.strategy.log",
+      "category": "state",
+      "suffix": ".log",
+      "bytes": 699840,
+      "lines": 0,
+      "modified_utc": "2026-03-29T05:06:34.403295+00:00"
+    },
+    {
+      "path": "state/bot.strategy.log.1",
+      "category": "state",
+      "suffix": ".1",
+      "bytes": 2097105,
+      "lines": 0,
+      "modified_utc": "2026-03-28T23:23:33.334916+00:00"
+    },
+    {
+      "path": "state/bot.strategy.log.2",
+      "category": "state",
+      "suffix": ".2",
+      "bytes": 2097084,
+      "lines": 0,
+      "modified_utc": "2026-03-27T22:02:28.049190+00:00"
+    },
+    {
+      "path": "state/bot.trade.log",
+      "category": "state",
+      "suffix": ".log",
+      "bytes": 822921,
+      "lines": 0,
+      "modified_utc": "2026-03-29T05:03:37.780856+00:00"
+    },
+    {
+      "path": "state/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 12123,
+      "lines": 526,
+      "modified_utc": "2026-03-25T21:17:35.628200+00:00"
+    },
+    {
+      "path": "state/decision_audit.jsonl",
+      "category": "state",
+      "suffix": ".jsonl",
+      "bytes": 94698053,
+      "lines": 0,
+      "modified_utc": "2026-03-29T05:06:34.404293+00:00"
+    },
+    {
+      "path": "state/manual_action_cache.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 284,
+      "lines": 12,
+      "modified_utc": "2026-03-23T05:50:13.088317+00:00"
+    },
+    {
+      "path": "state/manual_stoploss.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 198,
+      "lines": 11,
+      "modified_utc": "2026-03-23T20:53:40.876791+00:00"
+    },
+    {
+      "path": "state/market_data.db",
+      "category": "state",
+      "suffix": ".db",
+      "bytes": 115802112,
+      "lines": 0,
+      "modified_utc": "2026-03-29T05:02:48.123833+00:00"
+    },
+    {
+      "path": "state/market_data.db-shm",
+      "category": "state",
+      "suffix": ".db-shm",
+      "bytes": 262144,
+      "lines": 0,
+      "modified_utc": "2026-03-29T03:22:50.158007+00:00"
+    },
+    {
+      "path": "state/market_data.db-wal",
+      "category": "state",
+      "suffix": ".db-wal",
+      "bytes": 117992712,
+      "lines": 0,
+      "modified_utc": "2026-03-29T05:06:32.545228+00:00"
+    },
+    {
+      "path": "state/market_sync_health.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 7806,
+      "lines": 1,
+      "modified_utc": "2026-03-29T05:06:33.034924+00:00"
+    },
+    {
+      "path": "state/market_sync_health_history.jsonl",
+      "category": "state",
+      "suffix": ".jsonl",
+      "bytes": 147222924,
+      "lines": 0,
+      "modified_utc": "2026-03-29T05:06:33.034924+00:00"
+    },
+    {
+      "path": "state/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3809,
+      "lines": 137,
+      "modified_utc": "2026-03-29T05:03:23.551065+00:00"
+    },
+    {
+      "path": "state/reports/strategy_replay_20260323-142154.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 28482,
+      "lines": 1102,
+      "modified_utc": "2026-03-23T14:21:56.006436+00:00"
+    },
+    {
+      "path": "state/reports/strategy_replay_20260323-142642.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 28482,
+      "lines": 1102,
+      "modified_utc": "2026-03-23T14:26:43.250389+00:00"
+    },
+    {
+      "path": "state/reports/strategy_replay_20260323-143505.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 28482,
+      "lines": 1102,
+      "modified_utc": "2026-03-23T14:35:07.215998+00:00"
+    },
+    {
+      "path": "state/reports/strategy_replay_20260323-202335.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 28482,
+      "lines": 1102,
+      "modified_utc": "2026-03-23T20:23:36.943933+00:00"
+    },
+    {
+      "path": "state/reports/strategy_replay_20260323-202556.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 28482,
+      "lines": 1102,
+      "modified_utc": "2026-03-23T20:25:56.501409+00:00"
+    },
+    {
+      "path": "state/reports/strategy_replay_20260323-205419.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 28482,
+      "lines": 1102,
+      "modified_utc": "2026-03-23T20:54:21.345955+00:00"
+    },
+    {
+      "path": "state/reports/strategy_replay_20260326-211047.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 28482,
+      "lines": 1102,
+      "modified_utc": "2026-03-26T21:10:49.099915+00:00"
+    },
+    {
+      "path": "state/reports/strategy_replay_20260327-204049.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 28482,
+      "lines": 1102,
+      "modified_utc": "2026-03-27T20:40:50.038396+00:00"
+    },
+    {
+      "path": "state/reports/strategy_replay_20260327-212136.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 28482,
+      "lines": 1102,
+      "modified_utc": "2026-03-27T21:21:36.837507+00:00"
+    },
+    {
+      "path": "state/reports/strategy_replay_20260328-072625.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 28482,
+      "lines": 1102,
+      "modified_utc": "2026-03-28T07:26:26.313912+00:00"
+    },
+    {
+      "path": "state/reports/strategy_replay_20260328-072735.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 28482,
+      "lines": 1102,
+      "modified_utc": "2026-03-28T07:27:35.816420+00:00"
+    },
+    {
+      "path": "state/revolut_account_snapshot.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 237,
+      "lines": 10,
+      "modified_utc": "2026-03-29T05:05:03.671615+00:00"
+    },
+    {
+      "path": "state/revolut_universe_price_history.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 9975967,
+      "lines": 559138,
+      "modified_utc": "2026-03-29T05:03:07.636772+00:00"
+    },
+    {
+      "path": "state/revolut_universe_snapshot.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 177011,
+      "lines": 6180,
+      "modified_utc": "2026-03-29T05:03:08.588239+00:00"
+    },
+    {
+      "path": "state/runtime_events.jsonl",
+      "category": "state",
+      "suffix": ".jsonl",
+      "bytes": 7355,
+      "lines": 0,
+      "modified_utc": "2026-03-29T05:02:33.017059+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-143756_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 12696,
+      "lines": 572,
+      "modified_utc": "2026-03-23T14:21:13.119435+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-143756_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 423,
+      "lines": 14,
+      "modified_utc": "2026-03-23T14:37:56.481702+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-143756_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 4159,
+      "lines": 155,
+      "modified_utc": "2026-03-23T14:37:45.654034+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-143756_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-143756_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 58770,
+      "lines": 2023,
+      "modified_utc": "2026-03-23T14:37:45.654034+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-143756_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 29169,
+      "lines": 1234,
+      "modified_utc": "2026-03-23T14:37:45.654034+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-171004_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 11605,
+      "lines": 526,
+      "modified_utc": "2026-03-23T14:46:25.338035+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-171004_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 423,
+      "lines": 14,
+      "modified_utc": "2026-03-23T17:10:05.083032+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-171004_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 4159,
+      "lines": 155,
+      "modified_utc": "2026-03-23T17:10:00.661646+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-171004_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-171004_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 60589,
+      "lines": 2101,
+      "modified_utc": "2026-03-23T17:10:00.663640+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-171004_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 29169,
+      "lines": 1234,
+      "modified_utc": "2026-03-23T17:10:00.665453+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-171605_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 11605,
+      "lines": 526,
+      "modified_utc": "2026-03-23T14:46:25.338035+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-171605_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 423,
+      "lines": 14,
+      "modified_utc": "2026-03-23T17:16:05.333704+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-171605_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 4159,
+      "lines": 155,
+      "modified_utc": "2026-03-23T17:16:02.038424+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-171605_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-171605_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 60336,
+      "lines": 2101,
+      "modified_utc": "2026-03-23T17:16:02.048483+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-171605_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 29169,
+      "lines": 1234,
+      "modified_utc": "2026-03-23T17:16:02.053187+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-202841_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 11605,
+      "lines": 526,
+      "modified_utc": "2026-03-23T14:46:25.338035+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-202841_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 423,
+      "lines": 14,
+      "modified_utc": "2026-03-23T20:28:41.836518+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-202841_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 4159,
+      "lines": 155,
+      "modified_utc": "2026-03-23T20:28:35.650481+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-202841_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-202841_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 60470,
+      "lines": 2103,
+      "modified_utc": "2026-03-23T20:28:35.652476+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-202841_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 29169,
+      "lines": 1234,
+      "modified_utc": "2026-03-23T20:28:35.655794+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-203500_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 11605,
+      "lines": 526,
+      "modified_utc": "2026-03-23T14:46:25.338035+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-203500_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 423,
+      "lines": 14,
+      "modified_utc": "2026-03-23T20:35:00.347686+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-203500_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 4159,
+      "lines": 155,
+      "modified_utc": "2026-03-23T20:34:48.675114+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-203500_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-203500_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 60374,
+      "lines": 2101,
+      "modified_utc": "2026-03-23T20:34:48.678106+00:00"
+    },
+    {
+      "path": "state/snapshots/20260323-203500_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 29169,
+      "lines": 1234,
+      "modified_utc": "2026-03-23T20:34:48.678918+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-035034_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 11605,
+      "lines": 526,
+      "modified_utc": "2026-03-23T14:46:25.338035+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-035034_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 423,
+      "lines": 14,
+      "modified_utc": "2026-03-24T03:50:34.068737+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-035034_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 4146,
+      "lines": 149,
+      "modified_utc": "2026-03-23T21:13:00.889115+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-035034_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-035034_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 61239,
+      "lines": 2060,
+      "modified_utc": "2026-03-24T03:38:30.256510+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-035034_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 31185,
+      "lines": 1257,
+      "modified_utc": "2026-03-23T21:13:00.845793+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-035034_daily_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 11605,
+      "lines": 526,
+      "modified_utc": "2026-03-23T14:46:25.338035+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-035034_daily_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 435,
+      "lines": 14,
+      "modified_utc": "2026-03-24T03:50:34.080410+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-035034_daily_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 4146,
+      "lines": 149,
+      "modified_utc": "2026-03-23T21:13:00.889115+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-035034_daily_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-035034_daily_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 61239,
+      "lines": 2060,
+      "modified_utc": "2026-03-24T03:38:30.256510+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-035034_daily_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 31185,
+      "lines": 1257,
+      "modified_utc": "2026-03-23T21:13:00.845793+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-200151_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 11597,
+      "lines": 526,
+      "modified_utc": "2026-03-24T03:56:00.354152+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-200151_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 423,
+      "lines": 14,
+      "modified_utc": "2026-03-24T20:01:51.135803+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-200151_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3978,
+      "lines": 143,
+      "modified_utc": "2026-03-24T14:21:38.374191+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-200151_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-200151_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 60242,
+      "lines": 2021,
+      "modified_utc": "2026-03-24T20:01:35.024652+00:00"
+    },
+    {
+      "path": "state/snapshots/20260324-200151_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 32061,
+      "lines": 1282,
+      "modified_utc": "2026-03-24T14:21:38.241777+00:00"
+    },
+    {
+      "path": "state/snapshots/20260325-212331_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 12123,
+      "lines": 526,
+      "modified_utc": "2026-03-25T21:17:35.628200+00:00"
+    },
+    {
+      "path": "state/snapshots/20260325-212331_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 423,
+      "lines": 14,
+      "modified_utc": "2026-03-25T21:23:31.766474+00:00"
+    },
+    {
+      "path": "state/snapshots/20260325-212331_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3978,
+      "lines": 143,
+      "modified_utc": "2026-03-24T14:21:38.374191+00:00"
+    },
+    {
+      "path": "state/snapshots/20260325-212331_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260325-212331_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 66033,
+      "lines": 2215,
+      "modified_utc": "2026-03-25T21:18:15.053949+00:00"
+    },
+    {
+      "path": "state/snapshots/20260325-212331_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 32061,
+      "lines": 1282,
+      "modified_utc": "2026-03-24T14:21:38.241777+00:00"
+    },
+    {
+      "path": "state/snapshots/20260325-212331_daily_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 12123,
+      "lines": 526,
+      "modified_utc": "2026-03-25T21:17:35.628200+00:00"
+    },
+    {
+      "path": "state/snapshots/20260325-212331_daily_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 435,
+      "lines": 14,
+      "modified_utc": "2026-03-25T21:23:31.772118+00:00"
+    },
+    {
+      "path": "state/snapshots/20260325-212331_daily_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3978,
+      "lines": 143,
+      "modified_utc": "2026-03-24T14:21:38.374191+00:00"
+    },
+    {
+      "path": "state/snapshots/20260325-212331_daily_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260325-212331_daily_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 66033,
+      "lines": 2215,
+      "modified_utc": "2026-03-25T21:18:15.053949+00:00"
+    },
+    {
+      "path": "state/snapshots/20260325-212331_daily_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 32061,
+      "lines": 1282,
+      "modified_utc": "2026-03-24T14:21:38.241777+00:00"
+    },
+    {
+      "path": "state/snapshots/20260326-212910_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 12123,
+      "lines": 526,
+      "modified_utc": "2026-03-25T21:17:35.628200+00:00"
+    },
+    {
+      "path": "state/snapshots/20260326-212910_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 423,
+      "lines": 14,
+      "modified_utc": "2026-03-26T21:29:10.011812+00:00"
+    },
+    {
+      "path": "state/snapshots/20260326-212910_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3978,
+      "lines": 143,
+      "modified_utc": "2026-03-24T14:21:38.374191+00:00"
+    },
+    {
+      "path": "state/snapshots/20260326-212910_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260326-212910_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 66308,
+      "lines": 2217,
+      "modified_utc": "2026-03-26T21:10:55.129865+00:00"
+    },
+    {
+      "path": "state/snapshots/20260326-212910_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 32061,
+      "lines": 1282,
+      "modified_utc": "2026-03-24T14:21:38.241777+00:00"
+    },
+    {
+      "path": "state/snapshots/20260326-212910_daily_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 12123,
+      "lines": 526,
+      "modified_utc": "2026-03-25T21:17:35.628200+00:00"
+    },
+    {
+      "path": "state/snapshots/20260326-212910_daily_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 435,
+      "lines": 14,
+      "modified_utc": "2026-03-26T21:29:10.018794+00:00"
+    },
+    {
+      "path": "state/snapshots/20260326-212910_daily_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3978,
+      "lines": 143,
+      "modified_utc": "2026-03-24T14:21:38.374191+00:00"
+    },
+    {
+      "path": "state/snapshots/20260326-212910_daily_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260326-212910_daily_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 66308,
+      "lines": 2217,
+      "modified_utc": "2026-03-26T21:10:55.129865+00:00"
+    },
+    {
+      "path": "state/snapshots/20260326-212910_daily_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 32061,
+      "lines": 1282,
+      "modified_utc": "2026-03-24T14:21:38.241777+00:00"
+    },
+    {
+      "path": "state/snapshots/20260327-211319_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 12123,
+      "lines": 526,
+      "modified_utc": "2026-03-25T21:17:35.628200+00:00"
+    },
+    {
+      "path": "state/snapshots/20260327-211319_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 423,
+      "lines": 14,
+      "modified_utc": "2026-03-27T21:13:19.546432+00:00"
+    },
+    {
+      "path": "state/snapshots/20260327-211319_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3978,
+      "lines": 143,
+      "modified_utc": "2026-03-24T14:21:38.374191+00:00"
+    },
+    {
+      "path": "state/snapshots/20260327-211319_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260327-211319_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 65496,
+      "lines": 2217,
+      "modified_utc": "2026-03-27T21:13:07.819686+00:00"
+    },
+    {
+      "path": "state/snapshots/20260327-211319_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 32061,
+      "lines": 1282,
+      "modified_utc": "2026-03-24T14:21:38.241777+00:00"
+    },
+    {
+      "path": "state/snapshots/20260327-211319_daily_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 12123,
+      "lines": 526,
+      "modified_utc": "2026-03-25T21:17:35.628200+00:00"
+    },
+    {
+      "path": "state/snapshots/20260327-211319_daily_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 435,
+      "lines": 14,
+      "modified_utc": "2026-03-27T21:13:19.556406+00:00"
+    },
+    {
+      "path": "state/snapshots/20260327-211319_daily_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3978,
+      "lines": 143,
+      "modified_utc": "2026-03-24T14:21:38.374191+00:00"
+    },
+    {
+      "path": "state/snapshots/20260327-211319_daily_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260327-211319_daily_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 65496,
+      "lines": 2217,
+      "modified_utc": "2026-03-27T21:13:07.819686+00:00"
+    },
+    {
+      "path": "state/snapshots/20260327-211319_daily_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 32061,
+      "lines": 1282,
+      "modified_utc": "2026-03-24T14:21:38.241777+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-213209_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 12123,
+      "lines": 526,
+      "modified_utc": "2026-03-25T21:17:35.628200+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-213209_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 423,
+      "lines": 14,
+      "modified_utc": "2026-03-28T21:32:09.667809+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-213209_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3978,
+      "lines": 143,
+      "modified_utc": "2026-03-24T14:21:38.374191+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-213209_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-213209_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 66634,
+      "lines": 2229,
+      "modified_utc": "2026-03-28T21:31:40.375478+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-213209_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 32061,
+      "lines": 1282,
+      "modified_utc": "2026-03-24T14:21:38.241777+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-213209_daily_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 12123,
+      "lines": 526,
+      "modified_utc": "2026-03-25T21:17:35.628200+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-213209_daily_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 435,
+      "lines": 14,
+      "modified_utc": "2026-03-28T21:32:09.730641+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-213209_daily_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3978,
+      "lines": 143,
+      "modified_utc": "2026-03-24T14:21:38.374191+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-213209_daily_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-213209_daily_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 66634,
+      "lines": 2229,
+      "modified_utc": "2026-03-28T21:31:40.375478+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-213209_daily_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 32061,
+      "lines": 1282,
+      "modified_utc": "2026-03-24T14:21:38.241777+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-220414_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 12123,
+      "lines": 526,
+      "modified_utc": "2026-03-25T21:17:35.628200+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-220414_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 423,
+      "lines": 14,
+      "modified_utc": "2026-03-28T22:04:14.807144+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-220414_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3978,
+      "lines": 143,
+      "modified_utc": "2026-03-24T14:21:38.374191+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-220414_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-220414_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 104659,
+      "lines": 3354,
+      "modified_utc": "2026-03-28T21:54:54.220361+00:00"
+    },
+    {
+      "path": "state/snapshots/20260328-220414_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 32061,
+      "lines": 1282,
+      "modified_utc": "2026-03-24T14:21:38.241777+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-000800_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 12123,
+      "lines": 526,
+      "modified_utc": "2026-03-25T21:17:35.628200+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-000800_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 423,
+      "lines": 14,
+      "modified_utc": "2026-03-29T00:08:00.301594+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-000800_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3978,
+      "lines": 143,
+      "modified_utc": "2026-03-24T14:21:38.374191+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-000800_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-000800_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 105386,
+      "lines": 3358,
+      "modified_utc": "2026-03-29T00:07:41.140028+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-000800_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 32061,
+      "lines": 1282,
+      "modified_utc": "2026-03-24T14:21:38.241777+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-000800_daily_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 12123,
+      "lines": 526,
+      "modified_utc": "2026-03-25T21:17:35.628200+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-000800_daily_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 435,
+      "lines": 14,
+      "modified_utc": "2026-03-29T00:08:00.326528+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-000800_daily_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3978,
+      "lines": 143,
+      "modified_utc": "2026-03-24T14:21:38.374191+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-000800_daily_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-000800_daily_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 105386,
+      "lines": 3358,
+      "modified_utc": "2026-03-29T00:07:41.140028+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-000800_daily_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 32061,
+      "lines": 1282,
+      "modified_utc": "2026-03-24T14:21:38.241777+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-032226_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 12123,
+      "lines": 526,
+      "modified_utc": "2026-03-25T21:17:35.628200+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-032226_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 423,
+      "lines": 14,
+      "modified_utc": "2026-03-29T03:22:26.205317+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-032226_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3978,
+      "lines": 143,
+      "modified_utc": "2026-03-24T14:21:38.374191+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-032226_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-032226_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 105022,
+      "lines": 3360,
+      "modified_utc": "2026-03-29T03:22:21.287178+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-032226_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 32061,
+      "lines": 1282,
+      "modified_utc": "2026-03-24T14:21:38.241777+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-050229_bot_prestart/config.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 12123,
+      "lines": 526,
+      "modified_utc": "2026-03-25T21:17:35.628200+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-050229_bot_prestart/manifest.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 423,
+      "lines": 14,
+      "modified_utc": "2026-03-29T05:02:29.497429+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-050229_bot_prestart/paper_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 3978,
+      "lines": 143,
+      "modified_utc": "2026-03-24T14:21:38.374191+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-050229_bot_prestart/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-050229_bot_prestart/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 105429,
+      "lines": 3360,
+      "modified_utc": "2026-03-29T05:02:24.974473+00:00"
+    },
+    {
+      "path": "state/snapshots/20260329-050229_bot_prestart/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 32061,
+      "lines": 1282,
+      "modified_utc": "2026-03-24T14:21:38.241777+00:00"
+    },
+    {
+      "path": "state/state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 70,
+      "lines": 5,
+      "modified_utc": "2026-01-31T20:46:41.888616+00:00"
+    },
+    {
+      "path": "state/strategy_state.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 101367,
+      "lines": 3240,
+      "modified_utc": "2026-03-29T05:06:33.248356+00:00"
+    },
+    {
+      "path": "state/strategy_state.json.bak.1774734413",
+      "category": "state",
+      "suffix": ".1774734413",
+      "bytes": 104013,
+      "lines": 0,
+      "modified_utc": "2026-03-28T21:46:46.208531+00:00"
+    },
+    {
+      "path": "state/strategy_state.json.repair.bak.1774734894",
+      "category": "state",
+      "suffix": ".1774734894",
+      "bytes": 104142,
+      "lines": 0,
+      "modified_utc": "2026-03-28T21:49:53.636943+00:00"
+    },
+    {
+      "path": "state/trades.json",
+      "category": "state",
+      "suffix": ".json",
+      "bytes": 32926,
+      "lines": 1307,
+      "modified_utc": "2026-03-29T05:03:23.002525+00:00"
+    },
+    {
+      "path": "strategy/ScopeLock.txt",
+      "category": "strategy",
+      "suffix": ".txt",
+      "bytes": 4859,
+      "lines": 119,
+      "modified_utc": "2026-03-13T05:18:06.704708+00:00"
+    },
+    {
+      "path": "strategy/breakout_momentum.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 10984,
+      "lines": 361,
+      "modified_utc": "2026-03-29T00:28:34.368192+00:00"
+    },
+    {
+      "path": "strategy/decision_payloads.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 1912,
+      "lines": 51,
+      "modified_utc": "2026-03-27T20:29:56.330533+00:00"
+    },
+    {
+      "path": "strategy/diagnostics.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 6524,
+      "lines": 217,
+      "modified_utc": "2026-03-29T00:29:13.540293+00:00"
+    },
+    {
+      "path": "strategy/entry_contracts.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 7263,
+      "lines": 181,
+      "modified_utc": "2026-03-27T20:29:25.509365+00:00"
+    },
+    {
+      "path": "strategy/exits/breakout_exit.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 1754,
+      "lines": 54,
+      "modified_utc": "2026-03-29T04:00:03.749698+00:00"
+    },
+    {
+      "path": "strategy/exits/mr_exit.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 1705,
+      "lines": 54,
+      "modified_utc": "2026-03-29T03:59:43.659947+00:00"
+    },
+    {
+      "path": "strategy/exits/shared_non_mr_exit.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 1807,
+      "lines": 55,
+      "modified_utc": "2026-03-29T03:59:50.580242+00:00"
+    },
+    {
+      "path": "strategy/exits/trend_exit.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 1751,
+      "lines": 54,
+      "modified_utc": "2026-03-29T03:59:57.157267+00:00"
+    },
+    {
+      "path": "strategy/legacy/scoring_adapter.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 420,
+      "lines": 12,
+      "modified_utc": "2026-03-27T20:28:15.839607+00:00"
+    },
+    {
+      "path": "strategy/multi_regime_strategy_plan.txt",
+      "category": "strategy",
+      "suffix": ".txt",
+      "bytes": 36214,
+      "lines": 1369,
+      "modified_utc": "2026-03-28T07:17:24.886945+00:00"
+    },
+    {
+      "path": "strategy/regime.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 6467,
+      "lines": 186,
+      "modified_utc": "2026-03-29T00:39:28.291315+00:00"
+    },
+    {
+      "path": "strategy/regime_engine.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 6136,
+      "lines": 188,
+      "modified_utc": "2026-03-29T00:22:39.138759+00:00"
+    },
+    {
+      "path": "strategy/regime_engine_v2.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 22564,
+      "lines": 589,
+      "modified_utc": "2026-03-29T00:24:32.963706+00:00"
+    },
+    {
+      "path": "strategy/regime_router.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 44006,
+      "lines": 1011,
+      "modified_utc": "2026-03-29T00:27:19.700047+00:00"
+    },
+    {
+      "path": "strategy/regime_source_contract.md",
+      "category": "strategy",
+      "suffix": ".md",
+      "bytes": 1262,
+      "lines": 30,
+      "modified_utc": "2026-03-22T19:26:26.512357+00:00"
+    },
+    {
+      "path": "strategy/route_metadata.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 9223,
+      "lines": 236,
+      "modified_utc": "2026-03-27T21:19:17.786005+00:00"
+    },
+    {
+      "path": "strategy/route_quality.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 17732,
+      "lines": 499,
+      "modified_utc": "2026-03-23T04:38:47.510167+00:00"
+    },
+    {
+      "path": "strategy/route_scoring/breakout_score.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 1672,
+      "lines": 57,
+      "modified_utc": "2026-03-29T00:29:25.414386+00:00"
+    },
+    {
+      "path": "strategy/route_scoring/mr_score.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 743,
+      "lines": 30,
+      "modified_utc": "2026-03-22T20:51:20.815417+00:00"
+    },
+    {
+      "path": "strategy/route_scoring/trend_score.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 1389,
+      "lines": 47,
+      "modified_utc": "2026-03-29T00:29:20.528522+00:00"
+    },
+    {
+      "path": "strategy/routes/breakout_momentum.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 1160,
+      "lines": 48,
+      "modified_utc": "2026-03-22T20:50:33.231856+00:00"
+    },
+    {
+      "path": "strategy/routes/mean_reversion.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 2618,
+      "lines": 84,
+      "modified_utc": "2026-03-23T05:34:22.802527+00:00"
+    },
+    {
+      "path": "strategy/routes/trend_pullback.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 1148,
+      "lines": 48,
+      "modified_utc": "2026-03-22T20:50:24.845947+00:00"
+    },
+    {
+      "path": "strategy/routing.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 5787,
+      "lines": 168,
+      "modified_utc": "2026-03-23T05:34:12.376181+00:00"
+    },
+    {
+      "path": "strategy/scoring.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 1480,
+      "lines": 52,
+      "modified_utc": "2026-03-29T00:28:53.345622+00:00"
+    },
+    {
+      "path": "strategy/sell_eval.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 5477,
+      "lines": 177,
+      "modified_utc": "2026-03-29T04:01:32.684122+00:00"
+    },
+    {
+      "path": "strategy/shadow_regime_manager.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 1882,
+      "lines": 58,
+      "modified_utc": "2026-03-27T20:30:08.798869+00:00"
+    },
+    {
+      "path": "strategy/state_io.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 9975,
+      "lines": 255,
+      "modified_utc": "2026-03-22T20:56:20.939870+00:00"
+    },
+    {
+      "path": "strategy/strategy_engine.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 10896,
+      "lines": 273,
+      "modified_utc": "2026-03-28T07:23:46.600742+00:00"
+    },
+    {
+      "path": "strategy/strategy_hash_baseline.json",
+      "category": "strategy",
+      "suffix": ".json",
+      "bytes": 1430,
+      "lines": 17,
+      "modified_utc": "2026-03-28T07:26:20.596630+00:00"
+    },
+    {
+      "path": "strategy/strategy_metrics.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 3129,
+      "lines": 102,
+      "modified_utc": "2026-03-27T20:29:44.397363+00:00"
+    },
+    {
+      "path": "strategy/strategy_orchestrator.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 32081,
+      "lines": 991,
+      "modified_utc": "2026-03-29T04:02:31.123655+00:00"
+    },
+    {
+      "path": "strategy/strategy_runtime_state.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 4082,
+      "lines": 102,
+      "modified_utc": "2026-03-27T21:19:09.170943+00:00"
+    },
+    {
+      "path": "strategy/trend_pullback.py",
+      "category": "strategy",
+      "suffix": ".py",
+      "bytes": 11387,
+      "lines": 385,
+      "modified_utc": "2026-03-29T00:28:06.764747+00:00"
+    },
+    {
+      "path": "tests/conftest.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 640,
+      "lines": 27,
+      "modified_utc": "2026-03-14T03:54:46.670542+00:00"
+    },
+    {
+      "path": "tests/fixtures/strategy_replay_cases.json",
+      "category": "tests",
+      "suffix": ".json",
+      "bytes": 121478,
+      "lines": 5525,
+      "modified_utc": "2026-03-14T03:56:59.918491+00:00"
+    },
+    {
+      "path": "tests/test_candle_coverage.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 1227,
+      "lines": 46,
+      "modified_utc": "2026-03-21T21:45:55.863549+00:00"
+    },
+    {
+      "path": "tests/test_config_loader.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 6259,
+      "lines": 164,
+      "modified_utc": "2026-03-23T14:18:32.034164+00:00"
+    },
+    {
+      "path": "tests/test_control_routes.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 12415,
+      "lines": 362,
+      "modified_utc": "2026-03-23T14:34:16.966936+00:00"
+    },
+    {
+      "path": "tests/test_control_security.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 3124,
+      "lines": 94,
+      "modified_utc": "2026-03-14T04:37:00.988617+00:00"
+    },
+    {
+      "path": "tests/test_daily_summary.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 7738,
+      "lines": 167,
+      "modified_utc": "2026-03-17T06:05:29.610468+00:00"
+    },
+    {
+      "path": "tests/test_data_quality_engines.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 3912,
+      "lines": 94,
+      "modified_utc": "2026-03-19T06:19:09.918698+00:00"
+    },
+    {
+      "path": "tests/test_db_maintenance.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 1247,
+      "lines": 40,
+      "modified_utc": "2026-03-22T04:42:57.328284+00:00"
+    },
+    {
+      "path": "tests/test_live_sync_scheduler.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 7134,
+      "lines": 220,
+      "modified_utc": "2026-03-23T14:17:00.699893+00:00"
+    },
+    {
+      "path": "tests/test_logger_setup.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 3265,
+      "lines": 97,
+      "modified_utc": "2026-03-14T04:10:21.688035+00:00"
+    },
+    {
+      "path": "tests/test_main_runtime.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 16263,
+      "lines": 475,
+      "modified_utc": "2026-03-22T19:29:38.456401+00:00"
+    },
+    {
+      "path": "tests/test_market_data_runtime_source.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 5911,
+      "lines": 162,
+      "modified_utc": "2026-03-23T14:19:00.087323+00:00"
+    },
+    {
+      "path": "tests/test_market_data_subsystem.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 30067,
+      "lines": 917,
+      "modified_utc": "2026-03-28T21:29:06.547287+00:00"
+    },
+    {
+      "path": "tests/test_regime_detector_and_router.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 7642,
+      "lines": 261,
+      "modified_utc": "2026-03-29T00:31:55.090295+00:00"
+    },
+    {
+      "path": "tests/test_regime_engine_shadow.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 3951,
+      "lines": 145,
+      "modified_utc": "2026-03-29T00:30:31.613610+00:00"
+    },
+    {
+      "path": "tests/test_regime_engine_v2.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 3209,
+      "lines": 94,
+      "modified_utc": "2026-03-29T00:31:05.297570+00:00"
+    },
+    {
+      "path": "tests/test_regime_router.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 38410,
+      "lines": 1147,
+      "modified_utc": "2026-03-29T00:41:27.909875+00:00"
+    },
+    {
+      "path": "tests/test_revolut_account_sync.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 1668,
+      "lines": 45,
+      "modified_utc": "2026-03-17T03:23:08.255770+00:00"
+    },
+    {
+      "path": "tests/test_revolut_api_security.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 9000,
+      "lines": 255,
+      "modified_utc": "2026-03-23T14:18:18.997070+00:00"
+    },
+    {
+      "path": "tests/test_revolut_universe.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 4034,
+      "lines": 110,
+      "modified_utc": "2026-03-17T03:55:05.653062+00:00"
+    },
+    {
+      "path": "tests/test_risk_manager.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 3590,
+      "lines": 114,
+      "modified_utc": "2026-03-20T20:40:01.786347+00:00"
+    },
+    {
+      "path": "tests/test_route_quality.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 5161,
+      "lines": 130,
+      "modified_utc": "2026-03-23T04:39:24.926206+00:00"
+    },
+    {
+      "path": "tests/test_route_separation.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 12768,
+      "lines": 352,
+      "modified_utc": "2026-03-27T21:20:06.812587+00:00"
+    },
+    {
+      "path": "tests/test_runtime_guard.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 1799,
+      "lines": 55,
+      "modified_utc": "2026-03-21T21:30:31.446068+00:00"
+    },
+    {
+      "path": "tests/test_state_io.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 2728,
+      "lines": 96,
+      "modified_utc": "2026-03-28T07:24:48.170789+00:00"
+    },
+    {
+      "path": "tests/test_state_paths.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 679,
+      "lines": 20,
+      "modified_utc": "2026-03-28T07:25:11.785679+00:00"
+    },
+    {
+      "path": "tests/test_state_snapshot.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 1766,
+      "lines": 53,
+      "modified_utc": "2026-03-14T04:18:20.167289+00:00"
+    },
+    {
+      "path": "tests/test_state_storage.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 797,
+      "lines": 31,
+      "modified_utc": "2026-03-14T04:18:36.543466+00:00"
+    },
+    {
+      "path": "tests/test_state_validator.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 2425,
+      "lines": 89,
+      "modified_utc": "2026-03-14T04:18:08.893925+00:00"
+    },
+    {
+      "path": "tests/test_strategy_contract_and_fallback.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 4800,
+      "lines": 148,
+      "modified_utc": "2026-03-29T00:40:36.375586+00:00"
+    },
+    {
+      "path": "tests/test_strategy_diagnostics_perf.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 1289,
+      "lines": 49,
+      "modified_utc": "2026-03-22T19:20:59.353785+00:00"
+    },
+    {
+      "path": "tests/test_strategy_regression.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 10200,
+      "lines": 334,
+      "modified_utc": "2026-03-29T04:00:51.891305+00:00"
+    },
+    {
+      "path": "tests/test_strategy_replay_fixture.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 411,
+      "lines": 13,
+      "modified_utc": "2026-03-14T01:45:58.108553+00:00"
+    },
+    {
+      "path": "tests/test_strategy_state_io.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 3299,
+      "lines": 102,
+      "modified_utc": "2026-03-22T19:19:57.595793+00:00"
+    },
+    {
+      "path": "tests/test_weekly_summary.py",
+      "category": "tests",
+      "suffix": ".py",
+      "bytes": 7896,
+      "lines": 180,
+      "modified_utc": "2026-03-17T06:05:49.623999+00:00"
+    },
+    {
+      "path": "tools/live_safety_tuning_report.py",
+      "category": "tools",
+      "suffix": ".py",
+      "bytes": 6720,
+      "lines": 154,
+      "modified_utc": "2026-03-22T05:44:19.477077+00:00"
+    },
+    {
+      "path": "tools/repair_core_candles.py",
+      "category": "tools",
+      "suffix": ".py",
+      "bytes": 6149,
+      "lines": 176,
+      "modified_utc": "2026-03-22T14:30:59.861585+00:00"
+    },
+    {
+      "path": "tools/sync_health_report.py",
+      "category": "tools",
+      "suffix": ".py",
+      "bytes": 4859,
+      "lines": 125,
+      "modified_utc": "2026-03-22T06:31:40.470172+00:00"
+    },
+    {
+      "path": "trading/executor.py",
+      "category": "trading",
+      "suffix": ".py",
+      "bytes": 13037,
+      "lines": 331,
+      "modified_utc": "2026-03-27T20:36:38.362079+00:00"
+    },
+    {
+      "path": "trading/exit_rules.py",
+      "category": "trading",
+      "suffix": ".py",
+      "bytes": 638,
+      "lines": 27,
+      "modified_utc": "2026-02-09T03:50:51.113008+00:00"
+    },
+    {
+      "path": "trading/trader.py",
+      "category": "trading",
+      "suffix": ".py",
+      "bytes": 2499,
+      "lines": 93,
+      "modified_utc": "2026-02-03T05:11:38.400860+00:00"
+    },
+    {
+      "path": "ui/templates/dashboard.html",
+      "category": "ui",
+      "suffix": ".html",
+      "bytes": 963,
+      "lines": 0,
+      "modified_utc": "2026-02-02T19:23:40.265393+00:00"
+    },
+    {
+      "path": "ui/web_ui.py",
+      "category": "ui",
+      "suffix": ".py",
+      "bytes": 1046,
+      "lines": 40,
+      "modified_utc": "2026-02-02T19:40:37.694439+00:00"
+    },
+    {
+      "path": "utils/config_loader.py",
+      "category": "utils",
+      "suffix": ".py",
+      "bytes": 2661,
+      "lines": 91,
+      "modified_utc": "2026-03-28T07:23:52.040268+00:00"
+    },
+    {
+      "path": "utils/config_schema.py",
+      "category": "utils",
+      "suffix": ".py",
+      "bytes": 27170,
+      "lines": 820,
+      "modified_utc": "2026-03-29T04:03:10.142288+00:00"
+    },
+    {
+      "path": "utils/logger.py",
+      "category": "utils",
+      "suffix": ".py",
+      "bytes": 5206,
+      "lines": 182,
+      "modified_utc": "2026-03-14T04:09:54.503231+00:00"
+    },
+    {
+      "path": "utils/runtime_events.py",
+      "category": "utils",
+      "suffix": ".py",
+      "bytes": 1047,
+      "lines": 37,
+      "modified_utc": "2026-03-14T04:12:31.834191+00:00"
+    },
+    {
+      "path": "utils/runtime_guard.py",
+      "category": "utils",
+      "suffix": ".py",
+      "bytes": 5402,
+      "lines": 213,
+      "modified_utc": "2026-03-21T21:30:03.574714+00:00"
+    },
+    {
+      "path": "utils/state_io.py",
+      "category": "utils",
+      "suffix": ".py",
+      "bytes": 9827,
+      "lines": 332,
+      "modified_utc": "2026-03-28T07:22:57.000460+00:00"
+    },
+    {
+      "path": "utils/state_paths.py",
+      "category": "utils",
+      "suffix": ".py",
+      "bytes": 349,
+      "lines": 14,
+      "modified_utc": "2026-03-28T07:22:44.613514+00:00"
+    },
+    {
+      "path": "utils/state_snapshot.py",
+      "category": "utils",
+      "suffix": ".py",
+      "bytes": 2793,
+      "lines": 99,
+      "modified_utc": "2026-03-14T04:12:23.342519+00:00"
+    },
+    {
+      "path": "utils/state_storage.py",
+      "category": "utils",
+      "suffix": ".py",
+      "bytes": 2530,
+      "lines": 111,
+      "modified_utc": "2026-03-14T04:11:30.637662+00:00"
+    },
+    {
+      "path": "utils/state_validator.py",
+      "category": "utils",
+      "suffix": ".py",
+      "bytes": 7242,
+      "lines": 254,
+      "modified_utc": "2026-03-14T04:12:07.179355+00:00"
+    },
+    {
+      "path": "utils/strategy_replay.py",
+      "category": "utils",
+      "suffix": ".py",
+      "bytes": 6817,
+      "lines": 203,
+      "modified_utc": "2026-03-14T03:49:30.098268+00:00"
+    },
+    {
+      "path": "utils/token_regimes.py",
+      "category": "utils",
+      "suffix": ".py",
+      "bytes": 979,
+      "lines": 36,
+      "modified_utc": "2026-03-16T06:04:53.954174+00:00"
+    }
+  ]
+}

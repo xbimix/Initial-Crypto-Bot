@@ -32,61 +32,145 @@ AUTO_DEFAULT_BREAKOUT_MIN_PERSISTENCE_SCORE = 76.0
 AUTO_DEFAULT_TREND_MAX_ROUTE_SHARE_PCT = 35.0
 AUTO_DEFAULT_BREAKOUT_MAX_ROUTE_SHARE_PCT = 8.0
 
-SUGGESTED_REGIME_MEAN_REVERSION = "MEAN_REVERSION_FRIENDLY"
-SUGGESTED_REGIME_TREND = "TREND_CONTINUATION"
-SUGGESTED_REGIME_BREAKOUT = "BREAKOUT_EXPANSION"
-SUGGESTED_REGIME_TREND_WEAKENING = "TREND_WEAKENING"
-SUGGESTED_REGIME_HIGH_RISK_UNSTABLE = "HIGH_RISK_UNSTABLE"
-SUGGESTED_REGIME_ACCUMULATION = "ACCUMULATION"
-SUGGESTED_REGIME_DISTRIBUTION = "DISTRIBUTION"
-SUGGESTED_REGIME_LIQUIDITY_SWEEP = "LIQUIDITY_SWEEP_REVERSAL"
-SUGGESTED_REGIME_VOL_COMPRESSION = "VOLATILITY_COMPRESSION"
-SUGGESTED_REGIME_SLOW_BLEED = "SLOW_BLEED"
-SUGGESTED_REGIME_CAPITULATION = "CAPITULATION_PANIC"
-SUGGESTED_REGIME_DEAD_MARKET = "LOW_PARTICIPATION_DEAD_MARKET"
-SUGGESTED_REGIME_MIXED = "MIXED_OR_UNCLEAR"
+TUNING_PROFILE_CONSERVATIVE = "conservative"
+TUNING_PROFILE_BALANCED = "balanced"
+TUNING_PROFILE_AGGRESSIVE = "aggressive"
+DEFAULT_TUNING_PROFILE = TUNING_PROFILE_CONSERVATIVE
+
+TUNING_PROFILE_DEFAULTS: dict[str, dict[str, float]] = {
+    TUNING_PROFILE_CONSERVATIVE: {
+        "auto_min_confidence": AUTO_DEFAULT_MIN_CONFIDENCE_SCORE,
+        "auto_min_stability": AUTO_DEFAULT_MIN_STABILITY_SCORE,
+        "auto_min_persistence": AUTO_DEFAULT_MIN_PERSISTENCE_SCORE,
+        "auto_max_route_age_seconds": AUTO_DEFAULT_MAX_ROUTE_AGE_SECONDS,
+        "auto_trend_min_confidence": AUTO_DEFAULT_TREND_MIN_CONFIDENCE_SCORE,
+        "auto_trend_min_stability": AUTO_DEFAULT_TREND_MIN_STABILITY_SCORE,
+        "auto_trend_min_persistence": AUTO_DEFAULT_TREND_MIN_PERSISTENCE_SCORE,
+        "auto_breakout_min_confidence": AUTO_DEFAULT_BREAKOUT_MIN_CONFIDENCE_SCORE,
+        "auto_breakout_min_stability": AUTO_DEFAULT_BREAKOUT_MIN_STABILITY_SCORE,
+        "auto_breakout_min_persistence": AUTO_DEFAULT_BREAKOUT_MIN_PERSISTENCE_SCORE,
+        "auto_trend_max_route_share_pct": AUTO_DEFAULT_TREND_MAX_ROUTE_SHARE_PCT,
+        "auto_breakout_max_route_share_pct": AUTO_DEFAULT_BREAKOUT_MAX_ROUTE_SHARE_PCT,
+        "auto_volatile_breakout_min": 86.0,
+        "auto_volatile_breakout_min_confidence": 80.0,
+    },
+    TUNING_PROFILE_BALANCED: {
+        "auto_min_confidence": 66.0,
+        "auto_min_stability": 56.0,
+        "auto_min_persistence": 56.0,
+        "auto_max_route_age_seconds": 18 * 60,
+        "auto_trend_min_confidence": 72.0,
+        "auto_trend_min_stability": 66.0,
+        "auto_trend_min_persistence": 66.0,
+        "auto_breakout_min_confidence": 80.0,
+        "auto_breakout_min_stability": 74.0,
+        "auto_breakout_min_persistence": 74.0,
+        "auto_trend_max_route_share_pct": 40.0,
+        "auto_breakout_max_route_share_pct": 10.0,
+        "auto_volatile_breakout_min": 84.0,
+        "auto_volatile_breakout_min_confidence": 78.0,
+    },
+    TUNING_PROFILE_AGGRESSIVE: {
+        "auto_min_confidence": 64.0,
+        "auto_min_stability": 54.0,
+        "auto_min_persistence": 54.0,
+        "auto_max_route_age_seconds": 22 * 60,
+        "auto_trend_min_confidence": 70.0,
+        "auto_trend_min_stability": 64.0,
+        "auto_trend_min_persistence": 64.0,
+        "auto_breakout_min_confidence": 78.0,
+        "auto_breakout_min_stability": 72.0,
+        "auto_breakout_min_persistence": 72.0,
+        "auto_trend_max_route_share_pct": 45.0,
+        "auto_breakout_max_route_share_pct": 12.0,
+        "auto_volatile_breakout_min": 82.0,
+        "auto_volatile_breakout_min_confidence": 76.0,
+    },
+}
+
+SUGGESTED_REGIME_TREND_UP = "TREND_UP"
+SUGGESTED_REGIME_TREND_DOWN = "TREND_DOWN"
+SUGGESTED_REGIME_RANGE = "RANGE"
+SUGGESTED_REGIME_BREAKOUT_UP = "BREAKOUT_UP"
+SUGGESTED_REGIME_BREAKOUT_DOWN = "BREAKOUT_DOWN"
+SUGGESTED_REGIME_MOMENTUM_UP = "MOMENTUM_UP"
+SUGGESTED_REGIME_VOLATILE = "VOLATILE"
+SUGGESTED_REGIME_LOW_VOL = "LOW_VOL"
+SUGGESTED_REGIME_CHOPPY = "CHOPPY"
+SUGGESTED_REGIME_UNKNOWN = "UNKNOWN"
 
 SUGGESTED_REGIME_TO_STRATEGY = {
-    SUGGESTED_REGIME_MEAN_REVERSION: STRATEGY_MEAN_REVERSION,
-    SUGGESTED_REGIME_TREND: STRATEGY_TREND_PULLBACK,
-    SUGGESTED_REGIME_BREAKOUT: STRATEGY_BREAKOUT_MOMENTUM,
-    SUGGESTED_REGIME_TREND_WEAKENING: STRATEGY_MEAN_REVERSION,
-    SUGGESTED_REGIME_HIGH_RISK_UNSTABLE: STRATEGY_MEAN_REVERSION,
-    SUGGESTED_REGIME_ACCUMULATION: STRATEGY_MEAN_REVERSION,
-    SUGGESTED_REGIME_DISTRIBUTION: STRATEGY_MEAN_REVERSION,
-    SUGGESTED_REGIME_LIQUIDITY_SWEEP: STRATEGY_MEAN_REVERSION,
-    SUGGESTED_REGIME_VOL_COMPRESSION: STRATEGY_MEAN_REVERSION,
-    SUGGESTED_REGIME_SLOW_BLEED: STRATEGY_MEAN_REVERSION,
-    SUGGESTED_REGIME_CAPITULATION: STRATEGY_MEAN_REVERSION,
-    SUGGESTED_REGIME_DEAD_MARKET: STRATEGY_MEAN_REVERSION,
-    SUGGESTED_REGIME_MIXED: STRATEGY_MEAN_REVERSION,
+    SUGGESTED_REGIME_TREND_UP: STRATEGY_TREND_PULLBACK,
+    SUGGESTED_REGIME_BREAKOUT_UP: STRATEGY_BREAKOUT_MOMENTUM,
+    SUGGESTED_REGIME_MOMENTUM_UP: STRATEGY_BREAKOUT_MOMENTUM,
+    SUGGESTED_REGIME_RANGE: STRATEGY_MEAN_REVERSION,
+    SUGGESTED_REGIME_LOW_VOL: STRATEGY_MEAN_REVERSION,
+    SUGGESTED_REGIME_TREND_DOWN: STRATEGY_OBSERVE_ONLY,
+    SUGGESTED_REGIME_BREAKOUT_DOWN: STRATEGY_OBSERVE_ONLY,
+    SUGGESTED_REGIME_VOLATILE: STRATEGY_OBSERVE_ONLY,
+    SUGGESTED_REGIME_CHOPPY: STRATEGY_OBSERVE_ONLY,
+    SUGGESTED_REGIME_UNKNOWN: STRATEGY_OBSERVE_ONLY,
 }
 
 RAW_REGIME_TO_SUGGESTED = {
-    "range": SUGGESTED_REGIME_MEAN_REVERSION,
-    "accumulation": SUGGESTED_REGIME_MEAN_REVERSION,
-    "trend_up": SUGGESTED_REGIME_TREND,
-    "spike": SUGGESTED_REGIME_BREAKOUT,
-    "chop": SUGGESTED_REGIME_MIXED,
-    "dump": SUGGESTED_REGIME_MIXED,
-    "trend_down": SUGGESTED_REGIME_MIXED,
-    "unknown": SUGGESTED_REGIME_MIXED,
+    "trend_up": SUGGESTED_REGIME_TREND_UP,
+    "trend_down": SUGGESTED_REGIME_TREND_DOWN,
+    "range": SUGGESTED_REGIME_RANGE,
+    "breakout_up": SUGGESTED_REGIME_BREAKOUT_UP,
+    "breakout_down": SUGGESTED_REGIME_BREAKOUT_DOWN,
+    "momentum_up": SUGGESTED_REGIME_MOMENTUM_UP,
+    "volatile": SUGGESTED_REGIME_VOLATILE,
+    "low_vol": SUGGESTED_REGIME_LOW_VOL,
+    "choppy": SUGGESTED_REGIME_CHOPPY,
+    "unknown": SUGGESTED_REGIME_UNKNOWN,
+    # Backward-compatibility shims for historical raw regimes.
+    "accumulation": SUGGESTED_REGIME_LOW_VOL,
+    "spike": SUGGESTED_REGIME_BREAKOUT_UP,
+    "dump": SUGGESTED_REGIME_BREAKOUT_DOWN,
+    "chop": SUGGESTED_REGIME_CHOPPY,
+}
+
+LEGACY_SUGGESTED_TO_CURRENT = {
+    "MEAN_REVERSION_FRIENDLY": SUGGESTED_REGIME_RANGE,
+    "TREND_CONTINUATION": SUGGESTED_REGIME_TREND_UP,
+    "BREAKOUT_EXPANSION": SUGGESTED_REGIME_BREAKOUT_UP,
+    "TREND_WEAKENING": SUGGESTED_REGIME_TREND_DOWN,
+    "HIGH_RISK_UNSTABLE": SUGGESTED_REGIME_CHOPPY,
+    "ACCUMULATION": SUGGESTED_REGIME_LOW_VOL,
+    "DISTRIBUTION": SUGGESTED_REGIME_TREND_DOWN,
+    "LIQUIDITY_SWEEP_REVERSAL": SUGGESTED_REGIME_BREAKOUT_UP,
+    "VOLATILITY_COMPRESSION": SUGGESTED_REGIME_LOW_VOL,
+    "SLOW_BLEED": SUGGESTED_REGIME_TREND_DOWN,
+    "CAPITULATION_PANIC": SUGGESTED_REGIME_BREAKOUT_DOWN,
+    "LOW_PARTICIPATION_DEAD_MARKET": SUGGESTED_REGIME_LOW_VOL,
+    "MIXED_OR_UNCLEAR": SUGGESTED_REGIME_UNKNOWN,
 }
 
 HUMAN_LABEL_TO_SUGGESTED = {
-    "MEAN-REVERSION-FRIENDLY RANGE": SUGGESTED_REGIME_MEAN_REVERSION,
-    "TREND CONTINUATION / PULLBACK": SUGGESTED_REGIME_TREND,
-    "BREAKOUT EXPANSION": SUGGESTED_REGIME_BREAKOUT,
-    "TREND WEAKENING": SUGGESTED_REGIME_TREND_WEAKENING,
-    "HIGH-RISK UNSTABLE / WHIPSAW": SUGGESTED_REGIME_HIGH_RISK_UNSTABLE,
-    "ACCUMULATION": SUGGESTED_REGIME_ACCUMULATION,
-    "DISTRIBUTION": SUGGESTED_REGIME_DISTRIBUTION,
-    "LIQUIDITY SWEEP REVERSAL": SUGGESTED_REGIME_LIQUIDITY_SWEEP,
-    "VOLATILITY COMPRESSION / SQUEEZE": SUGGESTED_REGIME_VOL_COMPRESSION,
-    "SLOW BLEED / DOWNTREND DRIFT": SUGGESTED_REGIME_SLOW_BLEED,
-    "CAPITULATION / PANIC FLUSH": SUGGESTED_REGIME_CAPITULATION,
-    "LOW-PARTICIPATION DEAD MARKET": SUGGESTED_REGIME_DEAD_MARKET,
-    "MIXED / UNCLEAR": SUGGESTED_REGIME_MIXED,
+    "TREND UP": SUGGESTED_REGIME_TREND_UP,
+    "TREND DOWN": SUGGESTED_REGIME_TREND_DOWN,
+    "RANGE": SUGGESTED_REGIME_RANGE,
+    "BREAKOUT UP": SUGGESTED_REGIME_BREAKOUT_UP,
+    "BREAKOUT DOWN": SUGGESTED_REGIME_BREAKOUT_DOWN,
+    "MOMENTUM UP": SUGGESTED_REGIME_MOMENTUM_UP,
+    "VOLATILE / UNSTABLE": SUGGESTED_REGIME_VOLATILE,
+    "LOW VOLATILITY": SUGGESTED_REGIME_LOW_VOL,
+    "CHOPPY / NO-TRADE": SUGGESTED_REGIME_CHOPPY,
+    "UNKNOWN": SUGGESTED_REGIME_UNKNOWN,
+    # Backward-compatibility labels.
+    "MEAN-REVERSION-FRIENDLY RANGE": SUGGESTED_REGIME_RANGE,
+    "TREND CONTINUATION / PULLBACK": SUGGESTED_REGIME_TREND_UP,
+    "BREAKOUT EXPANSION": SUGGESTED_REGIME_BREAKOUT_UP,
+    "TREND WEAKENING": SUGGESTED_REGIME_TREND_DOWN,
+    "HIGH-RISK UNSTABLE / WHIPSAW": SUGGESTED_REGIME_CHOPPY,
+    "ACCUMULATION": SUGGESTED_REGIME_LOW_VOL,
+    "DISTRIBUTION": SUGGESTED_REGIME_TREND_DOWN,
+    "LIQUIDITY SWEEP REVERSAL": SUGGESTED_REGIME_BREAKOUT_UP,
+    "VOLATILITY COMPRESSION / SQUEEZE": SUGGESTED_REGIME_LOW_VOL,
+    "SLOW BLEED / DOWNTREND DRIFT": SUGGESTED_REGIME_TREND_DOWN,
+    "CAPITULATION / PANIC FLUSH": SUGGESTED_REGIME_BREAKOUT_DOWN,
+    "LOW-PARTICIPATION DEAD MARKET": SUGGESTED_REGIME_LOW_VOL,
+    "MIXED / UNCLEAR": SUGGESTED_REGIME_UNKNOWN,
 }
 
 
@@ -99,9 +183,15 @@ def _normalize_suggested_regime(value: Any) -> str | None:
     upper = raw.upper()
     if upper in SUGGESTED_REGIME_TO_STRATEGY:
         return upper
+    legacy_mapped = LEGACY_SUGGESTED_TO_CURRENT.get(upper)
+    if legacy_mapped:
+        return legacy_mapped
     mapped = HUMAN_LABEL_TO_SUGGESTED.get(upper)
     if mapped:
         return mapped
+    raw_mapped = RAW_REGIME_TO_SUGGESTED.get(raw.lower())
+    if raw_mapped:
+        return raw_mapped
     return None
 
 
@@ -185,11 +275,31 @@ def _router_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
     return router
 
 
+def _tuning_profile(cfg: dict[str, Any]) -> str:
+    strategy_defaults = cfg.get("strategy_defaults", {})
+    if not isinstance(strategy_defaults, dict):
+        return DEFAULT_TUNING_PROFILE
+    raw = strategy_defaults.get("tuning_profile")
+    profile = str(raw or "").strip().lower()
+    if profile in TUNING_PROFILE_DEFAULTS:
+        return profile
+    return DEFAULT_TUNING_PROFILE
+
+
+def _profile_default(cfg: dict[str, Any], key: str, fallback: float) -> float:
+    profile = _tuning_profile(cfg)
+    defaults = TUNING_PROFILE_DEFAULTS.get(profile, {})
+    value = _as_float(defaults.get(key))
+    if value is None:
+        return float(fallback)
+    return float(value)
+
+
 def _auto_min_confidence_score(cfg: dict[str, Any]) -> float:
     router = _router_cfg(cfg)
     configured = _normalize_confidence_score(router.get("auto_min_confidence"))
     if configured is None:
-        return AUTO_DEFAULT_MIN_CONFIDENCE_SCORE
+        return _profile_default(cfg, "auto_min_confidence", AUTO_DEFAULT_MIN_CONFIDENCE_SCORE)
     return configured
 
 
@@ -212,7 +322,7 @@ def _auto_min_stability_score(cfg: dict[str, Any]) -> float:
     router = _router_cfg(cfg)
     configured = _normalize_confidence_score(router.get("auto_min_stability"))
     if configured is None:
-        return AUTO_DEFAULT_MIN_STABILITY_SCORE
+        return _profile_default(cfg, "auto_min_stability", AUTO_DEFAULT_MIN_STABILITY_SCORE)
     return configured
 
 
@@ -220,7 +330,7 @@ def _auto_min_persistence_score(cfg: dict[str, Any]) -> float:
     router = _router_cfg(cfg)
     configured = _normalize_confidence_score(router.get("auto_min_persistence"))
     if configured is None:
-        return AUTO_DEFAULT_MIN_PERSISTENCE_SCORE
+        return _profile_default(cfg, "auto_min_persistence", AUTO_DEFAULT_MIN_PERSISTENCE_SCORE)
     return configured
 
 
@@ -233,10 +343,14 @@ def _auto_strategy_min_confidence_score(cfg: dict[str, Any], strategy: str) -> f
     router = _router_cfg(cfg)
     if strategy == STRATEGY_TREND_PULLBACK:
         configured = _normalize_confidence_score(router.get("auto_trend_min_confidence"))
-        return configured if configured is not None else AUTO_DEFAULT_TREND_MIN_CONFIDENCE_SCORE
+        if configured is not None:
+            return configured
+        return _profile_default(cfg, "auto_trend_min_confidence", AUTO_DEFAULT_TREND_MIN_CONFIDENCE_SCORE)
     if strategy == STRATEGY_BREAKOUT_MOMENTUM:
         configured = _normalize_confidence_score(router.get("auto_breakout_min_confidence"))
-        return configured if configured is not None else AUTO_DEFAULT_BREAKOUT_MIN_CONFIDENCE_SCORE
+        if configured is not None:
+            return configured
+        return _profile_default(cfg, "auto_breakout_min_confidence", AUTO_DEFAULT_BREAKOUT_MIN_CONFIDENCE_SCORE)
     return _auto_min_confidence_score(cfg)
 
 
@@ -244,10 +358,14 @@ def _auto_strategy_min_stability_score(cfg: dict[str, Any], strategy: str) -> fl
     router = _router_cfg(cfg)
     if strategy == STRATEGY_TREND_PULLBACK:
         configured = _normalize_confidence_score(router.get("auto_trend_min_stability"))
-        return configured if configured is not None else AUTO_DEFAULT_TREND_MIN_STABILITY_SCORE
+        if configured is not None:
+            return configured
+        return _profile_default(cfg, "auto_trend_min_stability", AUTO_DEFAULT_TREND_MIN_STABILITY_SCORE)
     if strategy == STRATEGY_BREAKOUT_MOMENTUM:
         configured = _normalize_confidence_score(router.get("auto_breakout_min_stability"))
-        return configured if configured is not None else AUTO_DEFAULT_BREAKOUT_MIN_STABILITY_SCORE
+        if configured is not None:
+            return configured
+        return _profile_default(cfg, "auto_breakout_min_stability", AUTO_DEFAULT_BREAKOUT_MIN_STABILITY_SCORE)
     return _auto_min_stability_score(cfg)
 
 
@@ -255,10 +373,14 @@ def _auto_strategy_min_persistence_score(cfg: dict[str, Any], strategy: str) -> 
     router = _router_cfg(cfg)
     if strategy == STRATEGY_TREND_PULLBACK:
         configured = _normalize_confidence_score(router.get("auto_trend_min_persistence"))
-        return configured if configured is not None else AUTO_DEFAULT_TREND_MIN_PERSISTENCE_SCORE
+        if configured is not None:
+            return configured
+        return _profile_default(cfg, "auto_trend_min_persistence", AUTO_DEFAULT_TREND_MIN_PERSISTENCE_SCORE)
     if strategy == STRATEGY_BREAKOUT_MOMENTUM:
         configured = _normalize_confidence_score(router.get("auto_breakout_min_persistence"))
-        return configured if configured is not None else AUTO_DEFAULT_BREAKOUT_MIN_PERSISTENCE_SCORE
+        if configured is not None:
+            return configured
+        return _profile_default(cfg, "auto_breakout_min_persistence", AUTO_DEFAULT_BREAKOUT_MIN_PERSISTENCE_SCORE)
     return _auto_min_persistence_score(cfg)
 
 
@@ -267,12 +389,16 @@ def _auto_strategy_max_route_share_pct(cfg: dict[str, Any], strategy: str) -> fl
     if strategy == STRATEGY_TREND_PULLBACK:
         configured = _as_float(router.get("auto_trend_max_route_share_pct"))
         if configured is None:
-            return AUTO_DEFAULT_TREND_MAX_ROUTE_SHARE_PCT
+            return _profile_default(cfg, "auto_trend_max_route_share_pct", AUTO_DEFAULT_TREND_MAX_ROUTE_SHARE_PCT)
         return max(0.0, min(configured, 100.0))
     if strategy == STRATEGY_BREAKOUT_MOMENTUM:
         configured = _as_float(router.get("auto_breakout_max_route_share_pct"))
         if configured is None:
-            return AUTO_DEFAULT_BREAKOUT_MAX_ROUTE_SHARE_PCT
+            return _profile_default(
+                cfg,
+                "auto_breakout_max_route_share_pct",
+                AUTO_DEFAULT_BREAKOUT_MAX_ROUTE_SHARE_PCT,
+            )
         return max(0.0, min(configured, 100.0))
     return None
 
@@ -326,7 +452,7 @@ def _auto_max_route_age_seconds(cfg: dict[str, Any]) -> float:
     router = _router_cfg(cfg)
     age = _as_float(router.get("auto_max_route_age_seconds"))
     if age is None or age <= 0:
-        return AUTO_DEFAULT_MAX_ROUTE_AGE_SECONDS
+        return _profile_default(cfg, "auto_max_route_age_seconds", AUTO_DEFAULT_MAX_ROUTE_AGE_SECONDS)
     return max(age, 60.0)
 
 
@@ -345,6 +471,26 @@ def _core_candle_readiness(snapshot: dict[str, Any]) -> tuple[bool, str | None]:
     if not isinstance(reason, str) or not reason.strip():
         reason = "core_candle_readiness_not_ready"
     return ready, reason.strip().lower()
+
+
+def _volatile_breakout_override(snapshot: dict[str, Any], cfg: dict[str, Any], confidence_score: float | None) -> bool:
+    advisory = snapshot.get("regime_advisory")
+    if not isinstance(advisory, dict):
+        return False
+    breakout_score = _normalize_confidence_score(
+        advisory.get("breakoutScore", advisory.get("breakout_score"))
+    )
+    if breakout_score is None:
+        return False
+    router = _router_cfg(cfg)
+    breakout_min = _normalize_confidence_score(router.get("auto_volatile_breakout_min"))
+    if breakout_min is None:
+        breakout_min = _profile_default(cfg, "auto_volatile_breakout_min", 86.0)
+    confidence_min = _normalize_confidence_score(router.get("auto_volatile_breakout_min_confidence"))
+    if confidence_min is None:
+        confidence_min = _profile_default(cfg, "auto_volatile_breakout_min_confidence", 80.0)
+    confidence_probe = confidence_score if confidence_score is not None else 0.0
+    return breakout_score >= breakout_min and confidence_probe >= confidence_min
 
 
 def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -533,7 +679,7 @@ def _extract_shadow_advisory(
         or row.get("candidate_regime")
         or "unknown"
     ).strip().lower()
-    suggested = RAW_REGIME_TO_SUGGESTED.get(stable, SUGGESTED_REGIME_MIXED)
+    suggested = RAW_REGIME_TO_SUGGESTED.get(stable, SUGGESTED_REGIME_UNKNOWN)
     confidence_score = _normalize_confidence_score(row.get("confidence"))
     confidence_label = _confidence_label_from_score(confidence_score)
 
@@ -861,18 +1007,26 @@ def resolve_entry_route(
         _mark_not_ready(result["fallback_reason"], gate="route_timestamp_stale")
         return result
 
-    mapped_strategy = SUGGESTED_REGIME_TO_STRATEGY.get(str(advisory["suggested_regime"]))
+    suggested_regime = str(advisory["suggested_regime"] or SUGGESTED_REGIME_UNKNOWN)
+    mapped_strategy = SUGGESTED_REGIME_TO_STRATEGY.get(suggested_regime)
     if mapped_strategy is None:
         result["auto_fallback_reason"] = "mixed_or_unclear_regime"
         result["fallback_reason"] = result["auto_fallback_reason"]
         _mark_not_ready(result["fallback_reason"], gate="mixed_or_unclear_regime")
         return result
 
+    confidence_score = _normalize_confidence_score(advisory["confidence_score"])
+    if (
+        suggested_regime == SUGGESTED_REGIME_VOLATILE
+        and mapped_strategy == STRATEGY_OBSERVE_ONLY
+        and _volatile_breakout_override(snapshot, cfg, confidence_score)
+    ):
+        mapped_strategy = STRATEGY_BREAKOUT_MOMENTUM
+
     min_confidence_score = _auto_strategy_min_confidence_score(cfg, mapped_strategy)
     min_stability_score = _auto_strategy_min_stability_score(cfg, mapped_strategy)
     min_persistence_score = _auto_strategy_min_persistence_score(cfg, mapped_strategy)
 
-    confidence_score = _normalize_confidence_score(advisory["confidence_score"])
     if confidence_score is None or confidence_score < min_confidence_score:
         result["auto_fallback_reason"] = "low_confidence"
         result["fallback_reason"] = result["auto_fallback_reason"]
@@ -913,37 +1067,25 @@ def resolve_entry_route(
                 _mark_not_ready(result["fallback_reason"], gate="route_share_cap")
                 return result
 
-    suggested_regime = str(advisory["suggested_regime"])
-    if suggested_regime == SUGGESTED_REGIME_MIXED:
+    if suggested_regime == SUGGESTED_REGIME_UNKNOWN:
         result["auto_fallback_reason"] = "mixed_or_unclear_regime"
         result["fallback_reason"] = result["auto_fallback_reason"]
-    elif suggested_regime == SUGGESTED_REGIME_HIGH_RISK_UNSTABLE:
-        result["auto_fallback_reason"] = "high_risk_unstable"
+    elif suggested_regime == SUGGESTED_REGIME_CHOPPY:
+        result["auto_fallback_reason"] = "choppy_market"
         result["fallback_reason"] = result["auto_fallback_reason"]
-    elif suggested_regime == SUGGESTED_REGIME_TREND_WEAKENING:
-        result["auto_fallback_reason"] = "trend_weakening"
+    elif suggested_regime == SUGGESTED_REGIME_TREND_DOWN:
+        result["auto_fallback_reason"] = "downtrend_observe_only"
         result["fallback_reason"] = result["auto_fallback_reason"]
-    elif suggested_regime == SUGGESTED_REGIME_SLOW_BLEED:
-        result["auto_fallback_reason"] = "slow_bleed_downtrend"
+    elif suggested_regime == SUGGESTED_REGIME_BREAKOUT_DOWN:
+        result["auto_fallback_reason"] = "breakout_down_observe_only"
         result["fallback_reason"] = result["auto_fallback_reason"]
-    elif suggested_regime == SUGGESTED_REGIME_DEAD_MARKET:
-        result["auto_fallback_reason"] = "low_participation_dead_market"
-        result["fallback_reason"] = result["auto_fallback_reason"]
-    elif suggested_regime == SUGGESTED_REGIME_VOL_COMPRESSION:
-        result["auto_fallback_reason"] = "compression_watch_state"
-        result["fallback_reason"] = result["auto_fallback_reason"]
-    elif suggested_regime == SUGGESTED_REGIME_DISTRIBUTION:
-        result["auto_fallback_reason"] = "distribution_defensive"
-        result["fallback_reason"] = result["auto_fallback_reason"]
-    elif suggested_regime == SUGGESTED_REGIME_ACCUMULATION:
-        result["auto_fallback_reason"] = "accumulation_watch_state"
-        result["fallback_reason"] = result["auto_fallback_reason"]
-    elif suggested_regime == SUGGESTED_REGIME_LIQUIDITY_SWEEP:
-        result["auto_fallback_reason"] = "liquidity_sweep_watch_state"
-        result["fallback_reason"] = result["auto_fallback_reason"]
-    elif suggested_regime == SUGGESTED_REGIME_CAPITULATION:
-        result["auto_fallback_reason"] = "capitulation_watch_state"
-        result["fallback_reason"] = result["auto_fallback_reason"]
+    elif suggested_regime == SUGGESTED_REGIME_VOLATILE:
+        if mapped_strategy == STRATEGY_BREAKOUT_MOMENTUM:
+            result["auto_fallback_reason"] = "volatile_breakout_override"
+            result["fallback_reason"] = result["auto_fallback_reason"]
+        else:
+            result["auto_fallback_reason"] = "volatile_observe_only"
+            result["fallback_reason"] = result["auto_fallback_reason"]
 
     result["effective_strategy"] = mapped_strategy
     result["effective_route"] = mapped_strategy
@@ -953,6 +1095,8 @@ def resolve_entry_route(
         result["route_timestamp_fresh"] = route_age <= max_route_age_seconds
     if mapped_strategy in {STRATEGY_TREND_PULLBACK, STRATEGY_BREAKOUT_MOMENTUM}:
         _mark_ready("auto_quality_gates_passed")
+    elif mapped_strategy == STRATEGY_OBSERVE_ONLY:
+        _mark_not_ready(result.get("fallback_reason") or "observe_only_regime", gate="observe_only_regime")
     else:
         _mark_not_ready(result.get("fallback_reason") or "mean_reversion_fallback", gate="mean_reversion_fallback")
     _sync_decision_diagnostics()

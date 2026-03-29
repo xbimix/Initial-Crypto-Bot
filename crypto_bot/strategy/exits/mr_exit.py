@@ -11,6 +11,7 @@ def evaluate_mr_exit(
     price: float,
     momentum: float,
     entry: float | None,
+    entry_ts: float | None,
     z_score: float | None,
     first_activation: float,
     initial_lock: float,
@@ -25,12 +26,15 @@ def evaluate_mr_exit(
     save_strategy_state: Callable[[], None],
     decision: Callable[[str, str, float, float, str], dict[str, Any]],
     logger: Any,
+    stale_exit_max_hold_seconds: float = 0.0,
+    stale_exit_min_pnl_pct: float = 0.0025,
 ) -> dict[str, Any] | None:
     return evaluate_sell(
         symbol=symbol,
         price=price,
         momentum=momentum,
         entry=entry,
+        entry_ts=entry_ts,
         z_score=z_score,
         first_activation=first_activation,
         initial_lock=initial_lock,
@@ -45,4 +49,6 @@ def evaluate_mr_exit(
         save_strategy_state=save_strategy_state,
         decision=decision,
         logger=logger,
+        stale_exit_max_hold_seconds=stale_exit_max_hold_seconds,
+        stale_exit_min_pnl_pct=stale_exit_min_pnl_pct,
     )

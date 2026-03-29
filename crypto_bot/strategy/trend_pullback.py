@@ -127,8 +127,30 @@ def evaluate_trend_pullback_entry(
     if ema_50 <= ema_200:
         return "HOLD", "trend_pullback_not_uptrend"
     ema_50_slope = _as_float(snapshot.get("ema_50_slope"), default=None)
-    if ema_50_slope is not None and ema_50_slope <= 0:
+    min_ema_50_slope = _as_float(
+        _gate_value(
+            mode_cfg=mode_cfg,
+            gate_defaults=gate_defaults,
+            key="min_ema_50_slope",
+            fallback=0.0,
+        ),
+        0.0,
+    )
+    if ema_50_slope is not None and ema_50_slope < (min_ema_50_slope or 0.0):
         return "HOLD", "trend_pullback_flat_or_negative_slope"
+
+    adx = _as_float(snapshot.get("adx"), default=None)
+    min_adx = _as_float(
+        _gate_value(
+            mode_cfg=mode_cfg,
+            gate_defaults=gate_defaults,
+            key="min_adx",
+            fallback=18.0,
+        ),
+        18.0,
+    )
+    if adx is not None and min_adx is not None and adx < min_adx:
+        return "HOLD", "trend_pullback_adx_too_low"
 
     structure_prices_raw = snapshot.get("recent_prices", [])
     structure_prices: list[float] = []
@@ -245,6 +267,46 @@ def evaluate_trend_pullback_entry(
     if price < pullback_floor:
         return "HOLD", "trend_pullback_too_deep"
 
+    max_extension_pct = max(
+        _as_float(
+            _gate_value(
+                mode_cfg=mode_cfg,
+                gate_defaults=gate_defaults,
+                key="max_extension_above_ema50_pct",
+                fallback=0.015,
+            ),
+            0.015,
+        )
+        or 0.015,
+        0.0,
+    )
+    if ema_50 > 0 and price > ema_50 * (1.0 + max_extension_pct):
+        return "HOLD", "trend_pullback_too_extended_above_ema50"
+
+    rsi = _as_float(snapshot.get("rsi"), default=None)
+    rsi_min = _as_float(
+        _gate_value(
+            mode_cfg=mode_cfg,
+            gate_defaults=gate_defaults,
+            key="pullback_rsi_min",
+            fallback=20.0,
+        ),
+        20.0,
+    )
+    rsi_max = _as_float(
+        _gate_value(
+            mode_cfg=mode_cfg,
+            gate_defaults=gate_defaults,
+            key="pullback_rsi_max",
+            fallback=65.0,
+        ),
+        65.0,
+    )
+    if rsi is not None and rsi_min is not None and rsi < rsi_min:
+        return "HOLD", "trend_pullback_rsi_too_low"
+    if rsi is not None and rsi_max is not None and rsi > rsi_max:
+        return "HOLD", "trend_pullback_rsi_too_high"
+
     max_range_pos = _as_float(
         _gate_value(
             mode_cfg=mode_cfg,
@@ -297,8 +359,23 @@ def evaluate_trend_pullback_entry(
     if min_momentum is not None and float(momentum) < min_momentum:
         return "HOLD", "trend_pullback_momentum_not_ready"
 
-    if prev_momentum is not None and float(momentum) < float(prev_momentum):
-        return "HOLD", "trend_pullback_momentum_weakening"
+    max_momentum_decay = max(
+        _as_float(
+            _gate_value(
+                mode_cfg=mode_cfg,
+                gate_defaults=gate_defaults,
+                key="max_momentum_decay_ratio",
+                fallback=0.55,
+            ),
+            0.55,
+        )
+        or 0.55,
+        0.0,
+    )
+    if prev_momentum is not None:
+        prev_momentum_value = float(prev_momentum)
+        if prev_momentum_value > 0 and float(momentum) < (prev_momentum_value * (1.0 - max_momentum_decay)):
+            return "HOLD", "trend_pullback_momentum_weakening"
 
     if high_24h <= low_24h:
         return "HOLD", "trend_pullback_insufficient_range_data"

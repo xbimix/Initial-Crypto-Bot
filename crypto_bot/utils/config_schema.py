@@ -316,6 +316,21 @@ def normalize_config(
 
     # Strategy defaults / routing safety flags.
     strategy_defaults = ensure_dict(cfg, "strategy_defaults", "strategy_defaults")
+    raw_tuning_profile = strategy_defaults.get("tuning_profile")
+    allowed_tuning_profiles = {"conservative", "balanced", "aggressive"}
+    if raw_tuning_profile is None:
+        strategy_defaults["tuning_profile"] = "conservative"
+        changed = True
+        warn("strategy_defaults.tuning_profile missing; defaulted to 'conservative'")
+    else:
+        normalized_profile = str(raw_tuning_profile or "").strip().lower()
+        if normalized_profile not in allowed_tuning_profiles:
+            strategy_defaults["tuning_profile"] = "conservative"
+            changed = True
+            warn("strategy_defaults.tuning_profile invalid; defaulted to 'conservative'")
+        elif raw_tuning_profile != normalized_profile:
+            strategy_defaults["tuning_profile"] = normalized_profile
+            changed = True
     router = ensure_dict(strategy_defaults, "router", "strategy_defaults.router")
     normalize_float(
         router,
@@ -450,6 +465,19 @@ def normalize_config(
         "max_negative_z_score",
         -3.0,
         "profit_locks.max_negative_z_score",
+    )
+    normalize_float(
+        profit,
+        "stale_exit_max_hold_seconds",
+        21 * 24 * 3600,
+        "profit_locks.stale_exit_max_hold_seconds",
+        min_value=0.0,
+    )
+    normalize_float(
+        profit,
+        "stale_exit_min_pnl_pct",
+        0.003,
+        "profit_locks.stale_exit_min_pnl_pct",
     )
 
     levels_raw = profit.get("levels")

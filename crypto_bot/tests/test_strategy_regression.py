@@ -119,7 +119,9 @@ def reset_strategy_globals(monkeypatch, tmp_path: Path):
 
 
 def test_mean_reversion_buy_regression():
-    decision = se.generate_decision(_snapshot(), _base_cfg())
+    cfg = _base_cfg()
+    cfg["market_regime"]["min_score_to_buy"] = 0
+    decision = se.generate_decision(_snapshot(), cfg)
     assert decision["action"] == "BUY"
     assert decision["reason"] == "bear_market_mean_reversion_buy"
 
@@ -173,6 +175,100 @@ def test_profit_lock_exit_regression():
     )
     assert sell_decision["action"] == "SELL"
     assert str(sell_decision["reason"]).startswith("profit_lock_exit_")
+
+
+def test_stale_position_risk_release_exit_for_old_low_edge():
+    cfg = _base_cfg()
+    cfg["profit_locks"]["stale_exit_max_hold_seconds"] = 60
+    cfg["profit_locks"]["stale_exit_min_pnl_pct"] = 0.01
+    se.confirm_entry("TEST-USD", 100.0)
+    se._entry_time["TEST-USD"] = se.time.time() - 7200
+
+    decision = se.generate_decision(
+        _snapshot(
+            symbol="TEST-USD",
+            price=100.2,
+            high_24h=110.0,
+            low_24h=90.0,
+            atr=1.0,
+            vwap=100.0,
+            rsi=50.0,
+            recent_prices=[99.8, 100.1, 100.0, 100.2, 100.1, 100.2, 100.2],
+        ),
+        cfg,
+    )
+    assert decision["action"] == "SELL"
+    assert decision["reason"] == "stale_position_risk_release"
+
+
+def test_stale_position_release_does_not_force_exit_when_profit_is_healthy():
+    cfg = _base_cfg()
+    cfg["profit_locks"]["stale_exit_max_hold_seconds"] = 60
+    cfg["profit_locks"]["stale_exit_min_pnl_pct"] = 0.01
+    se.confirm_entry("TEST-USD", 100.0)
+    se._entry_time["TEST-USD"] = se.time.time() - 7200
+
+    decision = se.generate_decision(
+        _snapshot(
+            symbol="TEST-USD",
+            price=102.0,
+            high_24h=110.0,
+            low_24h=90.0,
+            atr=1.0,
+            vwap=101.0,
+            rsi=45.0,
+            recent_prices=[99.0, 100.0, 101.0, 102.0, 102.2, 102.1, 102.0],
+        ),
+        cfg,
+    )
+    assert decision["action"] == "HOLD"
+    assert decision["reason"] in {"in_position", "waiting_for_first_lock"}
+
+
+def test_balanced_tuning_profile_uses_shorter_stale_exit_default():
+    cfg = _base_cfg()
+    cfg["strategy_defaults"] = {"tuning_profile": "balanced"}
+    se.confirm_entry("TEST-USD", 100.0)
+    se._entry_time["TEST-USD"] = se.time.time() - (15 * 24 * 3600)
+
+    decision = se.generate_decision(
+        _snapshot(
+            symbol="TEST-USD",
+            price=100.2,
+            high_24h=110.0,
+            low_24h=90.0,
+            atr=1.0,
+            vwap=100.0,
+            rsi=50.0,
+            recent_prices=[99.8, 100.1, 100.0, 100.2, 100.1, 100.2, 100.2],
+        ),
+        cfg,
+    )
+    assert decision["action"] == "SELL"
+    assert decision["reason"] == "stale_position_risk_release"
+
+
+def test_conservative_tuning_profile_keeps_longer_stale_exit_default():
+    cfg = _base_cfg()
+    cfg["strategy_defaults"] = {"tuning_profile": "conservative"}
+    se.confirm_entry("TEST-USD", 100.0)
+    se._entry_time["TEST-USD"] = se.time.time() - (15 * 24 * 3600)
+
+    decision = se.generate_decision(
+        _snapshot(
+            symbol="TEST-USD",
+            price=100.2,
+            high_24h=110.0,
+            low_24h=90.0,
+            atr=1.0,
+            vwap=100.0,
+            rsi=50.0,
+            recent_prices=[99.8, 100.1, 100.0, 100.2, 100.1, 100.2, 100.2],
+        ),
+        cfg,
+    )
+    assert decision["action"] == "HOLD"
+    assert decision["reason"] in {"in_position", "waiting_for_first_lock"}
 
 
 def test_invalid_entry_price_is_guarded_in_sell_path():
@@ -248,7 +344,9 @@ def test_auto_with_scalper_override_forces_scalper_route():
 
 
 def test_shadow_regime_telemetry_is_additive_only():
-    decision = se.generate_decision(_snapshot(), _base_cfg())
+    cfg = _base_cfg()
+    cfg["market_regime"]["min_score_to_buy"] = 0
+    decision = se.generate_decision(_snapshot(), cfg)
 
     assert decision["action"] == "BUY"
     assert decision["reason"] == "bear_market_mean_reversion_buy"
@@ -256,23 +354,27 @@ def test_shadow_regime_telemetry_is_additive_only():
     shadow = se._shadow_regime_state.get("TEST-USD")
     assert shadow is not None
     assert shadow["candidate_regime"] in {
-        "accumulation",
-        "range",
-        "chop",
         "trend_up",
         "trend_down",
-        "dump",
-        "spike",
+        "range",
+        "breakout_up",
+        "breakout_down",
+        "momentum_up",
+        "volatile",
+        "low_vol",
+        "choppy",
         "unknown",
     }
     assert shadow["stable_regime"] in {
-        "accumulation",
-        "range",
-        "chop",
         "trend_up",
         "trend_down",
-        "dump",
-        "spike",
+        "range",
+        "breakout_up",
+        "breakout_down",
+        "momentum_up",
+        "volatile",
+        "low_vol",
+        "choppy",
         "unknown",
     }
     assert 0.0 <= float(shadow["confidence"]) <= 0.99

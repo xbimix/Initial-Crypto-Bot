@@ -35,7 +35,7 @@ def test_shadow_switch_requires_confirmation():
     second, _ = update_regime_shadow_state(
         symbol="ADA-USD",
         snapshot=_snapshot(momentum_norm=-2.0),
-        candidate_regime="dump",
+        candidate_regime="breakout_down",
         shadow_state=state,
         cfg=cfg,
         now_ts=110.0,
@@ -47,13 +47,13 @@ def test_shadow_switch_requires_confirmation():
     third, _ = update_regime_shadow_state(
         symbol="ADA-USD",
         snapshot=_snapshot(momentum_norm=-2.2),
-        candidate_regime="dump",
+        candidate_regime="breakout_down",
         shadow_state=state,
         cfg=cfg,
         now_ts=120.0,
     )
     assert third["confirmations"] == 2
-    assert third["stable_regime"] == "dump"
+    assert third["stable_regime"] == "breakout_down"
     assert third["switched"] is True
 
 
@@ -81,7 +81,7 @@ def test_shadow_switch_respects_cooldown():
     early, _ = update_regime_shadow_state(
         symbol="BTC-USD",
         snapshot=_snapshot(momentum_norm=-2.0),
-        candidate_regime="dump",
+        candidate_regime="breakout_down",
         shadow_state=state,
         cfg=cfg,
         now_ts=250.0,
@@ -92,12 +92,12 @@ def test_shadow_switch_respects_cooldown():
     late, _ = update_regime_shadow_state(
         symbol="BTC-USD",
         snapshot=_snapshot(momentum_norm=-2.4),
-        candidate_regime="dump",
+        candidate_regime="breakout_down",
         shadow_state=state,
         cfg=cfg,
         now_ts=340.0,
     )
-    assert late["stable_regime"] == "dump"
+    assert late["stable_regime"] == "breakout_down"
     assert late["switched"] is True
 
 

@@ -962,6 +962,7 @@ export default function RevbotDashboard() {
     symbol: string;
     cooldownSeconds: number;
   } | null>(null);
+  const [advancedTab, setAdvancedTab] = useState<"analytics" | "manualControls">("analytics");
   const [riskDirty, setRiskDirty] = useState(false);
   const [savingRisk, setSavingRisk] = useState(false);
 
@@ -3245,7 +3246,32 @@ export default function RevbotDashboard() {
               Advanced Panels (Full Controls and Full Tables)
             </summary>
             <div className="mt-4 space-y-6">
+              <div className="flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.14em]">
+                <button
+                  type="button"
+                  onClick={() => setAdvancedTab("analytics")}
+                  className={`rounded-full border px-3 py-1.5 transition ${
+                    advancedTab === "analytics"
+                      ? "border-sky-400/50 bg-sky-500/20 text-sky-100"
+                      : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20 hover:text-slate-100"
+                  }`}
+                >
+                  Advanced Tables
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdvancedTab("manualControls")}
+                  className={`rounded-full border px-3 py-1.5 transition ${
+                    advancedTab === "manualControls"
+                      ? "border-sky-400/50 bg-sky-500/20 text-sky-100"
+                      : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20 hover:text-slate-100"
+                  }`}
+                >
+                  Manual Controls
+                </button>
+              </div>
 
+            {advancedTab === "manualControls" ? (
             <div className="mt-5 rb-content-card p-4">
               <div className="flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.14em]">
                 <span className={`rounded-md border px-3 py-1.5 ${data.summary.dailyBuyPaused ? "border-rose-500 bg-rose-600 text-white" : "border-emerald-500 bg-emerald-600 text-white"}`}>
@@ -3557,6 +3583,9 @@ export default function RevbotDashboard() {
                 </div>
               </div>
             </div>
+            ) : null}
+          {advancedTab === "analytics" ? (
+          <>
           <section className="rb-section p-5 sm:p-6">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
               <div>
@@ -4472,6 +4501,8 @@ export default function RevbotDashboard() {
               </div>
             </div>
           </section>
+          </>
+          ) : null}
             </div>
           </details>
         </div>

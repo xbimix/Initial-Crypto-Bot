@@ -165,9 +165,9 @@ def compute_scalper_diagnostics(
         elif range_pos > 0.8:
             score -= 10.0
 
-    if regime in {"trend_down", "dump"}:
+    if regime in {"trend_down", "breakout_down", "choppy", "unknown"}:
         score -= 10.0
-    elif regime in {"trend_up", "accumulation", "spike"}:
+    elif regime in {"trend_up", "momentum_up", "breakout_up"}:
         score += 5.0
 
     score = max(0.0, min(score, 100.0))

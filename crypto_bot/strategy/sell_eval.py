@@ -7,6 +7,7 @@ def evaluate_sell(
     price,
     momentum,
     entry,
+    entry_ts,
     z_score,
     first_activation,
     initial_lock,
@@ -21,6 +22,8 @@ def evaluate_sell(
     save_strategy_state,
     decision,
     logger,
+    stale_exit_max_hold_seconds=0,
+    stale_exit_min_pnl_pct=0.0025,
 ):
     if entry is None:
         return None
@@ -29,10 +32,25 @@ def evaluate_sell(
         return decision(symbol, "HOLD", price, momentum, "invalid_entry_price")
 
     pnl_pct = (price - entry) / entry
+    hold_seconds = None
+    try:
+        entry_ts_value = float(entry_ts) if entry_ts is not None else None
+    except (TypeError, ValueError):
+        entry_ts_value = None
+    if entry_ts_value is not None:
+        hold_seconds = max(0.0, time.time() - entry_ts_value)
     current_lock = profit_lock_state.get(symbol)
     saved_peak = peak_pnl_state.get(symbol)
     peak_pnl = pnl_pct if saved_peak is None else max(saved_peak, pnl_pct)
     state_changed = False
+
+    # Conservative stale-risk release: for very old positions with minimal edge,
+    # realize and recycle capital instead of indefinite exposure.
+    if stale_exit_max_hold_seconds and stale_exit_max_hold_seconds > 0:
+        if hold_seconds is not None and hold_seconds >= float(stale_exit_max_hold_seconds):
+            min_edge = float(stale_exit_min_pnl_pct)
+            if pnl_pct <= min_edge:
+                return decision(symbol, "SELL", price, momentum, "stale_position_risk_release")
 
     if pnl_pct < first_activation:
         reset_peak = max(pnl_pct, 0.0) if reset_below_activation else peak_pnl

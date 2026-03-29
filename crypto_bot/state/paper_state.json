@@ -1,12 +1,6 @@
 {
-  "balance": 5744.033402835226,
+  "balance": 5905.827371011546,
   "positions": {
-    "CRV-USD": {
-      "price": 0.25637,
-      "size": 763.467196,
-      "entry_time": 1772664289.4589665,
-      "reason": "bear_market_mean_reversion_buy"
-    },
     "SUI-USD": {
       "price": 1.06145,
       "size": 188.421499,

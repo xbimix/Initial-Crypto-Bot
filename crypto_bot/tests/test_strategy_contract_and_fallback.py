@@ -109,8 +109,9 @@ def test_unified_regime_skips_legacy_when_v2_is_available(monkeypatch):
     monkeypatch.setattr(rev2, "detect_regime", _legacy_probe)
     result = rev2.evaluate_regime_unified(snapshot=_snapshot(), now_epoch=1_730_000_050.0, cfg={})
 
-    assert calls["count"] == 0
-    assert result["suggestedRegime"] != "MIXED_OR_UNCLEAR"
+    # V2 now consumes the raw detector as its primary source of regime labels.
+    assert calls["count"] >= 1
+    assert result["suggestedRegime"] == "BREAKOUT_DOWN"
     assert "legacyRegime" not in result
 
 

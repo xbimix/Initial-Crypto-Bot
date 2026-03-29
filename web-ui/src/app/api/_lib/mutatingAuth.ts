@@ -84,6 +84,16 @@ function resolveExpectedToken(): string {
   return resolveConfigToken();
 }
 
+function isStrictMutatingAuthEnabled(): boolean {
+  const raw = String(
+    process.env.REVBOT_STRICT_MUTATING_AUTH
+    ?? process.env.REVBOT_DEPLOYMENT_MODE
+    ?? process.env.NEXT_PUBLIC_REVBOT_STRICT_MUTATING_AUTH
+    ?? "",
+  ).trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes" || raw === "on";
+}
+
 function extractClientIp(req: Request): string {
   const xff = String(req.headers.get("x-forwarded-for") ?? "").trim();
   if (xff) {
@@ -160,9 +170,10 @@ export type MutatingAuthResult =
   | { ok: false; response: NextResponse };
 
 export async function requireMutatingAuth(req: Request): Promise<MutatingAuthResult> {
+  const strictAuth = isStrictMutatingAuthEnabled();
   const expected = resolveExpectedToken();
   if (!expected) {
-    if (isTrustedSameOriginUiRequest(req)) {
+    if (!strictAuth && isTrustedSameOriginUiRequest(req)) {
       return {
         ok: true,
         token: "",
@@ -181,7 +192,7 @@ export async function requireMutatingAuth(req: Request): Promise<MutatingAuthRes
 
   const provided = extractToken(req);
   if (!provided || provided !== expected) {
-    if (!provided && isTrustedSameOriginUiRequest(req)) {
+    if (!strictAuth && !provided && isTrustedSameOriginUiRequest(req)) {
       return {
         ok: true,
         token: expected,

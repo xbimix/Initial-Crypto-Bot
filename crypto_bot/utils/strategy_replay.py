@@ -18,6 +18,47 @@ STRATEGY_STATE_MAPS = (
     "_last_regime",
     "_last_score",
     "_last_volatility",
+    "_last_configured_regime",
+    "_last_detected_regime",
+    "_last_detected_regime_confidence",
+    "_last_detected_regime_confidence_label",
+    "_last_detected_regime_stability",
+    "_last_detected_regime_persistence",
+    "_last_detected_regime_stability_inferred",
+    "_last_detected_regime_persistence_inferred",
+    "_last_regime_data_quality_status",
+    "_last_regime_key_windows_supported",
+    "_last_suggested_regime_v2",
+    "_last_detection_source",
+    "_last_detection_timestamp_epoch",
+    "_last_effective_strategy",
+    "_last_effective_route",
+    "_last_route_eval_ts",
+    "_last_regime_eval_ts",
+    "_last_auto_fallback_reason",
+    "_last_fallback_reason",
+    "_last_ready_for_non_mr_route",
+    "_last_non_mr_ready_reason",
+    "_last_route_readiness_state",
+    "_last_route_timestamp_age_seconds",
+    "_last_route_timestamp_fresh",
+    "_last_shadow_continuity_state",
+    "_last_shadow_age_seconds",
+    "_last_failed_gates",
+    "_last_decision_diagnostics",
+    "_last_buy_block_reason",
+    "_last_buy_block_route",
+    "_buy_block_counts_by_symbol",
+    "_buy_block_counts_by_symbol_route",
+    "_pending_entry_contract",
+    "_entry_route",
+    "_entry_regime",
+    "_exit_policy",
+    "_entry_confidence",
+    "_entry_timestamp",
+    "_entry_route_eval_ts",
+    "_entry_regime_eval_ts",
+    "_shadow_regime_state",
 )
 
 
@@ -49,6 +90,25 @@ def _reset_strategy_globals(se: Any, state_dir: Path):
     se._last_paper_state_mtime = None
     se._metrics_dirty = False
     se._last_metrics_flush_at = 0.0
+
+    # Replay must be deterministic per-case; clear route-quality cache too.
+    try:
+        from strategy import route_quality as _rq  # type: ignore
+    except Exception:
+        try:
+            from crypto_bot.strategy import route_quality as _rq  # type: ignore
+        except Exception:
+            _rq = None
+    if _rq is not None:
+        for attr, value in (
+            ("_last_cached_report", None),
+            ("_last_cached_at", 0.0),
+            ("_last_cached_trades_mtime", None),
+            ("_last_cached_strategy_mtime", None),
+            ("_last_cached_config_mtime", None),
+        ):
+            if hasattr(_rq, attr):
+                setattr(_rq, attr, value)
 
 
 def _apply_pre_state(se: Any, case: dict):

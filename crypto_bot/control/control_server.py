@@ -57,6 +57,10 @@ STRICT_STARTUP = os.getenv("REVBOT_CONTROL_STRICT_STARTUP", "").strip().lower() 
     "yes",
     "on",
 }
+STRICT_MUTATING_AUTH = (
+    os.getenv("REVBOT_STRICT_MUTATING_AUTH", "").strip().lower() in {"1", "true", "yes", "on"}
+    or os.getenv("REVBOT_DEPLOYMENT_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+)
 SNAPSHOT_PATTERN = re.compile(
     r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+\s+\|\s+INFO\s+\|\s+SNAPSHOT\s+([A-Z0-9-]+)\s+\|\s+price=([0-9.]+)"
 )
@@ -399,7 +403,16 @@ def _run_startup_checks():
 
     expected_token = _resolve_expected_auth_token()
     auth_ok = bool(expected_token)
-    checks.append({"name": "mutating_auth_configured", "ok": auth_ok})
+    checks.append(
+        {
+            "name": "mutating_auth_configured",
+            "ok": auth_ok if STRICT_MUTATING_AUTH else True,
+            "configured": auth_ok,
+            "strict_required": bool(STRICT_MUTATING_AUTH),
+        }
+    )
+    if STRICT_MUTATING_AUTH and not auth_ok:
+        ok = False
 
     checks.append(
         {

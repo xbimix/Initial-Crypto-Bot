@@ -17,30 +17,35 @@ WINDOWS_MINUTES = [
 ]
 
 LEGACY_TO_V2 = {
-    "range": "MEAN_REVERSION_FRIENDLY",
-    "accumulation": "ACCUMULATION",
-    "trend_up": "TREND_CONTINUATION",
-    "spike": "BREAKOUT_EXPANSION",
-    "trend_down": "SLOW_BLEED",
-    "dump": "CAPITULATION_PANIC",
-    "chop": "MIXED_OR_UNCLEAR",
-    "unknown": "MIXED_OR_UNCLEAR",
+    # Canonical raw regimes (primary path)
+    "trend_up": "TREND_UP",
+    "trend_down": "TREND_DOWN",
+    "range": "RANGE",
+    "breakout_up": "BREAKOUT_UP",
+    "breakout_down": "BREAKOUT_DOWN",
+    "momentum_up": "MOMENTUM_UP",
+    "volatile": "VOLATILE",
+    "low_vol": "LOW_VOL",
+    "choppy": "CHOPPY",
+    "unknown": "UNKNOWN",
+    # Backward-compatibility shims for historical labels
+    "spike": "BREAKOUT_UP",
+    "dump": "BREAKOUT_DOWN",
+    "accumulation": "LOW_VOL",
+    "chop": "CHOPPY",
 }
 
 REGIME_LABELS = {
-    "MEAN_REVERSION_FRIENDLY": "Mean-Reversion-Friendly Range",
-    "TREND_CONTINUATION": "Trend Continuation / Pullback",
-    "BREAKOUT_EXPANSION": "Breakout Expansion",
-    "TREND_WEAKENING": "Trend Weakening",
-    "HIGH_RISK_UNSTABLE": "High-Risk Unstable / Whipsaw",
-    "ACCUMULATION": "Accumulation",
-    "DISTRIBUTION": "Distribution",
-    "LIQUIDITY_SWEEP_REVERSAL": "Liquidity Sweep Reversal",
-    "VOLATILITY_COMPRESSION": "Volatility Compression / Squeeze",
-    "SLOW_BLEED": "Slow Bleed / Downtrend Drift",
-    "CAPITULATION_PANIC": "Capitulation / Panic Flush",
-    "LOW_PARTICIPATION_DEAD_MARKET": "Low-Participation Dead Market",
-    "MIXED_OR_UNCLEAR": "Mixed / Unclear",
+    "TREND_UP": "Trend Up",
+    "TREND_DOWN": "Trend Down",
+    "RANGE": "Range",
+    "BREAKOUT_UP": "Breakout Up",
+    "BREAKOUT_DOWN": "Breakout Down",
+    "MOMENTUM_UP": "Momentum Up",
+    "VOLATILE": "Volatile / Unstable",
+    "LOW_VOL": "Low Volatility",
+    "CHOPPY": "Choppy / No-Trade",
+    "UNKNOWN": "Unknown",
 }
 
 
@@ -59,7 +64,14 @@ def _clamp(value: float, low: float, high: float) -> float:
 
 
 def _regime_label(code: str) -> str:
-    return REGIME_LABELS.get(str(code or "").strip().upper(), "Mixed / Unclear")
+    return REGIME_LABELS.get(str(code or "").strip().upper(), "Unknown")
+
+
+def _normalize_regime_code(value: Any) -> str:
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return "UNKNOWN"
+    return LEGACY_TO_V2.get(raw, "UNKNOWN")
 
 
 def _router_cfg(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -289,8 +301,8 @@ def evaluate_regime_v2(
 
     if total_weight <= 0:
         return {
-            "suggestedRegime": "MIXED_OR_UNCLEAR",
-            "suggestedRegimeLabel": _regime_label("MIXED_OR_UNCLEAR"),
+            "suggestedRegime": "UNKNOWN",
+            "suggestedRegimeLabel": _regime_label("UNKNOWN"),
             "regimeTier": "TIER_1",
             "confidenceScore": 0.0,
             "confidenceLabel": "LOW",
@@ -435,63 +447,24 @@ def evaluate_regime_v2(
         1.0,
     )
 
-    min_conf = _threshold(router_cfg, "regime_v2_min_confidence", 0.62)
-    min_stability = _threshold(router_cfg, "regime_v2_min_stability", 0.58)
-    min_persistence = _threshold(router_cfg, "regime_v2_min_persistence", 0.58)
-    min_trend = _threshold(router_cfg, "regime_v2_trend_min", 0.67)
-    min_breakout = _threshold(router_cfg, "regime_v2_breakout_min", 0.82)
-    min_breakout_conf = _threshold(router_cfg, "regime_v2_breakout_min_confidence", 0.80)
+    raw_regime = detect_regime(snapshot, cfg.get("market_regime", {}))
+    suggested_regime = _normalize_regime_code(raw_regime)
 
-    suggested_regime = "MIXED_OR_UNCLEAR"
-    regime_tier = "TIER_1"
     if quality_status in {"STALE", "INSUFFICIENT", "UNSUPPORTED_WINDOW"}:
-        suggested_regime = "MIXED_OR_UNCLEAR"
-    elif (
-        breakout_score_norm >= min_breakout
-        and confidence_score_norm >= min_breakout_conf
-        and stability_score_norm >= min_stability
-        and persistence_score_norm >= min_persistence
-    ):
-        suggested_regime = "BREAKOUT_EXPANSION"
-    elif (
-        trend_score_norm >= min_trend
-        and confidence_score_norm >= _threshold(router_cfg, "regime_v2_trend_min_confidence", 0.70)
-        and stability_score_norm >= min_stability
-        and persistence_score_norm >= min_persistence
-    ):
-        suggested_regime = "TREND_CONTINUATION"
-    elif (
-        range_score_norm >= _threshold(router_cfg, "regime_v2_range_min", 0.58)
-        and confidence_score_norm >= min_conf
-    ):
-        suggested_regime = "MEAN_REVERSION_FRIENDLY"
-    else:
-        regime_tier = "TIER_2"
-        if weakening_score_norm >= _threshold(router_cfg, "regime_v2_trend_weakening_min", 0.62):
-            suggested_regime = "TREND_WEAKENING"
-        elif (
-            stability_score_norm < _threshold(router_cfg, "regime_v2_low_stability", 0.48)
-            and persistence_score_norm < _threshold(router_cfg, "regime_v2_low_persistence", 0.48)
-        ):
-            suggested_regime = "HIGH_RISK_UNSTABLE"
-        elif dead_market_score >= _threshold(router_cfg, "regime_v2_dead_market_min", 0.62):
-            suggested_regime = "LOW_PARTICIPATION_DEAD_MARKET"
-        elif weakening_score_norm >= _threshold(router_cfg, "regime_v2_slow_bleed_min", 0.58):
-            suggested_regime = "SLOW_BLEED"
-        else:
-            regime_tier = "TIER_3"
-            if accumulation_score >= _threshold(router_cfg, "regime_v2_accumulation_min", 0.66):
-                suggested_regime = "ACCUMULATION"
-            elif distribution_score >= _threshold(router_cfg, "regime_v2_distribution_min", 0.66):
-                suggested_regime = "DISTRIBUTION"
-            elif liquidity_sweep_score >= _threshold(router_cfg, "regime_v2_liquidity_sweep_min", 0.72):
-                suggested_regime = "LIQUIDITY_SWEEP_REVERSAL"
-            elif compression_score_norm >= _threshold(router_cfg, "regime_v2_compression_min", 0.70):
-                suggested_regime = "VOLATILITY_COMPRESSION"
-            elif capitulation_score >= _threshold(router_cfg, "regime_v2_capitulation_min", 0.74):
-                suggested_regime = "CAPITULATION_PANIC"
-            else:
-                suggested_regime = "MIXED_OR_UNCLEAR"
+        suggested_regime = "UNKNOWN"
+
+    if suggested_regime == "VOLATILE":
+        volatile_breakout_min = _threshold(router_cfg, "regime_v2_volatile_breakout_min", 0.78)
+        volatile_breakout_conf = _threshold(router_cfg, "regime_v2_volatile_breakout_min_confidence", 0.70)
+        if breakout_score_norm >= volatile_breakout_min and confidence_score_norm >= volatile_breakout_conf:
+            momentum_probe = _as_float(snapshot.get("momentum_norm"), 0.0) or 0.0
+            suggested_regime = "BREAKOUT_UP" if momentum_probe >= 0 else "BREAKOUT_DOWN"
+
+    regime_tier = "TIER_2"
+    if suggested_regime in {"TREND_UP", "BREAKOUT_UP"}:
+        regime_tier = "TIER_1"
+    elif suggested_regime in {"TREND_DOWN", "BREAKOUT_DOWN", "VOLATILE", "CHOPPY", "UNKNOWN"}:
+        regime_tier = "TIER_3"
 
     return {
         "suggestedRegime": suggested_regime,
@@ -594,17 +567,17 @@ def evaluate_regime_unified(
     if not suggested:
         insufficient = True
 
-    # Keep V2 primary; only use legacy regime as conservative fallback context.
+    # Keep V2 primary; only use raw detector as conservative fallback context.
     if insufficient or confidence_score < 35.0:
         try:
-            legacy = str(detect_regime(snapshot, cfg.get("market_regime", {})) or "unknown").strip().lower()
+            raw = str(detect_regime(snapshot, cfg.get("market_regime", {})) or "unknown").strip().lower()
         except Exception:
-            legacy = "unknown"
-        legacy_mapped = LEGACY_TO_V2.get(legacy, "MIXED_OR_UNCLEAR")
-        if not suggested or suggested == "MIXED_OR_UNCLEAR":
-            v2["suggestedRegime"] = legacy_mapped
-        v2["legacyRegime"] = legacy
-        v2["legacyMappedRegime"] = legacy_mapped
+            raw = "unknown"
+        raw_mapped = _normalize_regime_code(raw)
+        if not suggested or suggested == "UNKNOWN":
+            v2["suggestedRegime"] = raw_mapped
+        v2["legacyRegime"] = raw
+        v2["legacyMappedRegime"] = raw_mapped
         if "confidenceScore" not in v2 or confidence_score <= 0:
             v2["confidenceScore"] = 32.0
             v2["confidenceLabel"] = _label(32.0)
@@ -612,5 +585,5 @@ def evaluate_regime_unified(
     v2.setdefault("detectionSource", "regime_v2_runtime")
     v2.setdefault("analysisAnchorEpoch", now_epoch)
     if "suggestedRegimeLabel" not in v2:
-        v2["suggestedRegimeLabel"] = _regime_label(str(v2.get("suggestedRegime") or "MIXED_OR_UNCLEAR"))
+        v2["suggestedRegimeLabel"] = _regime_label(str(v2.get("suggestedRegime") or "UNKNOWN"))
     return v2

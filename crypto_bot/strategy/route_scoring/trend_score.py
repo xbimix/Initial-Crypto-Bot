@@ -44,4 +44,4 @@ def compute_trend_score_bundle(
 
     score = max(0.0, min(100.0, score))
     volatility = _as_float(atr, default=None)
-    return "trend_pullback", float(score), range_pos, volatility
+    return "trend_up", float(score), range_pos, volatility

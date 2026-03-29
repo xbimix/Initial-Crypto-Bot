@@ -54,4 +54,4 @@ def compute_breakout_score_bundle(
                 score += 15.0
 
     score = max(0.0, min(100.0, score))
-    return "breakout_momentum", float(score), range_pos, volatility
+    return "breakout_up", float(score), range_pos, volatility

@@ -33,6 +33,25 @@ from strategy import shadow_regime_manager
 from strategy import strategy_metrics
 from strategy import strategy_runtime_state as rt
 
+TUNING_PROFILE_CONSERVATIVE = "conservative"
+TUNING_PROFILE_BALANCED = "balanced"
+TUNING_PROFILE_AGGRESSIVE = "aggressive"
+
+PROFILE_STALE_EXIT_DEFAULTS = {
+    TUNING_PROFILE_CONSERVATIVE: {
+        "stale_exit_max_hold_seconds": 21 * 24 * 3600,
+        "stale_exit_min_pnl_pct": 0.003,
+    },
+    TUNING_PROFILE_BALANCED: {
+        "stale_exit_max_hold_seconds": 14 * 24 * 3600,
+        "stale_exit_min_pnl_pct": 0.0025,
+    },
+    TUNING_PROFILE_AGGRESSIVE: {
+        "stale_exit_max_hold_seconds": 10 * 24 * 3600,
+        "stale_exit_min_pnl_pct": 0.002,
+    },
+}
+
 
 def _sync_with_broker_state(ctx):
     ctx._sync_with_broker_state_impl(
@@ -227,6 +246,19 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx) -> dict:
         "max_negative_z_score",
         regime_cfg.get("max_negative_z_score", -3.0),
     )
+    profile_stale_max_hold, profile_stale_min_pnl = _stale_exit_profile_defaults(cfg)
+    stale_exit_max_hold_seconds = ctx._parse_numeric(
+        profit_cfg.get("stale_exit_max_hold_seconds"),
+        fallback=profile_stale_max_hold,
+    )
+    if stale_exit_max_hold_seconds is None or stale_exit_max_hold_seconds < 0:
+        stale_exit_max_hold_seconds = 0.0
+    stale_exit_min_pnl_pct = ctx._parse_numeric(
+        profit_cfg.get("stale_exit_min_pnl_pct"),
+        fallback=profile_stale_min_pnl,
+    )
+    if stale_exit_min_pnl_pct is None:
+        stale_exit_min_pnl_pct = profile_stale_min_pnl
     blocked_regimes = set(
         regime_cfg.get(
             "hard_blocked_regimes",
@@ -322,6 +354,7 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx) -> dict:
             price=price,
             momentum=momentum,
             entry=entry,
+            entry_ts=entry_ts,
             z_score=z_score,
             first_activation=profit_cfg.get("first_activation", 0.02),
             initial_lock=profit_cfg.get("initial_lock", 0.01),
@@ -344,6 +377,8 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx) -> dict:
             save_strategy_state=ctx._save_strategy_state,
             decision=ctx._decision,
             logger=ctx.logger,
+            stale_exit_max_hold_seconds=stale_exit_max_hold_seconds,
+            stale_exit_min_pnl_pct=stale_exit_min_pnl_pct,
         )
     elif active_exit_policy == rt.EXIT_POLICY_BREAKOUT:
         sell_signal = ctx.evaluate_breakout_exit(
@@ -351,6 +386,7 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx) -> dict:
             price=price,
             momentum=momentum,
             entry=entry,
+            entry_ts=entry_ts,
             z_score=z_score,
             first_activation=profit_cfg.get("first_activation", 0.02),
             initial_lock=profit_cfg.get("initial_lock", 0.01),
@@ -373,6 +409,8 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx) -> dict:
             save_strategy_state=ctx._save_strategy_state,
             decision=ctx._decision,
             logger=ctx.logger,
+            stale_exit_max_hold_seconds=stale_exit_max_hold_seconds,
+            stale_exit_min_pnl_pct=stale_exit_min_pnl_pct,
         )
     else:
         sell_signal = ctx.evaluate_mr_exit(
@@ -380,6 +418,7 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx) -> dict:
             price=price,
             momentum=momentum,
             entry=entry,
+            entry_ts=entry_ts,
             z_score=z_score,
             first_activation=profit_cfg.get("first_activation", 0.02),
             initial_lock=profit_cfg.get("initial_lock", 0.01),
@@ -402,6 +441,8 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx) -> dict:
             save_strategy_state=ctx._save_strategy_state,
             decision=ctx._decision,
             logger=ctx.logger,
+            stale_exit_max_hold_seconds=stale_exit_max_hold_seconds,
+            stale_exit_min_pnl_pct=stale_exit_min_pnl_pct,
         )
 
     # SELL is always allowed to fire while in a position.
@@ -553,6 +594,29 @@ def _router_max_route_age_seconds(cfg: dict, parse_numeric=None) -> float:
     if value is None or value <= 0:
         return float(rt.DEFAULT_AUTO_MAX_ROUTE_AGE_SECONDS)
     return max(float(value), 60.0)
+
+
+def _tuning_profile(cfg: dict) -> str:
+    strategy_defaults = cfg.get("strategy_defaults", {})
+    if not isinstance(strategy_defaults, dict):
+        return TUNING_PROFILE_CONSERVATIVE
+    raw = strategy_defaults.get("tuning_profile")
+    profile = str(raw or "").strip().lower()
+    if profile in PROFILE_STALE_EXIT_DEFAULTS:
+        return profile
+    return TUNING_PROFILE_CONSERVATIVE
+
+
+def _stale_exit_profile_defaults(cfg: dict) -> tuple[float, float]:
+    profile = _tuning_profile(cfg)
+    defaults = PROFILE_STALE_EXIT_DEFAULTS.get(profile, PROFILE_STALE_EXIT_DEFAULTS[TUNING_PROFILE_CONSERVATIVE])
+    max_hold = _parse_numeric(defaults.get("stale_exit_max_hold_seconds"), fallback=21 * 24 * 3600)
+    min_pnl = _parse_numeric(defaults.get("stale_exit_min_pnl_pct"), fallback=0.003)
+    if max_hold is None:
+        max_hold = 21 * 24 * 3600
+    if min_pnl is None:
+        min_pnl = 0.003
+    return float(max_hold), float(min_pnl)
 
 
 def _advisory_has_required_fields(advisory: dict) -> bool:

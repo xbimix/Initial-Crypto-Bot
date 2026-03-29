@@ -25,3 +25,17 @@
 {"event_type":"process_exit","time_utc":"2026-03-28T21:31:45.051207+00:00","day_utc":"2026-03-28","pid":29932,"service":"bot","clean_shutdown":true,"reason":"keyboard_interrupt","ended_at_utc":"2026-03-28T21:31:45.050075+00:00"}
 {"event_type":"process_start","time_utc":"2026-03-28T21:32:31.263165+00:00","day_utc":"2026-03-28","pid":20720,"service":"bot","restart_cause":"manual","startup_ok":true}
 {"event_type":"process_exit","time_utc":"2026-03-28T21:49:58.451836+00:00","day_utc":"2026-03-28","pid":20720,"service":"bot","clean_shutdown":true,"reason":"keyboard_interrupt","ended_at_utc":"2026-03-28T21:49:58.450281+00:00"}
+{"event_type":"process_start","time_utc":"2026-03-28T22:05:47.611707+00:00","day_utc":"2026-03-28","pid":15564,"service":"bot","restart_cause":"manual","startup_ok":true}
+{"event_type":"launcher_start","time_utc":"2026-03-29T00:07:47.2763072+00:00","day_utc":"2026-03-29","service":"bot","pid":11112,"restart_cause":"manual","watch_mode":false,"attempt":1}
+
+{"event_type":"process_start","time_utc":"2026-03-29T00:08:03.417486+00:00","day_utc":"2026-03-29","pid":1996,"service":"bot","restart_cause":"manual","startup_ok":true}
+{"event_type":"process_start","time_utc":"2026-03-29T03:22:29.035152+00:00","day_utc":"2026-03-29","pid":22572,"service":"bot","restart_cause":"manual","startup_ok":true}
+{"event_type":"process_exit","time_utc":"2026-03-29T05:02:27.156585+00:00","day_utc":"2026-03-29","pid":22572,"service":"bot","clean_shutdown":true,"reason":"keyboard_interrupt","ended_at_utc":"2026-03-29T05:02:27.155902+00:00"}
+{"event_type":"process_start","time_utc":"2026-03-29T05:02:33.017335+00:00","day_utc":"2026-03-29","pid":18928,"service":"bot","restart_cause":"manual","startup_ok":true}
+{"event_type":"main_loop_error","time_utc":"2026-03-29T05:06:46.873711+00:00","day_utc":"2026-03-29","pid":18928,"service":"bot","error":"[Errno 13] Permission denied: 'D:\\\\Python-Codes\\\\RevBot\\\\crypto_bot\\\\state\\\\strategy_state.json'"}
+{"event_type":"process_exit","time_utc":"2026-03-29T06:02:30.707540+00:00","day_utc":"2026-03-29","pid":18928,"service":"bot","clean_shutdown":true,"reason":"keyboard_interrupt","ended_at_utc":"2026-03-29T06:02:30.706898+00:00"}
+{"event_type":"process_start","time_utc":"2026-03-29T06:03:03.863691+00:00","day_utc":"2026-03-29","pid":28740,"service":"bot","restart_cause":"manual","startup_ok":true}
+{"event_type":"process_exit","time_utc":"2026-03-29T13:14:38.430073+00:00","day_utc":"2026-03-29","pid":28740,"service":"bot","clean_shutdown":true,"reason":"keyboard_interrupt","ended_at_utc":"2026-03-29T13:14:38.429378+00:00"}
+{"event_type":"process_start","time_utc":"2026-03-29T13:14:48.288706+00:00","day_utc":"2026-03-29","pid":8788,"service":"bot","restart_cause":"manual","startup_ok":true}
+{"event_type":"process_exit","time_utc":"2026-03-29T19:58:00.915658+00:00","day_utc":"2026-03-29","pid":8788,"service":"bot","clean_shutdown":true,"reason":"keyboard_interrupt","ended_at_utc":"2026-03-29T19:58:00.914459+00:00"}
+{"event_type":"process_start","time_utc":"2026-03-29T19:58:12.031437+00:00","day_utc":"2026-03-29","pid":22956,"service":"bot","restart_cause":"manual","startup_ok":true}

@@ -120,6 +120,47 @@ def evaluate_breakout_momentum_entry(
     if atr_value < min_mode_atr:
         return "HOLD", "breakout_momentum_volatility_too_low"
 
+    atr_pct = _as_float(snapshot.get("atr_pct"), default=None)
+    if atr_pct is None:
+        atr_pct = atr_value
+    min_breakout_atr_pct = _as_float(
+        _gate_value(
+            mode_cfg=mode_cfg,
+            gate_defaults=gate_defaults,
+            key="min_breakout_atr_pct",
+            fallback=0.00010,
+        ),
+        0.00010,
+    )
+    if min_breakout_atr_pct is not None and atr_pct is not None and atr_pct < min_breakout_atr_pct:
+        return "HOLD", "breakout_momentum_atr_compressed"
+
+    adx = _as_float(snapshot.get("adx"), default=None)
+    min_adx = _as_float(
+        _gate_value(
+            mode_cfg=mode_cfg,
+            gate_defaults=gate_defaults,
+            key="min_adx",
+            fallback=18.0,
+        ),
+        18.0,
+    )
+    if adx is not None and min_adx is not None and adx < min_adx:
+        return "HOLD", "breakout_momentum_adx_too_low"
+
+    volume_ratio = _as_float(snapshot.get("volume_ratio"), default=None)
+    min_volume_ratio = _as_float(
+        _gate_value(
+            mode_cfg=mode_cfg,
+            gate_defaults=gate_defaults,
+            key="min_volume_ratio",
+            fallback=1.05,
+        ),
+        1.05,
+    )
+    if volume_ratio is not None and min_volume_ratio is not None and volume_ratio < min_volume_ratio:
+        return "HOLD", "breakout_momentum_volume_not_confirmed"
+
     structure_prices_raw = snapshot.get("recent_prices", [])
     structure_prices: list[float] = []
     if isinstance(structure_prices_raw, list):
@@ -184,6 +225,48 @@ def evaluate_breakout_momentum_entry(
     prior_high_before_breakout = max(structure_window[:-1]) if len(structure_window) > 1 else max(structure_window)
     if price < prior_high_before_breakout * (1.0 + breakout_confirm_pct):
         return "HOLD", "breakout_momentum_breakout_unconfirmed"
+
+    max_late_entry_pct = max(
+        _as_float(
+            _gate_value(
+                mode_cfg=mode_cfg,
+                gate_defaults=gate_defaults,
+                key="max_late_entry_pct",
+                fallback=0.045,
+            ),
+            0.045,
+        )
+        or 0.045,
+        0.0,
+    )
+    if price > prior_high_before_breakout * (1.0 + max_late_entry_pct):
+        return "HOLD", "breakout_momentum_too_late"
+
+    require_retest = bool(
+        _gate_value(
+            mode_cfg=mode_cfg,
+            gate_defaults=gate_defaults,
+            key="require_retest_confirmation",
+            fallback=False,
+        )
+    )
+    if require_retest and len(structure_window) >= 4:
+        retest_tolerance_pct = max(
+            _as_float(
+                _gate_value(
+                    mode_cfg=mode_cfg,
+                    gate_defaults=gate_defaults,
+                    key="retest_tolerance_pct",
+                    fallback=0.003,
+                ),
+                0.003,
+            )
+            or 0.003,
+            0.0,
+        )
+        recent_low = min(structure_window[-4:])
+        if recent_low > prior_high_before_breakout * (1.0 + retest_tolerance_pct):
+            return "HOLD", "breakout_momentum_wait_retest"
 
     if high_24h <= low_24h:
         return "HOLD", "breakout_momentum_insufficient_range_data"

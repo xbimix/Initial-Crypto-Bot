@@ -143,7 +143,9 @@
     "trailing_activation": 0.1,
     "trailing_gap": 0.02,
     "reset_below_activation": true,
-    "max_negative_z_score": -3.5
+    "max_negative_z_score": -3.5,
+    "stale_exit_max_hold_seconds": 1814400,
+    "stale_exit_min_pnl_pct": 0.003
   },
   "volatility_filters": {
     "min_atr": 0.0003,
@@ -520,7 +522,8 @@
       "breakout_min_closed_trades": 12,
       "breakout_min_win_rate_pct": 55,
       "breakout_min_expectancy_usd": 0.5
-    }
+    },
+    "tuning_profile": "conservative"
   },
   "strategy_overrides": {}
 }

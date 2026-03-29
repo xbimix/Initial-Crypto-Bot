@@ -162,3 +162,31 @@ def test_update_config_writes_normalized_payload(tmp_path: Path, monkeypatch):
     assert updated["symbols"] == ["ADA-USD", "ETH-USD"]
     assert updated["risk"]["max_concurrent_trades"] == 7
     assert updated["config_version"] == CONFIG_SCHEMA_VERSION
+
+
+def test_normalize_config_tuning_profile_is_normalized_to_lowercase():
+    raw = {
+        "enabled": True,
+        "symbols": ["btc-usd"],
+        "strategy_defaults": {
+            "tuning_profile": "BALANCED",
+        },
+    }
+    normalized, warnings, changed = normalize_config(raw, strict=False)
+    assert changed is True
+    assert warnings
+    assert normalized["strategy_defaults"]["tuning_profile"] == "balanced"
+
+
+def test_normalize_config_invalid_tuning_profile_defaults_to_conservative():
+    raw = {
+        "enabled": True,
+        "symbols": ["btc-usd"],
+        "strategy_defaults": {
+            "tuning_profile": "very_fast",
+        },
+    }
+    normalized, warnings, changed = normalize_config(raw, strict=False)
+    assert changed is True
+    assert warnings
+    assert normalized["strategy_defaults"]["tuning_profile"] == "conservative"

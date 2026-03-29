@@ -50,7 +50,7 @@ def test_regime_v2_degrades_when_history_is_shallow():
         now_epoch=1_730_000_050.0,
         cfg={},
     )
-    assert result["suggestedRegime"] == "MIXED_OR_UNCLEAR"
+    assert result["suggestedRegime"] == "UNKNOWN"
     assert result["insufficientData"] is True
     assert result["dataQuality"]["status"] in {"INSUFFICIENT", "UNSUPPORTED_WINDOW"}
 
@@ -62,7 +62,7 @@ def test_regime_v2_marks_stale_data_quality():
         cfg={"strategy_defaults": {"router": {"auto_max_regime_age_seconds": 120}}},
     )
     assert result["dataQuality"]["status"] == "STALE"
-    assert result["suggestedRegime"] == "MIXED_OR_UNCLEAR"
+    assert result["suggestedRegime"] == "UNKNOWN"
 
 
 def test_regime_v2_requires_both_core_key_windows():

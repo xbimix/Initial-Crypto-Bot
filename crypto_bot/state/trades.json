@@ -1278,5 +1278,30 @@
     "fallback_reason": "open_position_exit_policy_locked",
     "auto_fallback_reason": "core_timeframe_not_ready",
     "exit_policy": "mr_exit"
+  },
+  {
+    "time": 1774760602.999816,
+    "symbol": "CRV-USD",
+    "side": "SELL",
+    "price": 0.21192,
+    "size": 763.467196,
+    "pnl": -33.93611686219999,
+    "balance": 5905.827371011546,
+    "reason": "stale_position_risk_release",
+    "entry_route": "mean_reversion",
+    "entry_regime": "MIXED_OR_UNCLEAR",
+    "exit_policy_used": null,
+    "entry_confidence": 56.8,
+    "entry_timestamp": 1772664289.4589665,
+    "route_eval_ts": 1772664289.4589665,
+    "regime_eval_ts": 1772664289.4589665,
+    "effective_route": "mean_reversion",
+    "effective_strategy": "mean_reversion",
+    "configured_regime": "AUTO",
+    "detected_regime": "BREAKOUT_DOWN",
+    "suggested_regime_v2": "BREAKOUT_DOWN",
+    "fallback_reason": "open_position_exit_policy_locked",
+    "auto_fallback_reason": "low_confidence",
+    "exit_policy": "mr_exit"
   }
 ]

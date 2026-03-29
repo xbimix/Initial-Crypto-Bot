@@ -55,8 +55,17 @@ def _confidence_from_snapshot(snapshot: dict, candidate_regime: str) -> float:
         else:
             confidence -= 0.08
 
-    if candidate_regime in {"trend_up", "trend_down", "dump", "spike"}:
+    if candidate_regime in {
+        "trend_up",
+        "trend_down",
+        "breakout_up",
+        "breakout_down",
+        "momentum_up",
+    }:
         confidence += _clamp(momentum / 8.0, 0.0, 0.10)
+
+    if candidate_regime in {"choppy", "unknown"}:
+        confidence -= 0.08
 
     if price > 0 and high > low > 0:
         range_pct = (high - low) / price
