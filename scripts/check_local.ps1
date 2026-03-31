@@ -12,6 +12,7 @@ $compileTargets = @(
     ".\crypto_bot\config",
     ".\crypto_bot\control",
     ".\crypto_bot\data",
+    ".\crypto_bot\domain",
     ".\crypto_bot\paper",
     ".\crypto_bot\reporting",
     ".\crypto_bot\risk",

@@ -233,8 +233,6 @@ def sync_new_candles(
             fetched.extend(window_rows)
             requests += 1
     except RevolutCandleFetchError as exc:
-        if not exc.permanent:
-            raise
         if resolved_snapshot_fallback:
             fetched = _derive_candles_from_price_history(
                 symbol=symbol,
@@ -244,7 +242,10 @@ def sync_new_candles(
             )
             effective_source = "snapshot_derived"
             sync_status = "degraded"
-            sync_note = f"official_candles_unavailable:{exc}"
+            prefix = "official_candles_unavailable" if exc.permanent else "official_candles_retryable_error"
+            sync_note = f"{prefix}:{exc}"
+        elif not exc.permanent:
+            raise
         else:
             fetched = []
             effective_source = "revolut"

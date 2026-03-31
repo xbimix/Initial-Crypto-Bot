@@ -1,17 +1,45 @@
 import json
 import os
 import time
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 
 from utils.logger import setup_logger
+from utils.state_paths import (
+    read_path_with_legacy_fallback,
+    resolve_legacy_state_file,
+    resolve_state_file,
+    seed_primary_from_legacy,
+)
 
 logger = setup_logger("risk")
 
-STATE_DIR = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "state")
-)
-PAPER_STATE_FILE = os.path.join(STATE_DIR, "paper_state.json")
-TRADES_FILE = os.path.join(STATE_DIR, "trades.json")
+DEFAULT_STATE_DIR = Path(__file__).resolve().parent.parent / "state"
+PAPER_STATE_FILE = resolve_state_file(DEFAULT_STATE_DIR, "paper_state.json")
+TRADES_FILE = resolve_state_file(DEFAULT_STATE_DIR, "trades.json")
+LEGACY_PAPER_STATE_FILE = resolve_legacy_state_file(DEFAULT_STATE_DIR, "paper_state.json")
+LEGACY_TRADES_FILE = resolve_legacy_state_file(DEFAULT_STATE_DIR, "trades.json")
+
+
+@dataclass(frozen=True)
+class PositionSizingResult:
+    mode: str
+    raw_size: float
+    capped_size: float
+    risk_budget_used_usd: float
+    stop_distance: float | None
+    per_unit_risk_usd: float | None
+    expected_fee_bps: float
+    expected_slippage_bps: float
+    expected_total_cost_bps: float
+    min_trade_notional_usd: float
+    raw_notional_usd: float
+    capped_notional_usd: float
+    rejected_reason: str | None = None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
 
 
 class RiskManager:
@@ -32,12 +60,14 @@ class RiskManager:
     # =====================================================
 
     def _sync_with_broker_state(self):
-        if not os.path.exists(PAPER_STATE_FILE):
+        seed_primary_from_legacy(PAPER_STATE_FILE, LEGACY_PAPER_STATE_FILE)
+        read_path = read_path_with_legacy_fallback(PAPER_STATE_FILE, LEGACY_PAPER_STATE_FILE)
+        if not read_path.exists():
             self.open_positions = {}
             return
 
         try:
-            with open(PAPER_STATE_FILE, "r", encoding="utf-8") as f:
+            with open(read_path, "r", encoding="utf-8") as f:
                 payload = json.load(f)
             positions = payload.get("positions", {}) if isinstance(payload, dict) else {}
             if not isinstance(positions, dict):
@@ -292,10 +322,12 @@ class RiskManager:
         realized = 0.0
         trades_mtime = None
         trades_size = None
-        if os.path.exists(TRADES_FILE):
+        seed_primary_from_legacy(TRADES_FILE, LEGACY_TRADES_FILE)
+        trades_path = read_path_with_legacy_fallback(TRADES_FILE, LEGACY_TRADES_FILE)
+        if trades_path.exists():
             try:
-                trades_mtime = os.path.getmtime(TRADES_FILE)
-                trades_size = os.path.getsize(TRADES_FILE)
+                trades_mtime = os.path.getmtime(trades_path)
+                trades_size = os.path.getsize(trades_path)
             except OSError:
                 trades_mtime = None
                 trades_size = None
@@ -309,9 +341,9 @@ class RiskManager:
         if cache_hit:
             realized = self._as_float(self._daily_loss_cache.get("realized_usd"), 0.0) or 0.0
         else:
-            if os.path.exists(TRADES_FILE):
+            if trades_path.exists():
                 try:
-                    with open(TRADES_FILE, "r", encoding="utf-8") as handle:
+                    with open(trades_path, "r", encoding="utf-8") as handle:
                         trades = json.load(handle)
                     if isinstance(trades, list):
                         for trade in trades:
@@ -347,33 +379,298 @@ class RiskManager:
     # POSITION SIZING
     # =====================================================
 
-    def position_size(self, balance, entry_price, volatility=None):
-        if entry_price <= 0:
-            return 0.0
+    def _risk_sizing_mode(self) -> str:
+        risk_cfg = self._risk_cfg()
+        mode = str(risk_cfg.get("sizing_mode", "auto") or "").strip().lower()
+        allowed = {"auto", "stop_distance", "fixed_usd", "risk_percent"}
+        if mode not in allowed:
+            return "auto"
+        return mode
 
-        risk_cfg = self.cfg.get("risk", {})
+    def _risk_budget_usd(self, balance: float) -> float:
+        risk_cfg = self._risk_cfg()
+        risk_pct = max(self._as_float(risk_cfg.get("risk_percent"), 0.02), 0.0)
+        budget = max(float(balance) * risk_pct, 0.0)
+        explicit_budget = self._as_float(risk_cfg.get("max_loss_per_trade_usd"), None)
+        if explicit_budget is not None and explicit_budget >= 0:
+            budget = min(budget, explicit_budget) if budget > 0 else explicit_budget
+        return max(budget, 0.0)
+
+    def position_sizing(
+        self,
+        balance,
+        entry_price,
+        volatility=None,
+        *,
+        stop_price=None,
+        expected_fee_bps=None,
+        expected_slippage_bps=None,
+        spread_bps=None,
+        liquidity_score=None,
+        current_open_value_usd: float = 0.0,
+        current_symbol_value_usd: float = 0.0,
+        equity_usd: float | None = None,
+    ) -> PositionSizingResult:
+        if entry_price <= 0:
+            return PositionSizingResult(
+                mode="invalid",
+                raw_size=0.0,
+                capped_size=0.0,
+                risk_budget_used_usd=0.0,
+                stop_distance=None,
+                per_unit_risk_usd=None,
+                expected_fee_bps=0.0,
+                expected_slippage_bps=0.0,
+                expected_total_cost_bps=0.0,
+                min_trade_notional_usd=0.0,
+                raw_notional_usd=0.0,
+                capped_notional_usd=0.0,
+                rejected_reason="invalid_entry_price",
+            )
+
+        risk_cfg = self._risk_cfg()
         risk_pct = float(risk_cfg.get("risk_percent", 0.02))
         trade_amount_usd = risk_cfg.get("trade_amount_usd")
         scaling = self._volatility_scaling(volatility)
+        expected_fee_bps = max(self._as_float(expected_fee_bps, 0.0), 0.0)
+        expected_slippage_bps = max(self._as_float(expected_slippage_bps, 0.0), 0.0)
+        expected_cost_pct = (expected_fee_bps + expected_slippage_bps) / 10000.0
+        spread_bps = self._as_float(spread_bps, None)
+        liquidity_score = self._as_float(liquidity_score, None)
 
-        if trade_amount_usd is not None:
+        sizing_mode = self._risk_sizing_mode()
+
+        if sizing_mode == "fixed_usd" and trade_amount_usd is None:
+            return PositionSizingResult(
+                mode=sizing_mode,
+                raw_size=0.0,
+                capped_size=0.0,
+                risk_budget_used_usd=0.0,
+                stop_distance=None,
+                per_unit_risk_usd=None,
+                expected_fee_bps=expected_fee_bps,
+                expected_slippage_bps=expected_slippage_bps,
+                expected_total_cost_bps=(expected_fee_bps + expected_slippage_bps),
+                min_trade_notional_usd=0.0,
+                raw_notional_usd=0.0,
+                capped_notional_usd=0.0,
+                rejected_reason="trade_amount_usd_required",
+            )
+
+        legacy_fixed_usd = trade_amount_usd is not None and sizing_mode == "auto"
+        if sizing_mode == "fixed_usd" or legacy_fixed_usd:
             trade_amount = max(float(trade_amount_usd), 0.0)
             capital_to_use = min(float(balance), trade_amount)
-            sizing_mode = f"fixed_usd={trade_amount:.2f}"
-        else:
+            mode_used = "fixed_usd"
+        elif sizing_mode == "risk_percent":
             capital_to_use = max(float(balance) * risk_pct, 0.0)
-            sizing_mode = f"risk_pct={risk_pct*100:.2f}%"
+            mode_used = "risk_percent"
+        else:
+            capital_to_use = (
+                min(float(balance), max(float(trade_amount_usd), 0.0))
+                if trade_amount_usd is not None
+                else max(float(balance) * risk_pct, 0.0)
+            )
+            mode_used = "stop_distance"
 
         capital_to_use = min(
             max(capital_to_use * scaling["size_mult"], 0.0),
             float(balance),
         )
-        size = capital_to_use / float(entry_price)
+        size_by_capital = capital_to_use / float(entry_price)
+
+        size = size_by_capital
+        stop_distance = None
+        per_unit_risk = None
+        risk_budget_usd = self._risk_budget_usd(float(balance))
+        stop = self._as_float(stop_price, None)
+        if stop is not None and stop > 0:
+            stop_distance = max(float(entry_price) - float(stop), 0.0)
+            if stop_distance > 0:
+                per_unit_risk = stop_distance + (float(entry_price) * expected_cost_pct)
+                if per_unit_risk > 0:
+                    size_by_stop = max(risk_budget_usd / per_unit_risk, 0.0)
+                    size = min(size_by_capital, size_by_stop)
+        elif mode_used == "stop_distance":
+            return PositionSizingResult(
+                mode=mode_used,
+                raw_size=0.0,
+                capped_size=0.0,
+                risk_budget_used_usd=risk_budget_usd,
+                stop_distance=None,
+                per_unit_risk_usd=None,
+                expected_fee_bps=expected_fee_bps,
+                expected_slippage_bps=expected_slippage_bps,
+                expected_total_cost_bps=(expected_fee_bps + expected_slippage_bps),
+                min_trade_notional_usd=max(self._as_float(risk_cfg.get("min_trade_notional_usd"), 10.0), 0.0),
+                raw_notional_usd=0.0,
+                capped_notional_usd=0.0,
+                rejected_reason="missing_or_invalid_stop",
+            )
+
+        # Liquidity-aware scaling keeps size conservative on hostile tape.
+        if spread_bps is not None and spread_bps >= 0:
+            soft_spread_bps = max(self._as_float(risk_cfg.get("liquidity_soft_spread_bps"), 45.0), 1.0)
+            hard_spread_bps = max(self._as_float(risk_cfg.get("liquidity_hard_spread_bps"), 220.0), soft_spread_bps)
+            if spread_bps >= hard_spread_bps:
+                logger.info(
+                    f"Position sizing blocked by hard spread cap: spread_bps={spread_bps:.2f} "
+                    f"hard_spread_bps={hard_spread_bps:.2f}"
+                )
+                return PositionSizingResult(
+                    mode=mode_used,
+                    raw_size=0.0,
+                    capped_size=0.0,
+                    risk_budget_used_usd=risk_budget_usd,
+                    stop_distance=stop_distance,
+                    per_unit_risk_usd=per_unit_risk,
+                    expected_fee_bps=expected_fee_bps,
+                    expected_slippage_bps=expected_slippage_bps,
+                    expected_total_cost_bps=(expected_fee_bps + expected_slippage_bps),
+                    min_trade_notional_usd=max(self._as_float(risk_cfg.get("min_trade_notional_usd"), 10.0), 0.0),
+                    raw_notional_usd=0.0,
+                    capped_notional_usd=0.0,
+                    rejected_reason="spread_hard_cap",
+                )
+            if spread_bps > soft_spread_bps:
+                spread_scale = max(min(soft_spread_bps / spread_bps, 1.0), 0.25)
+                size *= spread_scale
+
+        if liquidity_score is not None:
+            liquidity_floor = _clamp(self._as_float(risk_cfg.get("liquidity_score_floor"), 0.15), 0.0, 1.0)
+            if liquidity_score < liquidity_floor:
+                logger.info(
+                    f"Position sizing blocked by liquidity score: score={liquidity_score:.3f} "
+                    f"floor={liquidity_floor:.3f}"
+                )
+                return PositionSizingResult(
+                    mode=mode_used,
+                    raw_size=0.0,
+                    capped_size=0.0,
+                    risk_budget_used_usd=risk_budget_usd,
+                    stop_distance=stop_distance,
+                    per_unit_risk_usd=per_unit_risk,
+                    expected_fee_bps=expected_fee_bps,
+                    expected_slippage_bps=expected_slippage_bps,
+                    expected_total_cost_bps=(expected_fee_bps + expected_slippage_bps),
+                    min_trade_notional_usd=max(self._as_float(risk_cfg.get("min_trade_notional_usd"), 10.0), 0.0),
+                    raw_notional_usd=0.0,
+                    capped_notional_usd=0.0,
+                    rejected_reason="liquidity_score_below_floor",
+                )
+            if liquidity_score < 0.8:
+                # Scale down gradually in thin conditions.
+                size *= max(liquidity_score / 0.8, 0.35)
+
+        raw_size = max(size, 0.0)
+        raw_notional = raw_size * float(entry_price)
+        capped_notional = raw_notional
+
+        max_notional_usd = self._as_float(risk_cfg.get("max_notional_usd"), None)
+        if max_notional_usd is not None and max_notional_usd >= 0:
+            capped_notional = min(capped_notional, max_notional_usd)
+
+        effective_equity = self._as_float(equity_usd, None)
+        if effective_equity is None or effective_equity <= 0:
+            effective_equity = max(float(balance), 0.0) + max(self._as_float(current_open_value_usd, 0.0), 0.0)
+        if effective_equity > 0:
+            max_portfolio_pct = max(self._as_float(risk_cfg.get("max_portfolio_exposure_pct"), 100.0), 1.0)
+            max_symbol_pct = max(self._as_float(risk_cfg.get("max_exposure_per_token_pct"), 100.0), 1.0)
+            portfolio_cap_notional = max((effective_equity * (max_portfolio_pct / 100.0)) - max(current_open_value_usd, 0.0), 0.0)
+            symbol_cap_notional = max((effective_equity * (max_symbol_pct / 100.0)) - max(current_symbol_value_usd, 0.0), 0.0)
+            capped_notional = min(capped_notional, portfolio_cap_notional, symbol_cap_notional)
+
+        liquidity_cap_notional = self._as_float(risk_cfg.get("liquidity_cap_notional_usd"), None)
+        if liquidity_cap_notional is not None and liquidity_cap_notional >= 0:
+            if liquidity_score is not None:
+                capped_notional = min(capped_notional, liquidity_cap_notional * max(liquidity_score, 0.1))
+            else:
+                capped_notional = min(capped_notional, liquidity_cap_notional)
+
+        min_trade_notional_usd = max(self._as_float(risk_cfg.get("min_trade_notional_usd"), 10.0), 0.0)
+        if capped_notional < min_trade_notional_usd:
+            return PositionSizingResult(
+                mode=mode_used,
+                raw_size=raw_size,
+                capped_size=0.0,
+                risk_budget_used_usd=risk_budget_usd,
+                stop_distance=stop_distance,
+                per_unit_risk_usd=per_unit_risk,
+                expected_fee_bps=expected_fee_bps,
+                expected_slippage_bps=expected_slippage_bps,
+                expected_total_cost_bps=(expected_fee_bps + expected_slippage_bps),
+                min_trade_notional_usd=min_trade_notional_usd,
+                raw_notional_usd=raw_notional,
+                capped_notional_usd=max(capped_notional, 0.0),
+                rejected_reason="below_min_trade_notional",
+            )
+
+        capped_size = max(capped_notional / max(float(entry_price), 1e-9), 0.0)
+        if capped_size <= 0:
+            return PositionSizingResult(
+                mode=mode_used,
+                raw_size=raw_size,
+                capped_size=0.0,
+                risk_budget_used_usd=risk_budget_usd,
+                stop_distance=stop_distance,
+                per_unit_risk_usd=per_unit_risk,
+                expected_fee_bps=expected_fee_bps,
+                expected_slippage_bps=expected_slippage_bps,
+                expected_total_cost_bps=(expected_fee_bps + expected_slippage_bps),
+                min_trade_notional_usd=min_trade_notional_usd,
+                raw_notional_usd=raw_notional,
+                capped_notional_usd=max(capped_notional, 0.0),
+                rejected_reason="size_capped_to_zero",
+            )
 
         logger.info(
-            f"Position sizing: balance={balance:.2f}, "
-            f"{sizing_mode}, vol_bucket={scaling['bucket']}, "
-            f"capital={capital_to_use:.2f}, size={size:.6f}"
+            f"Position sizing: balance={balance:.2f}, mode={mode_used}, vol_bucket={scaling['bucket']}, "
+            f"capital={capital_to_use:.2f}, stop={stop}, stop_dist={stop_distance}, "
+            f"risk_budget={risk_budget_usd:.2f}, per_unit_risk={per_unit_risk}, "
+            f"cost_bps={(expected_fee_bps + expected_slippage_bps):.2f}, spread_bps={spread_bps}, "
+            f"liquidity_score={liquidity_score}, raw_size={raw_size:.6f}, capped_size={capped_size:.6f}"
         )
 
-        return round(size, 6)
+        return PositionSizingResult(
+            mode=mode_used,
+            raw_size=round(raw_size, 6),
+            capped_size=round(capped_size, 6),
+            risk_budget_used_usd=round(risk_budget_usd, 6),
+            stop_distance=(round(stop_distance, 8) if stop_distance is not None else None),
+            per_unit_risk_usd=(round(per_unit_risk, 8) if per_unit_risk is not None else None),
+            expected_fee_bps=round(expected_fee_bps, 6),
+            expected_slippage_bps=round(expected_slippage_bps, 6),
+            expected_total_cost_bps=round(expected_fee_bps + expected_slippage_bps, 6),
+            min_trade_notional_usd=round(min_trade_notional_usd, 6),
+            raw_notional_usd=round(raw_notional, 6),
+            capped_notional_usd=round(capped_notional, 6),
+            rejected_reason=None,
+        )
+
+    def position_size(
+        self,
+        balance,
+        entry_price,
+        volatility=None,
+        *,
+        stop_price=None,
+        expected_fee_bps=None,
+        expected_slippage_bps=None,
+        spread_bps=None,
+        liquidity_score=None,
+    ):
+        result = self.position_sizing(
+            balance,
+            entry_price,
+            volatility=volatility,
+            stop_price=stop_price,
+            expected_fee_bps=expected_fee_bps,
+            expected_slippage_bps=expected_slippage_bps,
+            spread_bps=spread_bps,
+            liquidity_score=liquidity_score,
+        )
+        return round(result.capped_size, 6)
+
+
+def _clamp(value: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, value))

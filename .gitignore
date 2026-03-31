@@ -1,67 +1,35 @@
-#Secrets
+# Secrets
 .env
 private.pem
 revolut-keys/
 
-#Python
+# Python
 __pycache__/
 *.pyc
-
-#Logs
-*.log
 .pytest_cache/
 
-#Localruntimeartifacts
-crypto_bot/state/backups/
-crypto_bot/state/*.lock
-crypto_bot/state/.pytest_cache*/
-crypto_bot/state/pytest_tmp*/
-crypto_bot/state/pytest-cache-files-*/
-crypto_bot/state/pytest_base_env/
-crypto_bot/state/replay_tmp/
-crypto_bot/state/tmp*/
-crypto_bot/tests/.pytest_cache*/
-crypto_bot/tests/_pytest_tmp*/
-crypto_bot/tests/pytest-cache-files-*/
+# Local workspace artifacts
 .codex/
 .tmp_*/
 .work_localcheck_*/
 work_localcheck_*/
-work_testdirs/case_*/
-crypto_bot/work_testdirs/case_*/
+work_testdirs/
+work_testdirs_probe/
 pytest-cache-files-*/
 scripts/pytest-cache-files-*/
 scripts/_pytest_tmp_*/
-work_testdirs_probe/
-crypto_bot/state/reports/strategy_replay_*.json
-crypto_bot/state/reports/route_analysis_*.json
-crypto_bot/state/snapshots/*_bot_prestart/
-crypto_bot/state/*.db
-crypto_bot/state/*.jsonl
-crypto_bot/state/*.log
-crypto_bot/state/*.log.*
-crypto_bot/state/bot.log*
-crypto_bot/state/bot.strategy.log*
-#Runtimestate/logs/databases
+crypto_bot/tests/.pytest_cache*/
+crypto_bot/tests/_pytest_tmp*/
+crypto_bot/tests/pytest-cache-files-*/
+
+# Runtime data roots (new + legacy)
+.runtime/
+var/
 crypto_bot/state/
-crypto_bot/state/*.sqlite
-crypto_bot/state/*.sqlite3
+web-ui/state/
 
-crypto_bot/state/market_data.db
-crypto_bot/state/market_data.db
-crypto_bot/state/market_data.db
-crypto_bot/state/market_data.db
-crypto_bot/state/decision_audit.jsonl
-crypto_bot/state/decision_audit.jsonl
-crypto_bot/state/decision_audit.jsonl
-crypto_bot/state/market_data.db
-
-crypto_bot/state/decision_audit.jsonl
-crypto_bot/state/bot.log
-crypto_bot/state/market_sync_health_history.jsonl
-
-crypto_bot/state/market_sync_health_history.jsonl
-
-crypto_bot/state/market_sync_health_history.jsonl
-
-crypto_bot/state/decision_audit.jsonl
+# Generated logs/databases
+*.log
+*.sqlite
+*.sqlite3
+*.db

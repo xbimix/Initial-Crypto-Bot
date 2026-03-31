@@ -1,13 +1,15 @@
 import time
-import statistics
 import math
-from collections import defaultdict, deque
-from datetime import datetime
 
-from api.revolut_order_book import get_order_book
-from api.revolut_trades import get_last_trades
+from api.revolut_order_book import get_order_book as _get_order_book_api
+from api.revolut_trades import get_last_trades as _get_last_trades_api
+from data.feature_engine import resolve_indicator_features
+from data.ingestion import OrderBookUpdate, TradeUpdate, fetch_order_book_update, fetch_trade_updates
+from data.market_models import NormalizedMarketSnapshot, StrategyEvalGate
 from data.market_data_service import get_candle_meta, get_candles
+from data.replay_persistence import append_replay_event
 from data.revolut_incremental_sync import sync_new_candles
+from data.state_store import MARKET_DATA_STATE_STORE
 from utils.logger import setup_logger
 
 try:
@@ -21,7 +23,6 @@ EPSILON = 1e-8
 SECONDS_24H = 86400
 DEFAULT_ATR_FLOOR = 0.0
 DEFAULT_MAX_TRADE_JUMP_PCT = 0.12
-FUTURE_TRADE_TOLERANCE = 5
 DEFAULT_HISTORY_SECONDS = SECONDS_24H
 DEFAULT_MIN_HISTORY_POINTS = 8
 DEFAULT_MAX_SPREAD_BPS = 150.0
@@ -34,10 +35,21 @@ DEFAULT_CANDLE_SYNC_INTERVAL_SECONDS = 20
 DEFAULT_REGIME_CORE_TIMEFRAMES = ("1h", "4h", "1d")
 DEFAULT_REGIME_MIN_CANDLES = {"1h": 300, "4h": 180, "1d": 120}
 DEFAULT_REGIME_STALE_AFTER_SECONDS = {"1h": 7200, "4h": 28800, "1d": 172800}
+DEFAULT_STRICT_STRATEGY_EVAL_GATE_ENABLED = True
+DEFAULT_STRATEGY_EVAL_MAX_AGE_SECONDS = 20.0
 
-_PRICE_HISTORY = defaultdict(deque)
+_STATE_STORE = MARKET_DATA_STATE_STORE
+_PRICE_HISTORY = _STATE_STORE.legacy_price_history
 _LAST_CANDLE_SYNC_AT: dict[str, float] = {}
-_INDICATOR_CACHE: dict[str, dict] = {}
+_INDICATOR_CACHE = _STATE_STORE.legacy_indicator_cache
+
+
+def get_order_book(symbol: str, cfg: dict | None = None):
+    return _get_order_book_api(symbol, cfg=cfg)
+
+
+def get_last_trades(symbol: str, limit: int):
+    return _get_last_trades_api(symbol=symbol, limit=limit)
 
 
 def _format_snapshot_price(value: float | int | None) -> str:
@@ -134,139 +146,81 @@ def _core_readiness_payload(symbol: str, market_data_cfg: dict) -> dict:
     }
 
 
-def _parse_ts(payload) -> float | None:
-    if isinstance(payload, dict):
-        iso = payload.get("tdt") or payload.get("pdt") or payload.get("timestamp")
-    else:
-        iso = payload
-
-    if not iso:
-        return None
-
-    try:
-        return datetime.fromisoformat(str(iso).replace("Z", "+00:00")).timestamp()
-    except Exception:
-        return None
-
-
-def _split_symbol(symbol: str) -> tuple[str, str]:
-    base, quote = symbol.split("-", 1)
-    return base.upper(), quote.upper()
-
-
-def _ema(values, period):
-    if len(values) < period:
-        return None
-
-    k = 2 / (period + 1)
-    ema_val = values[0]
-
-    for price in values[1:]:
-        ema_val = price * k + ema_val * (1 - k)
-
-    return ema_val
+def _classify_market_quality(quality_reasons: list[str], history_points: int) -> tuple[bool, str, str, str]:
+    data_quality_ok = not quality_reasons
+    data_quality_reason = ",".join(quality_reasons) if quality_reasons else "ok"
+    data_quality_status = "GOOD"
+    quality_state = "TRADABLE"
+    if history_points <= 0:
+        data_quality_status = "INSUFFICIENT"
+        quality_state = "UNSAFE"
+    elif "candle_timeframe_unsupported" in quality_reasons:
+        data_quality_status = "UNSUPPORTED_WINDOW"
+        quality_state = "UNSAFE"
+    elif "candle_history_stale" in quality_reasons:
+        data_quality_status = "STALE"
+        quality_state = "UNSAFE"
+    elif quality_reasons:
+        data_quality_status = "PARTIAL"
+        quality_state = "DEGRADED"
+    return data_quality_ok, data_quality_reason, data_quality_status, quality_state
 
 
-def _indicator_cache_key(symbol: str, timeframe: str) -> str:
-    return f"{str(symbol).strip().upper()}:{str(timeframe).strip().lower()}"
+def _build_strategy_eval_gate(snapshot: dict, cfg: dict) -> StrategyEvalGate:
+    market_data_cfg = cfg.get("market_data", {})
+    if not isinstance(market_data_cfg, dict):
+        market_data_cfg = {}
+    gate_enabled = bool(
+        market_data_cfg.get(
+            "strict_strategy_eval_gate_enabled",
+            DEFAULT_STRICT_STRATEGY_EVAL_GATE_ENABLED,
+        )
+    )
+    if not gate_enabled:
+        return StrategyEvalGate(allowed=True)
 
+    quality_status = str(snapshot.get("data_quality_status") or "UNKNOWN").upper()
+    quality_state = str(snapshot.get("data_quality_state") or "UNKNOWN").upper()
+    blocked_reason: str | None = None
+    if quality_status in {"STALE", "INSUFFICIENT", "UNSUPPORTED_WINDOW"}:
+        blocked_reason = f"market_data_quality:{quality_status.lower()}"
 
-def _build_indicator_features(
-    prices: list[float],
-    weights: list[float],
-    *,
-    atr_floor: float,
-) -> dict:
-    deltas = [
-        abs(prices[i] - prices[i - 1]) / prices[i - 1]
-        for i in range(1, len(prices))
-        if prices[i - 1] > 0
-    ]
-    atr_raw = statistics.median(deltas) if deltas else 0.0
-    atr = max(atr_raw, atr_floor)
-    vwap = _weighted_average(prices, weights)
-    median_price = statistics.median(prices)
-    rsi = calculate_rsi(prices, period=14)
-    ema_50 = _ema(prices[-100:], 50)
-    ema_200 = _ema(prices[-250:], 200)
-    ema_50_prev = _ema(prices[-101:-1], 50) if len(prices) > 101 else None
-    ema_50_slope = None
-    if ema_50 is not None and ema_50_prev is not None:
-        ema_50_slope = ema_50 - ema_50_prev
-    return {
-        "first_price": prices[0],
-        "atr_raw": atr_raw,
-        "atr": atr,
-        "vwap": vwap,
-        "median_price": median_price,
-        "rsi": rsi,
-        "ema_50": ema_50,
-        "ema_200": ema_200,
-        "ema_50_slope": ema_50_slope,
-        "high_24h": max(prices),
-        "low_24h": min(prices),
-        "history_points": len(prices),
-        "recent_prices": prices[-60:],
-    }
+    core_ready = True
+    readiness = snapshot.get("core_candle_readiness", {})
+    if isinstance(readiness, dict):
+        core_ready = bool(readiness.get("ready", True))
+        if not core_ready and blocked_reason is None:
+            blocked_reason = f"core_not_ready:{readiness.get('reason', 'unknown')}"
 
-
-def _resolve_indicator_features(
-    *,
-    symbol: str,
-    timeframe: str,
-    history_source: str,
-    candle_meta: dict,
-    prices: list[float],
-    weights: list[float],
-    atr_floor: float,
-) -> dict:
-    cache_key = _indicator_cache_key(symbol, timeframe)
-    latest_open = None
-    if isinstance(candle_meta, dict):
-        latest_open = candle_meta.get("latest_open_time")
-    if history_source != "sqlite_candles" or latest_open is None:
-        return _build_indicator_features(prices, weights, atr_floor=atr_floor)
-
-    cached = _INDICATOR_CACHE.get(cache_key)
-    if isinstance(cached, dict):
-        if int(cached.get("latest_open_time", -1)) == int(latest_open):
-            return dict(cached.get("features", {}))
-
-    features = _build_indicator_features(prices, weights, atr_floor=atr_floor)
-    _INDICATOR_CACHE[cache_key] = {
-        "latest_open_time": int(latest_open),
-        "features": dict(features),
-    }
-    return features
-
-
-def _parse_size(trade: dict) -> float:
-    for key in ("q", "s", "sz", "size", "amount", "v"):
-        raw = trade.get(key)
-        if raw is None:
-            continue
+    snapshot_age_seconds: float | None = None
+    snapshot_ts = snapshot.get("snapshot_ts_epoch")
+    if snapshot_ts is not None:
         try:
-            size = float(raw)
-            if size > 0:
-                return size
+            snapshot_age_seconds = max(0.0, time.time() - float(snapshot_ts))
         except (TypeError, ValueError):
-            continue
-    return 1.0
+            snapshot_age_seconds = None
+    max_age_seconds = float(
+        market_data_cfg.get(
+            "strategy_eval_max_snapshot_age_seconds",
+            DEFAULT_STRATEGY_EVAL_MAX_AGE_SECONDS,
+        )
+    )
+    if (
+        snapshot_age_seconds is not None
+        and max_age_seconds > 0
+        and snapshot_age_seconds > max_age_seconds
+        and blocked_reason is None
+    ):
+        blocked_reason = "market_snapshot_stale"
 
-
-def _matches_symbol_row(row: dict, base: str, quote: str) -> bool:
-    aid = str(row.get("aid", "")).upper()
-    price_ccy = str(row.get("pc", "")).upper()
-    qty_ccy = str(row.get("qc", "")).upper()
-
-    return aid == base and price_ccy == quote and qty_ccy == base
-
-
-def _weighted_average(prices, sizes):
-    total_size = sum(sizes)
-    if total_size <= 0:
-        return statistics.mean(prices)
-    return sum(p * s for p, s in zip(prices, sizes)) / total_size
+    return StrategyEvalGate(
+        allowed=blocked_reason is None,
+        blocked_reason=blocked_reason,
+        snapshot_age_seconds=snapshot_age_seconds,
+        quality_status=quality_status,
+        quality_state=quality_state,
+        core_ready=core_ready,
+    )
 
 
 def _filter_price_jumps(trades: list[dict], max_jump_pct: float) -> tuple[list[dict], int]:
@@ -287,90 +241,50 @@ def _filter_price_jumps(trades: list[dict], max_jump_pct: float) -> tuple[list[d
     return filtered, skipped
 
 
-def _parse_book_levels(
-    levels: list[dict] | None,
-    base: str,
-    quote: str,
-    expected_side: str,
-) -> list[dict]:
-    parsed = []
-
-    if not isinstance(levels, list):
-        return parsed
-
-    for level in levels:
-        if not _matches_symbol_row(level, base, quote):
-            continue
-
-        side = str(level.get("s", "")).upper()
-        if side:
-            if expected_side == "BUYI" and not side.startswith("BUY"):
-                continue
-            if expected_side == "SELL" and side != "SELL":
-                continue
-
-        try:
-            price = float(level["p"])
-            size = float(level["q"])
-        except (KeyError, TypeError, ValueError):
-            continue
-
-        if price <= 0 or size <= 0:
-            continue
-
-        parsed.append(
-            {
-                "price": price,
-                "size": size,
-                "ts": _parse_ts(level),
-            }
-        )
-
-    return parsed
-
-
-def _extract_order_book_snapshot(payload: dict, symbol: str) -> dict | None:
-    base, quote = _split_symbol(symbol)
-    data = payload.get("data", {}) if isinstance(payload, dict) else {}
-
-    asks = _parse_book_levels(data.get("asks"), base, quote, "SELL")
-    bids = _parse_book_levels(data.get("bids"), base, quote, "BUYI")
-
-    if not asks or not bids:
+def _extract_order_book_snapshot(update: OrderBookUpdate) -> dict | None:
+    bids = list(update.bids)
+    asks = list(update.asks)
+    symbol = update.symbol
+    if not bids or not asks:
         logger.warning(f"No valid order book levels for {symbol}")
         return None
 
-    best_ask = min(asks, key=lambda level: level["price"])
-    best_bid = max(bids, key=lambda level: level["price"])
+    best_ask = min(asks, key=lambda level: level.price)
+    best_bid = max(bids, key=lambda level: level.price)
 
-    if best_ask["price"] <= best_bid["price"]:
+    if best_ask.price <= best_bid.price:
         logger.warning(
             f"Crossed order book for {symbol}: "
-            f"bid={best_bid['price']:.5f} ask={best_ask['price']:.5f}"
+            f"bid={best_bid.price:.5f} ask={best_ask.price:.5f}"
         )
         return None
 
-    mid_price = (best_bid["price"] + best_ask["price"]) / 2
-    spread = best_ask["price"] - best_bid["price"]
+    mid_price = (best_bid.price + best_ask.price) / 2
+    spread = best_ask.price - best_bid.price
     spread_bps = (spread / (mid_price + EPSILON)) * 10000
 
-    top_bid_size = best_bid["size"]
-    top_ask_size = best_ask["size"]
+    top_bid_size = best_bid.size
+    top_ask_size = best_ask.size
     microprice = (
-        ((best_ask["price"] * top_bid_size) + (best_bid["price"] * top_ask_size))
+        ((best_ask.price * top_bid_size) + (best_bid.price * top_ask_size))
         / (top_bid_size + top_ask_size + EPSILON)
     )
 
-    total_bid_depth = sum(level["size"] for level in bids)
-    total_ask_depth = sum(level["size"] for level in asks)
+    total_bid_depth = sum(level.size for level in bids)
+    total_ask_depth = sum(level.size for level in asks)
     depth_weight = total_bid_depth + total_ask_depth
 
-    snapshot_ts = _parse_ts(payload.get("metadata", {})) if isinstance(payload, dict) else None
-    snapshot_ts = snapshot_ts or best_ask["ts"] or best_bid["ts"] or time.time()
+    snapshot_ts = (
+        update.source.exchange_ts_epoch
+        or best_ask.ts_epoch
+        or best_bid.ts_epoch
+        or update.source.received_ts_epoch
+        or time.time()
+    )
 
     return {
-        "best_bid": best_bid["price"],
-        "best_ask": best_ask["price"],
+        "best_bid": best_bid.price,
+        "best_ask": best_ask.price,
         "mid_price": mid_price,
         "microprice": microprice,
         "spread": spread,
@@ -387,40 +301,16 @@ def _extract_order_book_snapshot(payload: dict, symbol: str) -> dict | None:
 
 def _parse_symbol_trades(
     symbol: str,
-    base: str,
-    quote: str,
     limit: int,
     max_trade_jump_pct: float,
 ) -> tuple[list[dict], int]:
-    trades = get_last_trades(symbol=symbol, limit=limit)
-    if not isinstance(trades, list):
-        return [], 0
-
-    parsed = []
-    for trade in trades:
-        if not _matches_symbol_row(trade, base, quote):
-            continue
-
-        ts = _parse_ts(trade)
-        if ts is None or ts > time.time() + FUTURE_TRADE_TOLERANCE:
-            continue
-
-        try:
-            price = float(trade["p"])
-            if price <= 0:
-                continue
-        except (KeyError, TypeError, ValueError):
-            continue
-
-        parsed.append(
-            {
-                "price": price,
-                "ts": ts,
-                "size": _parse_size(trade),
-            }
-        )
-
-    parsed.sort(key=lambda item: item["ts"])
+    trades = fetch_trade_updates(symbol, limit=limit, fetcher=get_last_trades)
+    parsed = [
+        {"price": float(item.price), "ts": float(item.ts_epoch), "size": float(item.size)}
+        for item in trades
+        if isinstance(item, TradeUpdate)
+    ]
+    parsed.sort(key=lambda item: float(item["ts"]))
     return _filter_price_jumps(parsed, max_trade_jump_pct)
 
 
@@ -430,29 +320,32 @@ def _record_mark_price(
     mark_price: float,
     weight: float,
     history_seconds: int,
-) -> list[dict]:
-    history = _PRICE_HISTORY[symbol]
-    sample = {
-        "ts": snapshot_ts,
-        "price": mark_price,
-        "weight": max(weight, 1.0),
-    }
-
-    if history and abs(history[-1]["ts"] - snapshot_ts) < 1e-6:
-        history[-1] = sample
-    else:
-        history.append(sample)
-
-    cutoff = snapshot_ts - history_seconds
-    while history and history[0]["ts"] < cutoff:
-        history.popleft()
-
-    return list(history)
+) -> tuple[list[dict], int]:
+    result = _STATE_STORE.record_mark_price(
+        symbol=symbol,
+        snapshot_ts=snapshot_ts,
+        mark_price=mark_price,
+        weight=weight,
+        history_seconds=history_seconds,
+    )
+    return result.history, result.history_version
 
 
-def _load_candle_history(symbol: str, timeframe: str, limit: int) -> tuple[list[float], list[float], dict]:
+def _load_candle_history(symbol: str, timeframe: str, limit: int, meta: dict) -> tuple[list[float], list[float], dict, int]:
+    latest_open = None
+    if isinstance(meta, dict):
+        latest_open = meta.get("latest_open_time")
+    cached = _STATE_STORE.get_candle_cache(symbol=symbol, timeframe=timeframe)
+    if (
+        cached is not None
+        and cached.latest_open_time is not None
+        and latest_open is not None
+        and int(cached.latest_open_time) == int(latest_open)
+        and len(cached.prices) >= 1
+    ):
+        return list(cached.prices[-limit:]), list(cached.weights[-limit:]), meta, int(cached.version)
+
     rows = get_candles(symbol=symbol, timeframe=timeframe, limit=limit)
-    meta = get_candle_meta(symbol=symbol, timeframe=timeframe)
     prices: list[float] = []
     weights: list[float] = []
     for row in rows:
@@ -469,7 +362,17 @@ def _load_candle_history(symbol: str, timeframe: str, limit: int) -> tuple[list[
             volume = 1.0
         prices.append(close_px)
         weights.append(max(volume, 1.0))
-    return prices, weights, meta if isinstance(meta, dict) else {}
+
+    refreshed = _STATE_STORE.set_candle_cache(
+        symbol=symbol,
+        timeframe=timeframe,
+        latest_open_time=int(latest_open) if latest_open is not None else None,
+        prices=prices,
+        weights=weights,
+        metadata=meta if isinstance(meta, dict) else {},
+        refreshed_at_epoch=time.time(),
+    )
+    return prices, weights, meta if isinstance(meta, dict) else {}, int(refreshed.version)
 
 
 def _maybe_sync_candles(
@@ -499,7 +402,6 @@ def _maybe_sync_candles(
 def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
     try:
         lookback = cfg.get("lookback", 200)
-        base, quote = _split_symbol(symbol)
         volatility_cfg = cfg.get("volatility_filters", {})
         market_data_cfg = cfg.get("market_data", {})
         atr_floor = volatility_cfg.get("atr_floor", cfg.get("atr_floor", DEFAULT_ATR_FLOOR))
@@ -547,8 +449,22 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
 
         # High-frequency healthy event; keep available at DEBUG to reduce log churn.
         logger.debug(f"Fetching market snapshot for {symbol}")
-        order_book = get_order_book(symbol, cfg=cfg)
-        book = _extract_order_book_snapshot(order_book, symbol)
+        order_book_update = fetch_order_book_update(symbol, cfg=cfg, fetcher=get_order_book)
+        if order_book_update is None:
+            return None
+        append_replay_event(
+            "normalized_order_book",
+            {
+                "symbol": order_book_update.symbol,
+                "bids": len(order_book_update.bids),
+                "asks": len(order_book_update.asks),
+                "received_ts_epoch": order_book_update.source.received_ts_epoch,
+                "exchange_ts_epoch": order_book_update.source.exchange_ts_epoch,
+                "source": order_book_update.source.source,
+            },
+            cfg,
+        )
+        book = _extract_order_book_snapshot(order_book_update)
         if book is None:
             return None
 
@@ -560,7 +476,7 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
                 cfg=cfg,
             )
 
-        history = _record_mark_price(
+        history, history_version = _record_mark_price(
             symbol,
             book["timestamp"],
             book["mid_price"],
@@ -574,16 +490,21 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
         weights = list(stream_weights)
         history_source = "order_book_stream"
         candle_meta = {}
+        indicator_history_version = int(history_version or 0)
         try:
-            candle_prices, candle_weights, candle_meta = _load_candle_history(
+            candle_meta = get_candle_meta(symbol=symbol, timeframe=candle_timeframe)
+            candle_prices, candle_weights, candle_meta, candle_history_version = _load_candle_history(
                 symbol=symbol,
                 timeframe=candle_timeframe,
                 limit=candle_history_limit,
+                meta=candle_meta if isinstance(candle_meta, dict) else {},
             )
             if len(candle_prices) >= min_history_points:
                 prices = candle_prices
                 weights = candle_weights
                 history_source = "sqlite_candles"
+                latest_open = candle_meta.get("latest_open_time") if isinstance(candle_meta, dict) else None
+                indicator_history_version = int(latest_open) if latest_open is not None else int(candle_history_version or 0)
         except Exception as exc:
             logger.debug(f"Candle history unavailable for {symbol}: {exc}")
 
@@ -609,11 +530,20 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
         if trade_confirmation_limit > 0:
             filtered_trades, skipped_outliers = _parse_symbol_trades(
                 symbol=symbol,
-                base=base,
-                quote=quote,
                 limit=trade_confirmation_limit,
                 max_trade_jump_pct=max_trade_jump_pct,
             )
+            if filtered_trades:
+                append_replay_event(
+                    "normalized_trades",
+                    {
+                        "symbol": symbol,
+                        "count": len(filtered_trades),
+                        "latest_trade_price": filtered_trades[-1]["price"],
+                        "latest_trade_ts_epoch": filtered_trades[-1]["ts"],
+                    },
+                    cfg,
+                )
             if skipped_outliers:
                 logger.info(
                     f"Filtered {skipped_outliers} outlier tape prints for {symbol} "
@@ -626,15 +556,20 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
                 if trade_gap_pct > max_book_trade_gap_pct:
                     quality_reasons.append("order_book_tape_mismatch")
 
-        features = _resolve_indicator_features(
+        latest_open = candle_meta.get("latest_open_time") if isinstance(candle_meta, dict) else None
+        feature_result = resolve_indicator_features(
+            store=_STATE_STORE,
             symbol=symbol,
             timeframe=candle_timeframe,
             history_source=history_source,
-            candle_meta=candle_meta,
+            history_version=indicator_history_version,
+            latest_open_time=int(latest_open) if latest_open is not None else None,
             prices=prices,
             weights=weights,
             atr_floor=atr_floor,
+            rsi_fn=calculate_rsi,
         )
+        features = feature_result.features
 
         first_price = float(features.get("first_price", prices[0]))
         atr_raw = float(features.get("atr_raw", 0.0))
@@ -652,20 +587,15 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
 
         raw_momentum = (last_price - first_price) / (first_price + EPSILON)
         norm_momentum = raw_momentum / (atr + EPSILON)
-        data_quality_ok = not quality_reasons
-        data_quality_reason = ",".join(quality_reasons) if quality_reasons else "ok"
-        data_quality_status = "GOOD"
-        if len(prices) <= 0:
-            data_quality_status = "INSUFFICIENT"
-        elif "candle_timeframe_unsupported" in quality_reasons:
-            data_quality_status = "UNSUPPORTED_WINDOW"
-        elif "candle_history_stale" in quality_reasons:
-            data_quality_status = "STALE"
-        elif quality_reasons:
-            data_quality_status = "PARTIAL"
+        data_quality_ok, data_quality_reason, data_quality_status, quality_state = _classify_market_quality(
+            quality_reasons=quality_reasons,
+            history_points=history_points,
+        )
         core_readiness = _core_readiness_payload(symbol=symbol, market_data_cfg=market_data_cfg)
+        if not bool(core_readiness.get("ready", True)) and quality_state == "TRADABLE":
+            quality_state = "DEGRADED"
 
-        snapshot = {
+        snapshot_payload = {
             "symbol": symbol,
             "price": last_price,
             "best_bid": book["best_bid"],
@@ -708,6 +638,38 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             "ema_200": ema_200,
             "ema_50_slope": ema_50_slope,
         }
+        merge = _STATE_STORE.merge_snapshot_fields(
+            symbol=symbol,
+            fields=snapshot_payload,
+            snapshot_ts_epoch=float(book["timestamp"]),
+            quality_state=quality_state,
+        )
+        append_replay_event(
+            "market_snapshot_change",
+            {
+                "symbol": symbol,
+                "snapshot_version": merge.version,
+                "state_changed": merge.state_changed,
+                "changed_fields": list(merge.changed_fields),
+                "quality_state": merge.quality_state,
+            },
+            cfg,
+        )
+        normalized = NormalizedMarketSnapshot.from_payload(
+            snapshot_payload,
+            snapshot_version=merge.version,
+            field_timestamps=merge.field_timestamps,
+            quality_state=merge.quality_state,
+        )
+        gate = _build_strategy_eval_gate(normalized.to_legacy_dict(), cfg)
+        normalized = NormalizedMarketSnapshot.from_payload(
+            snapshot_payload,
+            snapshot_version=merge.version,
+            field_timestamps=merge.field_timestamps,
+            quality_state=merge.quality_state,
+            strategy_eval_gate=gate,
+        )
+        snapshot = normalized.to_legacy_dict()
 
         ema_50_log = _format_snapshot_price(ema_50)
         ema_200_log = _format_snapshot_price(ema_200)

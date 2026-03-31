@@ -1,6 +1,7 @@
 import { promises as fs } from "fs";
 import path from "path";
 import { NextResponse } from "next/server";
+import { resolveStateFileCandidates } from "../../_lib/stateFallback";
 import { analyzeWaveZones } from "../../../lib/waveZoneAnalyzer.mjs";
 import { analyzeRegimeGovernor } from "../../../lib/regimeGovernorAnalyzer.mjs";
 import { buildIndicatorBundle } from "../../../lib/indicatorEngine.mjs";
@@ -121,11 +122,11 @@ type SnapshotPoint = {
   quality?: string | null;
 };
 
-const STATE_DIR = path.resolve(process.cwd(), "..", "crypto_bot", "state");
 const BACKEND = "http://127.0.0.1:8001";
-const TRADES_PATH = path.join(STATE_DIR, "trades.json");
-const LOG_PATH = path.join(STATE_DIR, "bot.log");
-const PRICE_HISTORY_PATH = path.join(STATE_DIR, "revolut_universe_price_history.json");
+const TRADES_PATH = resolveStateFileCandidates("trades.json");
+const LOG_PATH = resolveStateFileCandidates("bot.log");
+const PRICE_HISTORY_PATH = resolveStateFileCandidates("revolut_universe_price_history.json");
+const PRIMARY_STATE_DIR = path.dirname(LOG_PATH[0]);
 const LOG_TAIL_BYTES = 256 * 1024;
 const STALE_SNAPSHOT_THRESHOLD_SECONDS = 20 * 60;
 const MAX_SNAPSHOT_POINTS = 25000;
@@ -152,38 +153,46 @@ function parseLogTimestampToEpoch(raw: string): number | null {
   return utcParsed / 1000;
 }
 
-async function readJson<T>(filePath: string, fallback: T): Promise<T> {
-  try {
-    const raw = await fs.readFile(filePath, "utf8");
-    if (!raw.trim()) {
-      return fallback;
+async function readJson<T>(filePath: string | string[], fallback: T): Promise<T> {
+  const candidates = Array.isArray(filePath) ? filePath : [filePath];
+  for (const candidate of candidates) {
+    try {
+      const raw = await fs.readFile(candidate, "utf8");
+      if (!raw.trim()) {
+        return fallback;
+      }
+      return JSON.parse(raw) as T;
+    } catch {
+      continue;
     }
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
   }
+  return fallback;
 }
 
-async function readLogTail(filePath: string, bytes: number): Promise<string> {
-  let handle:
-    | Awaited<ReturnType<typeof fs.open>>
-    | undefined;
+async function readLogTail(filePath: string | string[], bytes: number): Promise<string> {
+  const candidates = Array.isArray(filePath) ? filePath : [filePath];
+  for (const candidate of candidates) {
+    let handle:
+      | Awaited<ReturnType<typeof fs.open>>
+      | undefined;
 
-  try {
-    handle = await fs.open(filePath, "r");
-    const stat = await handle.stat();
-    const bytesToRead = Math.min(bytes, stat.size);
-    if (bytesToRead <= 0) {
-      return "";
+    try {
+      handle = await fs.open(candidate, "r");
+      const stat = await handle.stat();
+      const bytesToRead = Math.min(bytes, stat.size);
+      if (bytesToRead <= 0) {
+        continue;
+      }
+      const buffer = Buffer.alloc(bytesToRead);
+      await handle.read(buffer, 0, bytesToRead, stat.size - bytesToRead);
+      return buffer.toString("utf8");
+    } catch {
+      continue;
+    } finally {
+      await handle?.close();
     }
-    const buffer = Buffer.alloc(bytesToRead);
-    await handle.read(buffer, 0, bytesToRead, stat.size - bytesToRead);
-    return buffer.toString("utf8");
-  } catch {
-    return "";
-  } finally {
-    await handle?.close();
   }
+  return "";
 }
 
 function parseSnapshotHistory(symbol: string, logTail: string): SnapshotPoint[] {
@@ -251,15 +260,15 @@ function dedupeAndClampSnapshotRows(rows: SnapshotPoint[]) {
 
 async function listSnapshotLogPaths() {
   try {
-    const files = await fs.readdir(STATE_DIR, { withFileTypes: true });
+    const files = await fs.readdir(PRIMARY_STATE_DIR, { withFileTypes: true });
     return files
       .filter((entry) => entry.isFile())
       .map((entry) => entry.name)
       .filter((name) => name === "bot.log" || /^bot\.log\.\d+$/.test(name))
       .sort((left, right) => parseLogFileSequence(right) - parseLogFileSequence(left))
-      .map((name) => path.join(STATE_DIR, name));
+      .map((name) => path.join(PRIMARY_STATE_DIR, name));
   } catch {
-    return [LOG_PATH];
+    return [...LOG_PATH];
   }
 }
 

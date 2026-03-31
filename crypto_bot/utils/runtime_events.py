@@ -6,13 +6,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-
-def _state_dir() -> Path:
-    return Path(__file__).resolve().parent.parent / "state"
-
+from utils.state_paths import resolve_state_file
 
 def runtime_events_path() -> Path:
-    return _state_dir() / "runtime_events.jsonl"
+    default_state_dir = Path(__file__).resolve().parent.parent / "state"
+    return resolve_state_file(default_state_dir, "runtime_events.jsonl")
 
 
 def _json_default(value: Any):

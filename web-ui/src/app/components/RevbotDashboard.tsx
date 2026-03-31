@@ -962,7 +962,8 @@ export default function RevbotDashboard() {
     symbol: string;
     cooldownSeconds: number;
   } | null>(null);
-  const [advancedTab, setAdvancedTab] = useState<"analytics" | "manualControls">("analytics");
+  const [topTab, setTopTab] = useState<"overview" | "advancedTables" | "riskControls">("overview");
+  const [advancedTab, setAdvancedTab] = useState<"analytics" | "riskControls">("analytics");
   const [riskDirty, setRiskDirty] = useState(false);
   const [savingRisk, setSavingRisk] = useState(false);
 
@@ -2094,6 +2095,26 @@ export default function RevbotDashboard() {
       stateTone: "text-slate-200",
     },
   ];
+
+  function openTopTab(next: "overview" | "advancedTables" | "riskControls") {
+    setTopTab(next);
+    if (next === "advancedTables" || next === "riskControls") {
+      setAdvancedTab(next === "riskControls" ? "riskControls" : "analytics");
+      requestAnimationFrame(() => {
+        const panel = document.getElementById("advanced-panels") as HTMLDetailsElement | null;
+        if (panel) {
+          panel.open = true;
+          panel.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
+      return;
+    }
+    setAdvancedTab("analytics");
+    requestAnimationFrame(() => {
+      document.getElementById("dashboard-overview")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   return (
     <main className="rb-page min-h-screen px-3 py-8 sm:px-4 lg:px-6">
       <div className="rb-shell mx-auto flex w-full max-w-[1720px] justify-center">
@@ -2194,6 +2215,42 @@ export default function RevbotDashboard() {
             </div>
           </header>
 
+          <div id="dashboard-overview" className="flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.14em]">
+            <button
+              type="button"
+              onClick={() => openTopTab("overview")}
+              className={`rounded-full border px-3 py-1.5 transition ${
+                topTab === "overview"
+                  ? "border-sky-400/50 bg-sky-500/20 text-sky-100"
+                  : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20 hover:text-slate-100"
+              }`}
+            >
+              Overview
+            </button>
+            <button
+              type="button"
+              onClick={() => openTopTab("advancedTables")}
+              className={`rounded-full border px-3 py-1.5 transition ${
+                topTab === "advancedTables"
+                  ? "border-sky-400/50 bg-sky-500/20 text-sky-100"
+                  : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20 hover:text-slate-100"
+              }`}
+            >
+              Advanced Tables
+            </button>
+            <button
+              type="button"
+              onClick={() => openTopTab("riskControls")}
+              className={`rounded-full border px-3 py-1.5 transition ${
+                topTab === "riskControls"
+                  ? "border-sky-400/50 bg-sky-500/20 text-sky-100"
+                  : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20 hover:text-slate-100"
+              }`}
+            >
+              Risk Controls
+            </button>
+          </div>
+
           {error ? (
             <div className="rb-content-card border-rose-400/35 bg-rose-500/12 px-5 py-4 text-sm text-rose-100">
               {error}
@@ -2234,82 +2291,82 @@ export default function RevbotDashboard() {
                 <thead className="sticky top-0 z-10 bg-slate-950/95">
                   <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.12em] text-slate-400">
                     <th className="px-2 py-2 whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setControlSortKey("symbol")}>
+                      <button type="button" className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setControlSortKey("symbol")}>
                         Token {controlSortIndicator("symbol")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-right whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("price")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("price")}>
                         Price {controlSortIndicator("price")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-right whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("change24h")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("change24h")}>
                         24h Change {controlSortIndicator("change24h")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-right whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("high24h")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("high24h")}>
                         24h High {controlSortIndicator("high24h")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-right whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("low24h")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("low24h")}>
                         24h Low {controlSortIndicator("low24h")}
                       </button>
                     </th>
                     <th className="px-2 py-2 whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("mode")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("mode")}>
                         Mode {controlSortIndicator("mode")}
                       </button>
                     </th>
                     <th className="px-2 py-2 whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("configuredRegime")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("configuredRegime")}>
                         Configured Regime {controlSortIndicator("configuredRegime")}
                       </button>
                     </th>
                     <th className="px-2 py-2 whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setControlSortKey("regime")}>
+                      <button type="button" className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setControlSortKey("regime")}>
                         Regime Routing {controlSortIndicator("regime")}
                       </button>
                     </th>
                     <th className="px-2 py-2 whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setControlSortKey("confidence")}>
+                      <button type="button" className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setControlSortKey("confidence")}>
                         Confidence {controlSortIndicator("confidence")}
                       </button>
                     </th>
                     <th className="px-2 py-2 whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setControlSortKey("volatility")}>
+                      <button type="button" className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setControlSortKey("volatility")}>
                         Volatility State {controlSortIndicator("volatility")}
                       </button>
                     </th>
                     <th className="px-2 py-2 whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setControlSortKey("dataQuality")}>
+                      <button type="button" className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setControlSortKey("dataQuality")}>
                         Data Quality {controlSortIndicator("dataQuality")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-center whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("buyOpportunity")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("buyOpportunity")}>
                         Buy Opportunity {controlSortIndicator("buyOpportunity")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-center whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("buyExecutable")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("buyExecutable")}>
                         Buy Executable {controlSortIndicator("buyExecutable")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-center whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("scalper")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("scalper")}>
                         Scalper {controlSortIndicator("scalper")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-center whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("buy")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("buy")}>
                         BUY {controlSortIndicator("buy")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-center whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("sell")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setControlSortKey("sell")}>
                         SELL {controlSortIndicator("sell")}
                       </button>
                     </th>
@@ -2769,82 +2826,82 @@ export default function RevbotDashboard() {
                 <thead className="sticky top-0 z-10 bg-slate-950/95">
                   <tr className="border-b border-white/8 text-left text-[10px] uppercase tracking-[0.12em] text-slate-400">
                     <th className="px-2 py-2 whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setPositionSortKey("symbol")}>
+                      <button type="button" className="inline-flex items-center gap-1 text-left hover:text-sky-300" onClick={() => setPositionSortKey("symbol")}>
                         Token {sortIndicator("symbol")}
                       </button>
                     </th>
                     <th className="px-2 py-2 whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("side")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("side")}>
                         Side {sortIndicator("side")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-right whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("price")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("price")}>
                         Price {sortIndicator("price")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-right whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("change24h")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("change24h")}>
                         24h Change {sortIndicator("change24h")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-right whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("high24h")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("high24h")}>
                         24h High {sortIndicator("high24h")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-right whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("low24h")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("low24h")}>
                         24h Low {sortIndicator("low24h")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-right whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("value")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("value")}>
                         Value {sortIndicator("value")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-right whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("allocation")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("allocation")}>
                         Alloc {sortIndicator("allocation")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-right whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("pnl")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("pnl")}>
                         P/L {sortIndicator("pnl")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-right whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("pnlPct")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("pnlPct")}>
                         P/L % {sortIndicator("pnlPct")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-right whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("age")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("age")}>
                         Age {sortIndicator("age")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-right whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("worstDip")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("worstDip")}>
                         Worst Dip {sortIndicator("worstDip")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-center whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("review")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("review")}>
                         Needs Review {sortIndicator("review")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-center whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("bounce")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("bounce")}>
                         Bounce Setup {sortIndicator("bounce")}
                       </button>
                     </th>
                     <th className="px-2 py-2 whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("status")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("status")}>
                         Status {sortIndicator("status")}
                       </button>
                     </th>
                     <th className="px-2 py-2 text-center whitespace-nowrap">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("attention")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("attention")}>
                         Action {sortIndicator("attention")}
                       </button>
                     </th>
@@ -3241,7 +3298,7 @@ export default function RevbotDashboard() {
             </div>
           </section>
 
-          <details className="rb-content-card p-4">
+          <details id="advanced-panels" className="rb-content-card p-4">
             <summary className="cursor-pointer text-sm font-semibold uppercase tracking-[0.16em] text-slate-300">
               Advanced Panels (Full Controls and Full Tables)
             </summary>
@@ -3249,7 +3306,10 @@ export default function RevbotDashboard() {
               <div className="flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.14em]">
                 <button
                   type="button"
-                  onClick={() => setAdvancedTab("analytics")}
+                  onClick={() => {
+                    setTopTab("advancedTables");
+                    setAdvancedTab("analytics");
+                  }}
                   className={`rounded-full border px-3 py-1.5 transition ${
                     advancedTab === "analytics"
                       ? "border-sky-400/50 bg-sky-500/20 text-sky-100"
@@ -3260,18 +3320,21 @@ export default function RevbotDashboard() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setAdvancedTab("manualControls")}
+                  onClick={() => {
+                    setTopTab("riskControls");
+                    setAdvancedTab("riskControls");
+                  }}
                   className={`rounded-full border px-3 py-1.5 transition ${
-                    advancedTab === "manualControls"
+                    advancedTab === "riskControls"
                       ? "border-sky-400/50 bg-sky-500/20 text-sky-100"
                       : "border-white/10 bg-white/[0.03] text-slate-300 hover:border-white/20 hover:text-slate-100"
                   }`}
                 >
-                  Manual Controls
+                  Risk Controls
                 </button>
               </div>
 
-            {advancedTab === "manualControls" ? (
+            {advancedTab === "riskControls" ? (
             <div className="mt-5 rb-content-card p-4">
               <div className="flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-[0.14em]">
                 <span className={`rounded-md border px-3 py-1.5 ${data.summary.dailyBuyPaused ? "border-rose-500 bg-rose-600 text-white" : "border-emerald-500 bg-emerald-600 text-white"}`}>
@@ -4087,67 +4150,67 @@ export default function RevbotDashboard() {
                 <thead className="sticky top-0 z-10 bg-[#0b1220]">
                   <tr className="border-b border-white/8 bg-white/[0.05] text-left text-[10px] uppercase tracking-[0.12em] text-slate-400">
                     <th className="px-3 py-2">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("symbol")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("symbol")}>
                         Asset {sortIndicator("symbol")}
                       </button>
                     </th>
                     <th className="px-3 py-2 text-right">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("units")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("units")}>
                         Units {sortIndicator("units")}
                       </button>
                     </th>
                     <th className="px-3 py-2 text-right">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("entry")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("entry")}>
                         Entry {sortIndicator("entry")}
                       </button>
                     </th>
                     <th className="px-3 py-2 text-right">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("price")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("price")}>
                         Price {sortIndicator("price")}
                       </button>
                     </th>
                     <th className="px-3 py-2 text-right">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("change24h")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("change24h")}>
                         24h Change {sortIndicator("change24h")}
                       </button>
                     </th>
                     <th className="px-3 py-2 text-right">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("high24h")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("high24h")}>
                         24h High {sortIndicator("high24h")}
                       </button>
                     </th>
                     <th className="px-3 py-2 text-right">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("low24h")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("low24h")}>
                         24h Low {sortIndicator("low24h")}
                       </button>
                     </th>
                     <th className="px-3 py-2 text-right">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("value")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("value")}>
                         Value {sortIndicator("value")}
                       </button>
                     </th>
                     <th className="px-3 py-2 text-right">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("allocation")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("allocation")}>
                         Alloc {sortIndicator("allocation")}
                       </button>
                     </th>
                     <th className="px-3 py-2">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("lock")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("lock")}>
                         Lock {sortIndicator("lock")}
                       </button>
                     </th>
                     <th className="px-3 py-2 text-right">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("peak")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("peak")}>
                         Peak {sortIndicator("peak")}
                       </button>
                     </th>
                     <th className="px-3 py-2 text-right">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("pnl")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("pnl")}>
                         P&L {sortIndicator("pnl")}
                       </button>
                     </th>
                     <th className="px-3 py-2 text-center">
-                      <button className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("attention")}>
+                      <button type="button" className="inline-flex items-center gap-1 hover:text-sky-300" onClick={() => setPositionSortKey("attention")}>
                         Manual {sortIndicator("attention")}
                       </button>
                     </th>

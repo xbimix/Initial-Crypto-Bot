@@ -1,0 +1,512 @@
+## Codex Instructions: Hardening & Upgrading the Crypto Bot
+
+**Goal:** Strengthen the architecture, execution realism, risk management, and maintainability of the trading bot while preserving existing functionality.
+
+---
+
+## Phase 1 — Stabilize Architecture (Critical Refactor)
+
+### 1. Split monolithic files into clear services
+
+**Task:**
+
+* Break down `main.py`, `executor.py`, `risk_manager.py`, `market_data.py`, `strategy_orchestrator.py`, and `control_server.py`.
+
+**Steps:**
+
+1. Create the following modules:
+
+   * `core/runtime.py` — event loop and lifecycle
+   * `core/scheduler.py` — timing and scheduling logic
+   * `core/state_store.py` — persistence layer
+   * `execution/order_executor.py`
+   * `execution/fill_model.py`
+   * `risk/position_sizer.py`
+   * `risk/risk_checks.py`
+   * `data/market_feed.py`
+   * `strategy/router.py`
+   * `strategy/signals.py`
+2. Move related functions and classes into these files.
+3. Ensure `main.py` only wires services together.
+
+**Acceptance:**
+
+* No file should exceed ~500 lines.
+* Imports must flow inward (UI → core → services), not circular.
+
+---
+
+## Phase 2 — Upgrade Paper Execution (High Priority)
+
+### 2. Replace naive fill model
+
+**Task:**
+
+* Implement realistic execution simulation.
+
+**Steps:**
+
+1. Add:
+
+   * Fee model per exchange (taker/maker).
+   * Slippage model based on spread & depth.
+   * Partial fills & rejection scenarios.
+   * Latency simulation.
+2. Use existing snapshot fields (`spread_bps`, `imbalance`, `microprice`) to model fill price.
+3. Update paper broker to record:
+
+   * expected vs. actual fill price
+   * slippage
+   * fees
+   * latency
+
+**Acceptance:**
+
+* Every simulated trade includes fee, slippage, latency, and partial fill probability.
+
+---
+
+## Phase 3 — Improve Risk Management (High Priority)
+
+### 3. Implement stop-based sizing
+
+**Task:**
+Replace `position_size()` logic.
+
+**Steps:**
+
+1. Define:
+
+   ```
+   risk_per_trade = account_balance * risk_percent
+   stop_distance = abs(entry_price - stop_price)
+   size = risk_per_trade / (stop_distance + fees + slippage)
+   ```
+2. Cap final size by:
+
+   * max position
+   * max notional
+   * per-asset exposure
+3. Fail trade if computed size < minimum tradable.
+
+**Acceptance:**
+
+* Position size always tied to actual loss risk.
+
+---
+
+## Phase 4 — Strengthen Regime & Routing (Medium Priority)
+
+### 4. Turn routing into measurable system
+
+**Task:**
+
+* Replace heuristic routing thresholds with logged scoring.
+
+**Steps:**
+
+1. Every decision logs:
+
+   * features vector
+   * route chosen
+   * confidence score
+2. Track route performance:
+
+   * expectancy
+   * win rate
+   * drawdown
+3. Periodically evaluate route performance and demote poor routes.
+
+**Acceptance:**
+
+* Route performance measurable and auditable.
+
+---
+
+## Phase 5 — Observability & Audit
+
+### 5. Add full decision telemetry
+
+**Task:**
+Expand trade logging.
+
+**Required fields:**
+
+* signal strength
+* route selected
+* expected edge
+* spread at entry
+* slippage realized
+* latency
+* fees
+* MAE/MFE
+* exit reason
+* PnL
+
+**Acceptance:**
+
+* You can reconstruct every trade’s rationale post-facto.
+
+---
+
+## Phase 6 — Codebase Hygiene & CI
+
+### 6. Clean repository structure
+
+**Task:**
+
+* Move runtime data out of repo.
+
+**Steps:**
+
+1. Move `state/` contents to `.gitignored` folder (`data/` or `runtime/`).
+2. Remove OS artifacts (`desktop.ini`, etc.).
+3. Add:
+
+   * `.gitignore`
+   * pre-commit hooks
+   * CI workflow (lint + tests)
+
+**Acceptance:**
+
+* Fresh clone runs cleanly with no local runtime data committed.
+
+---
+
+## Phase 7 — Hardening & Testing
+
+### 7. Expand test coverage
+
+**Add tests for:**
+
+* risk sizing edge cases
+* partial fills
+* latency handling
+* route evaluation
+* crash recovery
+
+**Acceptance:**
+
+* New modules have unit tests with >80% coverage.
+
+---
+
+## Final Goal
+
+By completing these steps, the bot will:
+
+* Have realistic execution and risk modeling
+* Be modular and maintainable
+* Be auditable and testable
+* Avoid false performance due to naive fills
+* Be ready for small live deployment with confidence
+
+
+
+
+
+Yes. Here is a ready-to-paste Codex instruction that is specific to your repo and aimed at fixing the biggest weaknesses I found: oversized orchestration files, simplistic paper execution, weak sizing logic, and tracked runtime state inside the repo. Your branch currently includes very large core files such as main.py and risk_manager.py, a tracked crypto_bot/state/ directory with live-ish runtime artifacts like paper_state.json and trades.json, and a paper broker whose buy() path deducts price * size with no visible fee handling in that path. The current sizing logic also appears to size from balance and risk_percent or fixed USD, then divide by entry price, instead of sizing from stop distance.
+
+Codex instruction
+You are modifying my repository:
+
+https://github.com/xbimix/Initial-Crypto-Bot/tree/regime-engine-auto
+
+Your job is to strengthen the project without changing its overall purpose or breaking existing behavior unnecessarily.
+
+Work like a senior Python trading-systems engineer. Be conservative, test-driven, and explicit. Do not invent architecture for its own sake. Fix the highest-value weaknesses first.
+
+Core goals:
+1. Make paper execution significantly more realistic.
+2. Replace naive position sizing with true risk-based sizing.
+3. Reduce monolithic coupling in the runtime/orchestration layer.
+4. Separate code from mutable runtime state and improve repo hygiene.
+5. Improve observability, test coverage, and safety checks.
+6. Preserve backward compatibility where practical.
+
+Non-negotiable rules:
+- Do not delete major features unless they are clearly dead code and you prove it.
+- Do not silently change trading behavior without documenting it.
+- Prefer small, reviewable commits.
+- Every meaningful change must come with tests.
+- Keep all changes local to this repository.
+- If a change requires config migration, implement the migration or backward-compatible defaults.
+- Use type hints where possible.
+- Add docstrings only where they clarify contracts and invariants.
+- Avoid “big rewrite” behavior. Refactor incrementally.
+
+Execution order:
+
+PHASE 0 — BASELINE AND SAFETY
+- Inspect the current project structure and identify all entry points, especially main runtime loops, execution flow, risk checks, state persistence, and control/API surfaces.
+- Run the test suite.
+- Produce a short `docs/refactor_plan.md` with:
+  - current architecture summary
+  - main risks
+  - planned phases
+  - expected behavior-preservation constraints
+- Do not begin major code changes until that file exists.
+
+PHASE 1 — REPO HYGIENE AND RUNTIME STATE ISOLATION
+Problem:
+The repository currently mixes source code with mutable runtime state.
+
+Tasks:
+- Move runtime-generated state out of tracked source directories.
+- Introduce a configurable runtime data root such as:
+  - `BOT_DATA_DIR`
+  - defaulting to something like `.runtime/` or `var/`
+- Ensure all state files, snapshots, logs, JSONL artifacts, and paper-trading outputs resolve through a central path helper.
+- Add or update `.gitignore` so generated runtime files are ignored.
+- Preserve current filenames and behavior where possible, only relocating the base directory.
+- Add a migration-safe fallback so old paths still read if the new path is empty.
+- Add tests for path resolution and backward-compatible state loading.
+
+Deliverables:
+- central runtime path utility
+- updated state consumers
+- `.gitignore` cleanup
+- tests
+- short migration note in `docs/runtime_state_migration.md`
+
+PHASE 2 — MICROSTRUCTURE-AWARE PAPER EXECUTION
+Problem:
+The paper broker is too optimistic. It appears to buy at `price * size` and does not visibly model fees in the buy path. That is not good enough.
+
+Tasks:
+- Introduce an execution simulation layer, not just direct balance mutation.
+- Create explicit execution concepts, for example:
+  - `OrderIntent`
+  - `ExecutionReport`
+  - `Fill`
+  - `ExecutionContext`
+- Model at minimum:
+  - taker fee and maker fee
+  - slippage
+  - spread-aware fill price
+  - latency impact
+  - partial fills
+  - order rejection / timeout / cancel scenarios
+- Reuse available market snapshot fields where possible, including spread and microstructure-related data if already present.
+- Keep the existing paper broker API usable where practical, but route execution through the new simulator.
+- Track expected fill price vs realized simulated fill price.
+- Store per-trade execution metadata:
+  - quoted price
+  - effective fill price
+  - fee paid
+  - slippage bps
+  - latency ms
+  - fill ratio
+  - fill reason
+- Ensure PnL is net of fees and slippage.
+- Add config knobs for conservative defaults.
+
+Deliverables:
+- new execution simulation module
+- paper broker integration
+- realistic execution metadata persisted to trade records
+- tests for:
+  - fee application
+  - slippage
+  - partial fill logic
+  - rejection behavior
+  - net PnL correctness
+
+PHASE 3 — TRUE RISK-BASED POSITION SIZING
+Problem:
+Position sizing currently appears to use either fixed USD or balance × risk_percent, then divide by entry price. That is not true trade-risk sizing.
+
+Tasks:
+- Replace or extend sizing so the primary method is stop-distance-based risk sizing:
+  - `size = max_risk_usd / per-unit-risk`
+  - where per-unit-risk includes stop distance plus expected fees plus expected slippage
+- Support both long and short semantics only if the repo already supports shorts; otherwise keep it long-only.
+- Add hard caps:
+  - max notional
+  - max portfolio exposure
+  - max symbol exposure
+  - min trade notional
+  - liquidity cap
+- Preserve current config compatibility:
+  - existing fixed USD sizing may remain as an optional mode
+  - existing risk_percent may map to max allowed loss per trade
+- Return a detailed sizing result object, not just a float. Include:
+  - raw size
+  - capped size
+  - risk budget used
+  - stop distance
+  - expected fee/slippage assumptions
+  - rejected reason if size resolves to zero
+- Update callers carefully.
+
+Deliverables:
+- new sizing contract / dataclass
+- refactored risk sizing implementation
+- tests for:
+  - stop-distance sizing
+  - cap enforcement
+  - zero/invalid stop handling
+  - fee/slippage-aware sizing
+  - backward compatibility of config
+
+PHASE 4 — BREAK UP MONOLITHIC RUNTIME LOGIC
+Problem:
+The orchestration/runtime layer is too concentrated in giant files.
+
+Tasks:
+- Identify high-coupling areas in `main.py` and similar oversized modules.
+- Split only along real domain boundaries, not arbitrary file sizes.
+- Create or strengthen modules around:
+  - runtime orchestration
+  - decision pipeline
+  - risk gate
+  - execution service
+  - portfolio/state service
+  - scheduler / polling coordination
+  - audit/event logging
+- Remove hidden cross-module state mutations where possible.
+- Push side effects to edges.
+- Introduce typed interfaces or protocol-like contracts for core services.
+- Keep the existing entry point working.
+
+Deliverables:
+- reduced `main.py` responsibilities
+- narrower service modules
+- no behavior regressions
+- tests around critical orchestration paths
+
+PHASE 5 — DECISION VS EXECUTION OBSERVABILITY
+Problem:
+It is difficult to prove whether bad outcomes come from weak signals or poor execution.
+
+Tasks:
+- Add structured per-trade and per-decision observability.
+- Every executed or rejected trade attempt should capture:
+  - decision timestamp
+  - symbol
+  - route / strategy / regime
+  - confidence or score if available
+  - market snapshot quality
+  - quoted mid/bid/ask if available
+  - expected edge
+  - risk decision outcome
+  - execution result
+  - realized fee/slippage
+  - hold time
+  - exit reason
+  - realized PnL net
+  - MAE/MFE if feasible from existing data
+- Expose route-level and strategy-level summary metrics net of fees/slippage.
+- Keep logs machine-readable.
+
+Deliverables:
+- improved audit schema
+- summary aggregation helpers
+- tests for serialization and metric calculations
+
+PHASE 6 — CONFIG VALIDATION AND FAIL-SAFE BEHAVIOR
+Tasks:
+- Add stronger config validation.
+- Fail fast on invalid risk config, invalid sizing mode, impossible stop settings, negative fees, and broken path config.
+- Add safe defaults for execution assumptions.
+- Add explicit kill-switch style checks where appropriate:
+  - stale data
+  - bad market quality
+  - repeated execution failures
+  - breached daily loss
+- Ensure failures are logged clearly and do not leave state corrupted.
+
+Deliverables:
+- config validation improvements
+- tests for invalid config and fail-safe behavior
+
+PHASE 7 — TESTING, CI, AND DOCS
+Tasks:
+- Expand unit tests and add a few integration-style tests for the full decision→risk→execution→state path.
+- Add CI if missing:
+  - run tests
+  - optionally run lint/type checks if already practical
+- Add docs:
+  - `docs/execution_model.md`
+  - `docs/risk_sizing.md`
+  - `docs/runtime_architecture.md`
+- Add a final summary file:
+  - what changed
+  - what remains risky
+  - what should be improved next
+
+Required final output from you:
+1. A concise summary of all changes.
+2. A list of files added/modified.
+3. Any config migration notes.
+4. Any intentional behavior changes.
+5. A list of follow-up improvements not implemented.
+6. Confirmation that tests were added and what they cover.
+
+Quality bar:
+- No placeholder logic.
+- No dead abstractions.
+- No silent config breakage.
+- No unrealistic execution math.
+- No giant rewrite unless absolutely necessary.
+- Prefer robust and boring over clever and fragile.
+Better version: split it into Codex-sized chunks
+
+Do not give Codex the whole thing at once if you want clean results. Give it in passes.
+
+Pass 1
+
+Use this first:
+
+Audit the repo and implement only PHASE 0 and PHASE 1 from the instruction below. Do not touch execution logic yet. Produce:
+- docs/refactor_plan.md
+- runtime state path isolation
+- .gitignore cleanup
+- backward-compatible state loading
+- tests
+Then stop and summarize exactly what changed.
+Pass 2
+
+Then:
+
+Now implement only PHASE 2 from the master instruction:
+- add a realistic execution simulation layer
+- integrate it into paper trading
+- add fee/slippage/partial-fill/rejection tests
+Do not refactor unrelated files unless required for this phase.
+Then stop and summarize exactly what changed and any behavioral differences.
+Pass 3
+
+Then:
+
+Now implement only PHASE 3:
+- replace naive sizing with stop-distance-based risk sizing
+- preserve backward compatibility with current config where practical
+- add tests
+Then stop and summarize exactly what changed, especially config behavior.
+Pass 4
+
+Then:
+
+Now implement only PHASE 4 and PHASE 5:
+- split orchestration responsibilities into narrower services
+- improve structured observability
+- avoid broad rewrites
+- keep entrypoints stable
+Then stop and summarize exactly what changed and why.
+Pass 5
+
+Then:
+
+Now implement only PHASE 6 and PHASE 7:
+- config validation
+- fail-safe behavior
+- CI if missing
+- docs
+- final summary
+Then stop and provide the final project hardening report.
+My recommendation
+
+Start with Phase 1 + Phase 2, not the full refactor. That is the shortest path to making the bot less deceptive. Right now the most dangerous weakness is not missing features. It is that optimistic paper execution and simplistic sizing can make the system look stronger than it is.
+
+If you want, I can also turn this into a GitHub issue checklist or a single ultra-optimized Codex prompt with stricter acceptance criteria.

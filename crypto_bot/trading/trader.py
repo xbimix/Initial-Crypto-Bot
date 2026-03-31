@@ -3,11 +3,14 @@ import time
 from pathlib import Path
 
 from utils.logger import setup_logger
+from utils.state_paths import read_path_with_legacy_fallback, resolve_legacy_state_file, resolve_state_file
 logger = setup_logger("paper_trader")
 
-
-STATE_FILE = Path("state/paper_state.json")
-JOURNAL_FILE = Path("state/trades.json")
+DEFAULT_STATE_DIR = Path(__file__).resolve().parent.parent / "state"
+STATE_FILE = resolve_state_file(DEFAULT_STATE_DIR, "paper_state.json")
+LEGACY_STATE_FILE = resolve_legacy_state_file(DEFAULT_STATE_DIR, "paper_state.json")
+JOURNAL_FILE = resolve_state_file(DEFAULT_STATE_DIR, "trades.json")
+LEGACY_JOURNAL_FILE = resolve_legacy_state_file(DEFAULT_STATE_DIR, "trades.json")
 
 STARTING_BALANCE = 5_000.0  # USDT
 
@@ -17,19 +20,22 @@ class PaperBroker:
         self.state = self._load_state()
 
     def _load_state(self):
-        if not STATE_FILE.exists():
+        path = read_path_with_legacy_fallback(STATE_FILE, LEGACY_STATE_FILE)
+        if not path.exists():
             return {
                 "balance": STARTING_BALANCE,
                 "position": None,
                 "equity": STARTING_BALANCE,
             }
-        return json.loads(STATE_FILE.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
 
     def _save_state(self):
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
         STATE_FILE.write_text(json.dumps(self.state, indent=2))
 
     def _log_trade(self, trade):
         if not JOURNAL_FILE.exists():
+            JOURNAL_FILE.parent.mkdir(parents=True, exist_ok=True)
             JOURNAL_FILE.write_text("[]")
 
         trades = json.loads(JOURNAL_FILE.read_text())

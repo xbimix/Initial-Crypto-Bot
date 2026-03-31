@@ -245,19 +245,49 @@ code {
     color: #d7f0ff;
   }
 
-  .rb-table-wrap table {
+  .rb-table-wrap table,
+  .rb-table {
     border-collapse: collapse;
     width: 100%;
   }
 
-  .rb-table-wrap thead th {
+  .rb-table-wrap thead th,
+  .rb-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 12;
+    cursor: pointer;
+    background: rgba(11, 18, 32, 0.96);
     font-size: 10px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--rb-text-muted);
   }
 
-  .rb-table-wrap tbody td {
+  .rb-table-wrap thead th button,
+  .rb-table-wrap thead th [role="button"],
+  .rb-table thead th button,
+  .rb-table thead th [role="button"] {
+    position: relative;
+    z-index: 14;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .rb-table-wrap tbody td,
+  .rb-table tbody td {
     color: #d6deeb;
+  }
+
+  .rb-table thead tr {
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .rb-table tbody tr {
+    transition: background-color 0.12s ease;
+  }
+
+  .rb-table tbody tr:hover {
+    background: rgba(56, 189, 248, 0.07);
   }
 }

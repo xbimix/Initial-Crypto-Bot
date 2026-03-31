@@ -253,3 +253,42 @@ def test_public_api_health_rollup(monkeypatch):
     assert health["rate_limited_count"] == 2
     assert health["throttle_event_count"] == 2
     assert health["throttle_sleep_seconds_sum"] == pytest.approx(2.0, rel=1e-6)
+
+
+def test_auth_get_retries_once_after_timestamp_skew_409(monkeypatch):
+    class _Resp:
+        def __init__(self, status, payload=None):
+            self.status_code = status
+            self._payload = payload or {}
+            self.headers = {}
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                err = RuntimeError(f"HTTP {self.status_code}")
+                err.response = self
+                raise err
+
+    responses = iter(
+        [
+            _Resp(
+                409,
+                payload={
+                    "message": "Request timestamp is in the future",
+                    "timestamp": 2_000_000,
+                },
+            ),
+            _Resp(200, payload={"ok": True}),
+        ]
+    )
+
+    monkeypatch.setattr(revolut_api._HTTP_SESSION, "get", lambda *args, **kwargs: next(responses))
+    monkeypatch.setattr(revolut_api, "_build_signed_headers", lambda **kwargs: {"Accept": "application/json"})
+    monkeypatch.setattr(revolut_api.time, "time", lambda: 1_000.0)
+    monkeypatch.setattr(revolut_api, "_AUTH_CLOCK_SKEW_MS", 0)
+
+    payload = revolut_api._get("/balances", auth=True)
+    assert payload == {"ok": True}
+    assert revolut_api._AUTH_CLOCK_SKEW_MS == 1_000_000

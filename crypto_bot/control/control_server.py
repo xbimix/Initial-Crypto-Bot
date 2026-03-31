@@ -24,7 +24,12 @@ from utils.runtime_guard import (
     cleanup_temp_files,
 )
 from utils.state_snapshot import create_state_snapshot, ensure_daily_snapshot
-from utils.state_paths import resolve_state_dir
+from utils.state_paths import (
+    read_path_with_legacy_fallback,
+    resolve_legacy_state_file,
+    resolve_state_dir,
+    seed_primary_from_legacy,
+)
 from utils.state_storage import get_state_storage
 from utils.state_validator import validate_state_files
 from utils.token_regimes import (
@@ -38,7 +43,8 @@ from utils.token_regimes import (
 logger = setup_logger("control")
 app = Flask(__name__)
 
-STATE_DIR = resolve_state_dir(Path(__file__).resolve().parent.parent / "state")
+DEFAULT_STATE_DIR = Path(__file__).resolve().parent.parent / "state"
+STATE_DIR = resolve_state_dir(DEFAULT_STATE_DIR)
 PAPER_STATE_PATH = STATE_DIR / "paper_state.json"
 STRATEGY_STATE_PATH = STATE_DIR / "strategy_state.json"
 TRADES_PATH = STATE_DIR / "trades.json"
@@ -69,6 +75,11 @@ REQUIRED_STATE_JSON_FILES = (
     STRATEGY_STATE_PATH,
     TRADES_PATH,
 )
+LEGACY_STATE_JSON_FILES = {
+    PAPER_STATE_PATH: resolve_legacy_state_file(DEFAULT_STATE_DIR, "paper_state.json"),
+    STRATEGY_STATE_PATH: resolve_legacy_state_file(DEFAULT_STATE_DIR, "strategy_state.json"),
+    TRADES_PATH: resolve_legacy_state_file(DEFAULT_STATE_DIR, "trades.json"),
+}
 AUDIT_LOG_PATH = STATE_DIR / "audit_actions.jsonl"
 MUTATING_ENDPOINTS = {
     "/config",
@@ -346,6 +357,9 @@ def _run_startup_checks():
     checks = []
     ok = True
 
+    for primary, legacy in LEGACY_STATE_JSON_FILES.items():
+        seed_primary_from_legacy(primary, legacy)
+
     try:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         checks.append({"name": "state_dir_exists", "ok": True})
@@ -423,13 +437,14 @@ def _run_startup_checks():
     )
 
     for path in REQUIRED_STATE_JSON_FILES:
-        exists = path.exists()
+        read_path = read_path_with_legacy_fallback(path, LEGACY_STATE_JSON_FILES[path])
+        exists = read_path.exists()
         checks.append({"name": f"{path.name}_present", "ok": exists})
         if not exists:
             continue
 
         try:
-            STORAGE.read(path, strict=True)
+            STORAGE.read(read_path, strict=True)
             checks.append({"name": f"{path.name}_json_valid", "ok": True})
         except Exception as exc:
             checks.append({"name": f"{path.name}_json_valid", "ok": False, "detail": str(exc)})

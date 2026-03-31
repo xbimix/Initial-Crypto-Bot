@@ -2,14 +2,21 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import shutil
 import time
 from pathlib import Path
 from typing import Iterable
 
 from data.revolut_candle_fetcher import timeframe_to_interval_minutes
-from utils.state_paths import resolve_state_dir
+from utils.state_paths import resolve_legacy_state_file, resolve_state_dir, seed_primary_from_legacy
 
 DEFAULT_DB_PATH = resolve_state_dir(Path(__file__).resolve().parent.parent / "state") / "market_data.db"
+LEGACY_DB_PATH = resolve_legacy_state_file(
+    Path(__file__).resolve().parent.parent / "state",
+    "market_data.db",
+)
+_DB_PATH_MIGRATION_CHECKED: set[str] = set()
+_DB_LEGACY_PROMOTE_THRESHOLD_MS = 6 * 60 * 60 * 1000
 
 
 def _float_env(name: str, default: float) -> float:
@@ -41,7 +48,61 @@ _SCHEMA_READY_WITH_ORDERBOOK: set[str] = set()
 def resolve_db_path(db_path: str | Path | None = None) -> Path:
     path = Path(db_path) if db_path is not None else DEFAULT_DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
+    _maybe_migrate_default_db(path)
     return path
+
+
+def _max_open_time_from_db(path: Path) -> int | None:
+    if not path.exists():
+        return None
+    try:
+        with sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=1.0) as conn:
+            row = conn.execute("SELECT MAX(open_time) FROM candles").fetchone()
+    except sqlite3.Error:
+        return None
+    if not row:
+        return None
+    value = row[0]
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _maybe_migrate_default_db(path: Path) -> None:
+    if path != DEFAULT_DB_PATH:
+        return
+
+    key = str(path.resolve())
+    if key in _DB_PATH_MIGRATION_CHECKED:
+        return
+    _DB_PATH_MIGRATION_CHECKED.add(key)
+
+    legacy_path = LEGACY_DB_PATH
+    if legacy_path.resolve() == path.resolve() or not legacy_path.exists():
+        return
+
+    if not path.exists():
+        seed_primary_from_legacy(path, legacy_path)
+        return
+
+    primary_latest = _max_open_time_from_db(path)
+    legacy_latest = _max_open_time_from_db(legacy_path)
+    if legacy_latest is None:
+        return
+    if primary_latest is not None and legacy_latest <= (primary_latest + _DB_LEGACY_PROMOTE_THRESHOLD_MS):
+        return
+
+    backup_path = path.with_suffix(path.suffix + ".pre_legacy_promote.bak")
+    try:
+        if path.exists() and not backup_path.exists():
+            shutil.copy2(path, backup_path)
+        shutil.copy2(legacy_path, path)
+    except OSError:
+        # Keep runtime alive with current DB when file is locked/in-use.
+        return
 
 
 def connect(db_path: str | Path | None = None) -> sqlite3.Connection:

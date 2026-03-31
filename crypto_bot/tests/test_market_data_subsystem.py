@@ -756,6 +756,54 @@ def test_incremental_sync_uses_snapshot_fallback_from_source_map(tmp_path: Path,
     assert result["inserted"] == 1
 
 
+def test_incremental_sync_uses_snapshot_fallback_on_retryable_error_when_enabled(tmp_path: Path, monkeypatch):
+    db_path = _db_path(tmp_path)
+    symbol = "BTC-USD"
+    timeframe = "1m"
+    now_ms = 180_000
+
+    def fake_fetch(symbol, interval_minutes, since_ms, until_ms, allow_public_fallback=None):
+        raise revolut_incremental_sync.RevolutCandleFetchError("temporary upstream issue", permanent=False)
+
+    monkeypatch.setattr(revolut_incremental_sync, "fetch_candles", fake_fetch)
+    monkeypatch.setattr(
+        revolut_incremental_sync,
+        "_derive_candles_from_price_history",
+        lambda **kwargs: [
+            {
+                "ts": 120_000,
+                "open": 1.0,
+                "high": 1.1,
+                "low": 0.9,
+                "close": 1.05,
+                "volume": 0.0,
+                "close_time": 179_999,
+            }
+        ],
+    )
+    cfg = {
+        "market_data": {
+            "source_map": {
+                "candles": {
+                    "allow_snapshot_fallback": True,
+                }
+            }
+        }
+    }
+
+    result = revolut_incremental_sync.sync_new_candles(
+        symbol=symbol,
+        timeframe=timeframe,
+        db_path=db_path,
+        now_ms=now_ms,
+        cfg=cfg,
+    )
+    assert result["status"] == "degraded"
+    assert result["source"] == "snapshot_derived"
+    assert result["inserted"] == 1
+    assert str(result["note"]).startswith("official_candles_retryable_error:")
+
+
 def test_orderbook_top5_cache_and_optional_persistence(tmp_path: Path, monkeypatch):
     db_path = _db_path(tmp_path)
     symbol = "BTC-USD"

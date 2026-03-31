@@ -9,13 +9,23 @@ from api.revolut_api import get_public_api_health
 from api.revolut_account_sync import sync_account_snapshot
 from api.revolut_universe import build_universe_snapshot
 from data.candle_coverage import summarize_core_timeframe_coverage
+from data.decision_input_builder import build_decision_context
 from data.db_maintenance import run_db_maintenance
 from data.live_sync_scheduler import run_incremental_sync_tick
 from data.market_data import fetch_market_snapshot
+from data.replay_persistence import append_replay_event
 from data.revolut_candle_fetcher import get_candle_fetch_telemetry
 from strategy.route_quality import load_route_quality_report_cached
 from strategy.strategy_engine import evaluate_symbol
 from trading.executor import Executor
+from runtime.periodic import (
+    log_heartbeat_if_due,
+    run_account_sync_if_due,
+    run_coverage_log_if_due,
+    run_db_maintenance_if_due,
+    run_housekeeping_if_due,
+    run_universe_sync_if_due,
+)
 from utils.config_loader import load_config
 from utils.logger import setup_logger
 from utils.runtime_events import append_runtime_event
@@ -26,7 +36,13 @@ from utils.runtime_guard import (
     cleanup_stale_locks,
     cleanup_temp_files,
 )
-from utils.state_paths import resolve_state_dir
+from utils.state_paths import (
+    read_path_with_legacy_fallback,
+    resolve_legacy_state_dir,
+    resolve_legacy_state_file,
+    resolve_state_dir,
+    seed_primary_from_legacy,
+)
 from utils.state_io import read_json_file
 from utils.state_snapshot import create_state_snapshot, ensure_daily_snapshot
 from utils.state_validator import validate_state_files
@@ -53,7 +69,9 @@ DEFAULT_ROUTE_QUALITY_MIN_CONFIDENCE = 75.0
 DEFAULT_ROUTE_QUALITY_MIN_STABILITY = 60.0
 DEFAULT_ROUTE_QUALITY_MIN_PERSISTENCE = 60.0
 DEFAULT_ROUTE_QUALITY_MAX_RATE_LIMITED = 2
-STATE_DIR = resolve_state_dir(Path(__file__).resolve().parent / "state")
+DEFAULT_STATE_DIR = Path(__file__).resolve().parent / "state"
+STATE_DIR = resolve_state_dir(DEFAULT_STATE_DIR)
+LEGACY_STATE_DIR = resolve_legacy_state_dir(DEFAULT_STATE_DIR)
 MARKET_SYNC_HEALTH_PATH = STATE_DIR / "market_sync_health.json"
 MARKET_SYNC_HEALTH_HISTORY_PATH = STATE_DIR / "market_sync_health_history.jsonl"
 DECISION_AUDIT_PATH = STATE_DIR / "decision_audit.jsonl"
@@ -68,6 +86,14 @@ REQUIRED_STATE_FILES = (
     "strategy_state.json",
     "trades.json",
 )
+
+
+def _seed_required_state_files_from_legacy():
+    for filename in REQUIRED_STATE_FILES:
+        seed_primary_from_legacy(
+            STATE_DIR / filename,
+            resolve_legacy_state_file(DEFAULT_STATE_DIR, filename),
+        )
 
 ROUTE_GUARD_STREAK_CACHE_TTL_SECONDS = 30.0
 _route_guard_cap_hits: dict[str, int] = {}
@@ -778,12 +804,18 @@ def _append_decision_audit(
     decision: dict,
     executed: bool,
     blocked_reason: str | None,
+    execution_report: dict | None = None,
 ):
+    execution = execution_report if isinstance(execution_report, dict) else {}
+    decision_ts_epoch = _to_float(decision.get("decision_ts_epoch"), None)
+    risk_outcome = "passed" if bool(executed) else (f"blocked:{blocked_reason}" if blocked_reason else "not_executed")
     payload = {
         "ts_epoch": time.time(),
+        "decision_ts_epoch": decision_ts_epoch,
         "symbol": symbol,
         "action": decision.get("action"),
         "executed": bool(executed),
+        "risk_decision_outcome": risk_outcome,
         "blocked_reason": blocked_reason,
         "decision_reason": decision.get("reason"),
         "effective_route": decision.get("effective_route"),
@@ -799,10 +831,37 @@ def _append_decision_audit(
         "data_quality_reason": market.get("data_quality_reason"),
         "core_candle_readiness": market.get("core_candle_readiness"),
         "spread_bps": market.get("spread_bps"),
+        "quoted_mid_price": market.get("mid_price"),
+        "quoted_best_bid": market.get("best_bid"),
+        "quoted_best_ask": market.get("best_ask"),
         "momentum_norm": market.get("momentum_norm"),
         "rsi": market.get("rsi"),
         "atr_raw": market.get("atr_raw"),
         "price": market.get("price"),
+        "expected_edge_bps": decision.get("expected_edge_bps"),
+        "expected_hold_seconds": decision.get("expected_hold_seconds"),
+        "execution_status": execution.get("status"),
+        "execution_reason": execution.get("reason"),
+        "execution_fill_reason": execution.get("fill_reason"),
+        "execution_liquidity_role": execution.get("liquidity_role"),
+        "execution_expected_fill_price": execution.get("expected_fill_price"),
+        "execution_fill_price": execution.get("fill_price"),
+        "execution_quoted_price": execution.get("quoted_price"),
+        "execution_fill_ratio": execution.get("fill_ratio"),
+        "execution_fee_usd": execution.get("fee_usd"),
+        "execution_slippage_bps": execution.get("slippage_bps"),
+        "execution_slippage_usd": execution.get("slippage_usd"),
+        "execution_latency_ms": execution.get("latency_ms"),
+        "execution_latency_bucket": execution.get("latency_bucket"),
+        "execution_timed_out": execution.get("timed_out"),
+        "execution_rejected": execution.get("rejected"),
+        "execution_position_closed": execution.get("position_closed"),
+        "execution_hold_time_seconds": execution.get("hold_time_seconds"),
+        "execution_exit_reason": execution.get("exit_reason"),
+        "execution_realized_pnl_net_usd": execution.get("realized_pnl_net_usd"),
+        "execution_mae_pct": execution.get("mae_pct"),
+        "execution_mfe_pct": execution.get("mfe_pct"),
+        "execution_realized_pnl_usd": execution.get("realized_pnl_usd"),
     }
     try:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
@@ -1084,6 +1143,8 @@ def _run_startup_checks() -> dict:
     checks: list[dict] = []
     ok = True
 
+    _seed_required_state_files_from_legacy()
+
     try:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         checks.append({"name": "state_dir_exists", "ok": True})
@@ -1166,7 +1227,10 @@ def _run_startup_checks() -> dict:
         ok = False
 
     for filename in REQUIRED_STATE_FILES:
-        path = STATE_DIR / filename
+        path = read_path_with_legacy_fallback(
+            STATE_DIR / filename,
+            resolve_legacy_state_file(DEFAULT_STATE_DIR, filename),
+        )
         exists = path.exists()
         checks.append({"name": f"{filename}_present", "ok": exists})
         if not exists:
@@ -1262,33 +1326,21 @@ def main():
                 cfg = load_config()
                 now = time.time()
 
-                if (now - last_account_sync_at) >= ACCOUNT_SYNC_INTERVAL_SECONDS:
-                    try:
-                        account_snapshot = sync_account_snapshot()
-                        logger.info(
-                            "Revolut account sync: "
-                            f"status={account_snapshot.get('sync_status', 'unknown')} "
-                            f"assets={account_snapshot.get('asset_count', 0)}"
-                        )
-                    except Exception as exc:
-                        logger.warning(f"Revolut account sync failed: {exc}")
-                    finally:
-                        last_account_sync_at = now
+                last_account_sync_at = run_account_sync_if_due(
+                    now_epoch=now,
+                    last_run_at=last_account_sync_at,
+                    interval_seconds=ACCOUNT_SYNC_INTERVAL_SECONDS,
+                    sync_fn=sync_account_snapshot,
+                    logger=logger,
+                )
 
-                if (now - last_universe_sync_at) >= UNIVERSE_SYNC_INTERVAL_SECONDS:
-                    try:
-                        universe_snapshot = build_universe_snapshot(cfg)
-                        universe_summary = universe_snapshot.get("summary", {})
-                        logger.info(
-                            "Revolut universe sync: "
-                            f"symbols={universe_summary.get('total_symbols', 0)} "
-                            f"eligible={universe_summary.get('eligible_count', 0)} "
-                            f"tracked={universe_summary.get('tracked_count', 0)}"
-                        )
-                    except Exception as exc:
-                        logger.warning(f"Revolut universe sync failed: {exc}")
-                    finally:
-                        last_universe_sync_at = now
+                last_universe_sync_at = run_universe_sync_if_due(
+                    now_epoch=now,
+                    last_run_at=last_universe_sync_at,
+                    interval_seconds=UNIVERSE_SYNC_INTERVAL_SECONDS,
+                    sync_fn=lambda: build_universe_snapshot(cfg),
+                    logger=logger,
+                )
 
                 if cfg.get("emergency_stop", False):
                     logger.warning("Emergency stop active - waiting for START command")
@@ -1310,12 +1362,18 @@ def main():
                 executor.enforce_daily_loss_controls(snapshot_fetcher=fetch_market_snapshot)
 
                 now = time.time()
-                if now - last_heartbeat > HEARTBEAT_INTERVAL:
-                    logger.info("Heartbeat - bot running")
-                    last_heartbeat = now
-                if (now - last_coverage_log_at) >= COVERAGE_LOG_INTERVAL_SECONDS:
-                    _log_candle_coverage()
-                    last_coverage_log_at = now
+                last_heartbeat = log_heartbeat_if_due(
+                    now_epoch=now,
+                    last_heartbeat_at=last_heartbeat,
+                    heartbeat_interval_seconds=HEARTBEAT_INTERVAL,
+                    logger=logger,
+                )
+                last_coverage_log_at = run_coverage_log_if_due(
+                    now_epoch=now,
+                    last_run_at=last_coverage_log_at,
+                    interval_seconds=COVERAGE_LOG_INTERVAL_SECONDS,
+                    log_fn=_log_candle_coverage,
+                )
                 db_maintenance_interval = _as_positive_int(
                     cfg.get("market_data", {}).get("db_maintenance_interval_seconds", 6 * 60 * 60),
                     6 * 60 * 60,
@@ -1324,33 +1382,20 @@ def main():
                     cfg.get("market_data", {}).get("housekeeping_interval_seconds", 60 * 60),
                     60 * 60,
                 ) if isinstance(cfg.get("market_data", {}), dict) else (60 * 60)
-                if (now - last_db_maintenance_at) >= db_maintenance_interval:
-                    try:
-                        maintenance = run_db_maintenance(cfg=cfg)
-                        logger.info(
-                            "DB maintenance: "
-                            f"trimmed_rows={maintenance.get('trimmed_rows', 0)} "
-                            f"rows_after={maintenance.get('rows_after', 0)} "
-                            f"duration_ms={maintenance.get('duration_ms', 0)}"
-                        )
-                    except Exception as exc:
-                        logger.warning(f"DB maintenance failed: {exc}")
-                    finally:
-                        last_db_maintenance_at = now
-                if (now - last_housekeeping_at) >= housekeeping_interval:
-                    try:
-                        housekeeping = _run_housekeeping(cfg)
-                        if any(int(housekeeping.get(key, 0) or 0) > 0 for key in housekeeping):
-                            logger.info(
-                                "Housekeeping: "
-                                f"sync_history_lines={housekeeping.get('removed_sync_history_lines', 0)} "
-                                f"audit_lines={housekeeping.get('removed_decision_audit_lines', 0)} "
-                                f"snapshots={housekeeping.get('removed_snapshots', 0)}"
-                            )
-                    except Exception as exc:
-                        logger.warning(f"Housekeeping failed: {exc}")
-                    finally:
-                        last_housekeeping_at = now
+                last_db_maintenance_at = run_db_maintenance_if_due(
+                    now_epoch=now,
+                    last_run_at=last_db_maintenance_at,
+                    interval_seconds=db_maintenance_interval,
+                    maintenance_fn=lambda: run_db_maintenance(cfg=cfg),
+                    logger=logger,
+                )
+                last_housekeeping_at = run_housekeeping_if_due(
+                    now_epoch=now,
+                    last_run_at=last_housekeeping_at,
+                    interval_seconds=housekeeping_interval,
+                    housekeeping_fn=lambda: _run_housekeeping(cfg),
+                    logger=logger,
+                )
 
                 symbols = _symbols_for_scan(cfg, executor)
                 if not symbols:
@@ -1449,10 +1494,31 @@ def main():
                             f"reasons={','.join(health.get('reasons', []))}"
                         )
 
-                    decision = evaluate_symbol(market, cfg)
+                    decision_context = build_decision_context(market, cfg)
+                    append_replay_event(
+                        "decision_context",
+                        {
+                            "symbol": decision_context.symbol,
+                            "allowed": decision_context.allowed,
+                            "blocked_reason": decision_context.blocked_reason,
+                            "audit": decision_context.audit,
+                        },
+                        cfg,
+                    )
+                    if decision_context.allowed and isinstance(decision_context.strategy_input, dict):
+                        decision = evaluate_symbol(decision_context.strategy_input, cfg)
+                    else:
+                        reason = decision_context.blocked_reason or "market_eval_gate_blocked"
+                        logger.info(f"{symbol} -> HOLD | reason={reason}")
+                        decision = {
+                            "symbol": symbol,
+                            "action": "HOLD",
+                            "reason": reason,
+                        }
                     action = decision.get("action")
                     executed = False
                     blocked_reason = None
+                    execution_report = None
                     if action != "HOLD":
                         if action == "BUY" and not trading_enabled:
                             logger.info(
@@ -1465,6 +1531,7 @@ def main():
                                 decision=decision,
                                 executed=executed,
                                 blocked_reason=blocked_reason,
+                                execution_report=execution_report,
                             )
                             time.sleep(0.2)
                             continue
@@ -1485,6 +1552,7 @@ def main():
                                     decision=decision,
                                     executed=executed,
                                     blocked_reason=blocked_reason,
+                                    execution_report=execution_report,
                                 )
                                 time.sleep(0.2)
                                 continue
@@ -1505,6 +1573,7 @@ def main():
                                     decision=decision,
                                     executed=executed,
                                     blocked_reason=blocked_reason,
+                                    execution_report=execution_report,
                                 )
                                 time.sleep(0.2)
                                 continue
@@ -1522,11 +1591,16 @@ def main():
                                 decision=decision,
                                 executed=executed,
                                 blocked_reason=blocked_reason,
+                                execution_report=execution_report,
                             )
                             time.sleep(0.2)
                             continue
-                        executor.handle_decision(decision)
-                        executed = True
+                        executed = bool(executor.handle_decision(decision, market=market))
+                        execution_report = (
+                            executor.last_execution_report
+                            if isinstance(getattr(executor, "last_execution_report", None), dict)
+                            else None
+                        )
                     else:
                         _buy_signal_streak.pop(symbol, None)
 
@@ -1536,6 +1610,7 @@ def main():
                         decision=decision,
                         executed=executed,
                         blocked_reason=blocked_reason,
+                        execution_report=execution_report,
                     )
                     time.sleep(0.2)
 

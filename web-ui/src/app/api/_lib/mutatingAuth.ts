@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import fs from "node:fs";
-import path from "node:path";
+import { resolveStateFileCandidates } from "./stateFallback";
 
 const DEFAULT_MAX_MUTATING_BODY_BYTES = 64 * 1024;
 const DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60;
@@ -29,10 +29,7 @@ function resolveConfigToken(): string {
     return cachedConfigToken;
   }
 
-  const candidatePaths = [
-    path.resolve(process.cwd(), "..", "crypto_bot", "state", "config.json"),
-    path.resolve(process.cwd(), "crypto_bot", "state", "config.json"),
-  ];
+  const candidatePaths = resolveStateFileCandidates("config.json");
 
   for (const candidatePath of candidatePaths) {
     try {

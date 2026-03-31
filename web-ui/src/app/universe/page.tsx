@@ -401,7 +401,7 @@ export default function UniversePage() {
               />
             </label>
           </div>
-          <div className="overflow-x-auto">
+          <div className="rb-table-wrap max-h-[620px] overflow-y-auto overflow-x-auto">
             <table className="rb-table min-w-full text-xs sm:text-sm">
               <thead>
                 <tr>
@@ -522,7 +522,7 @@ export default function UniversePage() {
             Sync status: {account?.sync_status ?? "unknown"}
             {account?.sync_error ? ` | ${account.sync_error}` : ""}
           </p>
-          <div className="mt-3 overflow-x-auto">
+          <div className="rb-table-wrap mt-3 max-h-[420px] overflow-y-auto overflow-x-auto">
             <table className="rb-table min-w-full text-xs sm:text-sm">
               <thead>
                 <tr>

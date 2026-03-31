@@ -154,14 +154,26 @@ def sync_account_snapshot() -> dict:
         snapshot = _build_snapshot_from_payload(payload)
     except Exception as exc:
         logger.exception(f"Revolut account sync failed: {exc}")
+        previous = read_account_snapshot(default={})
+        previous_assets = previous.get("assets") if isinstance(previous, dict) else None
+        fallback_assets = previous_assets if isinstance(previous_assets, list) else []
+        fallback_total_value = _to_float(
+            previous.get("estimated_total_quote_value"),
+            default=0.0,
+        ) if isinstance(previous, dict) else 0.0
+        fallback_complete = bool(previous.get("estimated_quote_value_complete")) if isinstance(previous, dict) else False
         snapshot = {
             "last_sync_time": time.time(),
             "sync_status": "error",
             "sync_error": str(exc),
-            "assets": [],
-            "asset_count": 0,
-            "estimated_total_quote_value": 0.0,
-            "estimated_quote_value_complete": False,
+            "assets": fallback_assets,
+            "asset_count": len(fallback_assets),
+            "estimated_total_quote_value": round(fallback_total_value, 6),
+            "estimated_quote_value_complete": fallback_complete,
+            "fallback_from_last_good_snapshot": bool(fallback_assets),
+            "last_success_sync_time": (
+                previous.get("last_sync_time") if isinstance(previous, dict) else None
+            ),
             "source": "revolut_x",
         }
 

@@ -364,6 +364,15 @@ def normalize_config(
     # Risk section.
     risk = ensure_dict(cfg, "risk", "risk")
     normalize_float(risk, "risk_percent", 0.02, "risk.risk_percent", min_value=0.0, max_value=1.0)
+    raw_sizing_mode = str(risk.get("sizing_mode", "auto") or "").strip().lower()
+    allowed_sizing_modes = {"auto", "stop_distance", "fixed_usd", "risk_percent"}
+    if raw_sizing_mode not in allowed_sizing_modes:
+        risk["sizing_mode"] = "auto"
+        changed = True
+        warn("risk.sizing_mode invalid; defaulted to 'auto'")
+    elif risk.get("sizing_mode") != raw_sizing_mode:
+        risk["sizing_mode"] = raw_sizing_mode
+        changed = True
     normalize_float(
         risk,
         "trade_amount_usd",
@@ -405,6 +414,26 @@ def normalize_config(
     normalize_float(risk, "daily_loss_limit_usd", 0.0, "risk.daily_loss_limit_usd", min_value=0.0)
     normalize_bool(risk, "daily_loss_auto_pause", True, "risk.daily_loss_auto_pause")
     normalize_bool(risk, "daily_loss_close_all", False, "risk.daily_loss_close_all")
+    normalize_bool(
+        risk,
+        "block_bad_market_quality",
+        True,
+        "risk.block_bad_market_quality",
+    )
+    normalize_int(
+        risk,
+        "max_consecutive_execution_failures",
+        5,
+        "risk.max_consecutive_execution_failures",
+        min_value=1,
+    )
+    normalize_int(
+        risk,
+        "execution_failure_pause_seconds",
+        180,
+        "risk.execution_failure_pause_seconds",
+        min_value=1,
+    )
     normalize_float(
         risk,
         "stale_losing_review_age_hours",
@@ -426,6 +455,87 @@ def normalize_config(
         "risk.signal_confirmation_cycles",
         min_value=1,
     )
+    normalize_float(
+        risk,
+        "max_loss_per_trade_usd",
+        None,
+        "risk.max_loss_per_trade_usd",
+        min_value=0.0,
+        allow_missing=True,
+    )
+    normalize_float(
+        risk,
+        "min_trade_notional_usd",
+        10.0,
+        "risk.min_trade_notional_usd",
+        min_value=0.0,
+    )
+    normalize_float(
+        risk,
+        "max_notional_usd",
+        None,
+        "risk.max_notional_usd",
+        min_value=0.0,
+        allow_missing=True,
+    )
+    normalize_float(
+        risk,
+        "liquidity_cap_notional_usd",
+        None,
+        "risk.liquidity_cap_notional_usd",
+        min_value=0.0,
+        allow_missing=True,
+    )
+    normalize_float(
+        risk,
+        "stop_atr_mult_default",
+        1.4,
+        "risk.stop_atr_mult_default",
+        min_value=0.1,
+    )
+    normalize_float(
+        risk,
+        "stop_atr_mult_trend",
+        2.0,
+        "risk.stop_atr_mult_trend",
+        min_value=0.1,
+    )
+    normalize_float(
+        risk,
+        "stop_atr_mult_breakout",
+        1.7,
+        "risk.stop_atr_mult_breakout",
+        min_value=0.1,
+    )
+    normalize_float(
+        risk,
+        "stop_atr_mult_mean_reversion",
+        1.1,
+        "risk.stop_atr_mult_mean_reversion",
+        min_value=0.1,
+    )
+    normalize_float(
+        risk,
+        "liquidity_soft_spread_bps",
+        45.0,
+        "risk.liquidity_soft_spread_bps",
+        min_value=1.0,
+    )
+    normalize_float(
+        risk,
+        "liquidity_hard_spread_bps",
+        220.0,
+        "risk.liquidity_hard_spread_bps",
+        min_value=1.0,
+    )
+    normalize_float(
+        risk,
+        "liquidity_score_floor",
+        0.15,
+        "risk.liquidity_score_floor",
+        min_value=0.0,
+        max_value=1.0,
+    )
 
     trade_window = ensure_dict(risk, "trade_window_utc", "risk.trade_window_utc")
     normalize_bool(trade_window, "enabled", False, "risk.trade_window_utc.enabled")
@@ -446,6 +556,162 @@ def normalize_config(
         max_value=23,
     )
     normalize_symbol_number_map(risk, "symbol_cooldown_seconds", "risk.symbol_cooldown_seconds")
+
+    # Paper execution realism section (feature-flagged for safe rollout).
+    paper_execution = ensure_dict(cfg, "paper_execution", "paper_execution")
+    normalize_bool(paper_execution, "enabled", False, "paper_execution.enabled")
+    normalize_float(
+        paper_execution,
+        "taker_fee_bps",
+        12.0,
+        "paper_execution.taker_fee_bps",
+        min_value=0.0,
+    )
+    normalize_float(
+        paper_execution,
+        "maker_fee_bps",
+        2.0,
+        "paper_execution.maker_fee_bps",
+        min_value=0.0,
+    )
+    normalize_float(
+        paper_execution,
+        "base_slippage_bps",
+        2.0,
+        "paper_execution.base_slippage_bps",
+        min_value=0.0,
+    )
+    normalize_float(
+        paper_execution,
+        "spread_slippage_weight",
+        0.08,
+        "paper_execution.spread_slippage_weight",
+        min_value=0.0,
+    )
+    normalize_float(
+        paper_execution,
+        "imbalance_penalty_bps",
+        8.0,
+        "paper_execution.imbalance_penalty_bps",
+        min_value=0.0,
+    )
+    normalize_float(
+        paper_execution,
+        "momentum_penalty_bps",
+        4.0,
+        "paper_execution.momentum_penalty_bps",
+        min_value=0.0,
+    )
+    normalize_float(
+        paper_execution,
+        "microprice_weight",
+        0.35,
+        "paper_execution.microprice_weight",
+        min_value=0.0,
+    )
+    normalize_float(
+        paper_execution,
+        "participation_penalty_bps",
+        4.0,
+        "paper_execution.participation_penalty_bps",
+        min_value=0.0,
+    )
+    normalize_float(
+        paper_execution,
+        "max_slippage_bps",
+        120.0,
+        "paper_execution.max_slippage_bps",
+        min_value=0.0,
+    )
+    normalize_float(
+        paper_execution,
+        "soft_spread_bps",
+        40.0,
+        "paper_execution.soft_spread_bps",
+        min_value=1.0,
+    )
+    normalize_float(
+        paper_execution,
+        "hard_reject_spread_bps",
+        250.0,
+        "paper_execution.hard_reject_spread_bps",
+        min_value=1.0,
+    )
+    normalize_float(
+        paper_execution,
+        "liquidity_reference_usd",
+        5000.0,
+        "paper_execution.liquidity_reference_usd",
+        min_value=1.0,
+    )
+    normalize_float(
+        paper_execution,
+        "partial_fill_notional_pressure",
+        1.0,
+        "paper_execution.partial_fill_notional_pressure",
+        min_value=0.1,
+    )
+    normalize_float(
+        paper_execution,
+        "partial_fill_slope",
+        0.35,
+        "paper_execution.partial_fill_slope",
+        min_value=0.0,
+    )
+    normalize_float(
+        paper_execution,
+        "min_fill_ratio",
+        0.20,
+        "paper_execution.min_fill_ratio",
+        min_value=0.01,
+        max_value=1.0,
+    )
+    normalize_float(
+        paper_execution,
+        "reject_if_fill_ratio_below",
+        0.08,
+        "paper_execution.reject_if_fill_ratio_below",
+        min_value=0.0,
+        max_value=1.0,
+    )
+    normalize_bool(paper_execution, "enable_timeouts", True, "paper_execution.enable_timeouts")
+    normalize_int(
+        paper_execution,
+        "timeout_ms",
+        2200,
+        "paper_execution.timeout_ms",
+        min_value=1,
+    )
+    normalize_int(
+        paper_execution,
+        "latency_pressure_ms",
+        450,
+        "paper_execution.latency_pressure_ms",
+        min_value=0,
+    )
+    normalize_float(
+        paper_execution,
+        "latency_slippage_bps_per_sec",
+        1.5,
+        "paper_execution.latency_slippage_bps_per_sec",
+        min_value=0.0,
+    )
+    normalize_int(
+        paper_execution,
+        "maker_queue_latency_ms",
+        250,
+        "paper_execution.maker_queue_latency_ms",
+        min_value=0,
+    )
+    normalize_float(
+        paper_execution,
+        "maker_fill_decay",
+        0.45,
+        "paper_execution.maker_fill_decay",
+        min_value=0.0,
+        max_value=1.0,
+    )
+    normalize_bool(paper_execution, "reject_on_bad_data", True, "paper_execution.reject_on_bad_data")
 
     # Profit lock section.
     profit = ensure_dict(cfg, "profit_locks", "profit_locks")

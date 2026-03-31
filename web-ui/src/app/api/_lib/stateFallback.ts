@@ -1,4 +1,5 @@
 import { promises as fs } from "fs";
+import * as fsSync from "node:fs";
 import path from "path";
 
 type ConfigState = Record<string, unknown>;
@@ -66,7 +67,33 @@ type CloseAllBody = {
   action_id?: unknown;
 };
 
-const STATE_DIR = path.resolve(process.cwd(), "..", "crypto_bot", "state");
+const LEGACY_STATE_DIR_CANDIDATES = [
+  path.resolve(process.cwd(), "..", "crypto_bot", "state"),
+  path.resolve(process.cwd(), "crypto_bot", "state"),
+];
+const BOT_DATA_DIR = String(process.env.BOT_DATA_DIR ?? "").trim();
+const LEGACY_OVERRIDE_DIR = String(process.env.REVBOT_STATE_DIR ?? "").trim();
+const STATE_DIR = LEGACY_OVERRIDE_DIR
+  ? path.resolve(LEGACY_OVERRIDE_DIR)
+  : BOT_DATA_DIR
+    ? path.resolve(BOT_DATA_DIR, "state")
+    : path.resolve(process.cwd(), "..", ".runtime", "state");
+const READ_FALLBACK_DIRS = LEGACY_OVERRIDE_DIR
+  ? []
+  : LEGACY_STATE_DIR_CANDIDATES.filter((candidate) => path.resolve(candidate) !== path.resolve(STATE_DIR));
+
+export function resolvePrimaryStateDir(): string {
+  return STATE_DIR;
+}
+
+export function resolveStateFileCandidates(fileName: string): string[] {
+  const normalized = String(fileName ?? "").replace(/^[\\/]+/, "");
+  const out = [path.join(STATE_DIR, normalized)];
+  for (const fallbackDir of READ_FALLBACK_DIRS) {
+    out.push(path.join(fallbackDir, normalized));
+  }
+  return out;
+}
 const CONFIG_PATH = path.join(STATE_DIR, "config.json");
 const PAPER_STATE_PATH = path.join(STATE_DIR, "paper_state.json");
 const STRATEGY_STATE_PATH = path.join(STATE_DIR, "strategy_state.json");
@@ -93,6 +120,23 @@ const TOKEN_REGIME_VALUES = [
 
 const SNAPSHOT_PATTERN =
   /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+\s+\|\s+INFO\s+\|\s+SNAPSHOT\s+([A-Z0-9-]+)\s+\|\s+price=([0-9.]+)/;
+
+function resolveReadPath(filePath: string): string {
+  if (fsSync.existsSync(filePath)) {
+    return filePath;
+  }
+  const relative = path.relative(STATE_DIR, filePath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return filePath;
+  }
+  for (const fallbackDir of READ_FALLBACK_DIRS) {
+    const candidate = path.join(fallbackDir, relative);
+    if (fsSync.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+  return filePath;
+}
 
 async function appendAuditEvent(
   action: string,
@@ -250,7 +294,7 @@ function sleep(ms: number) {
 
 async function readJson<T>(filePath: string, fallback: T): Promise<T> {
   try {
-    const raw = await fs.readFile(filePath, "utf8");
+    const raw = await fs.readFile(resolveReadPath(filePath), "utf8");
     if (!raw.trim()) {
       return fallback;
     }
@@ -501,7 +545,7 @@ export async function readRevolutUniverseLocal() {
 
 async function readLatestSnapshotPrice(symbol: string): Promise<number | null> {
   try {
-    const handle = await fs.open(LOG_PATH, "r");
+    const handle = await fs.open(resolveReadPath(LOG_PATH), "r");
     try {
       const stat = await handle.stat();
       const bytesToRead = Math.min(LOG_TAIL_BYTES, stat.size);

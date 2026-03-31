@@ -9,6 +9,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from observability.metrics import aggregate_execution_metrics
 from utils.state_paths import resolve_state_dir
 
 STATE_DIR = resolve_state_dir(Path(__file__).resolve().parent.parent / "state")
@@ -1136,6 +1137,9 @@ def build_daily_summary(day_iso: str) -> dict[str, Any]:
 
     spread_cost_estimate_usd = 0.0
     spread_samples = 0
+    slippage_penalty_usd = 0.0
+    slippage_samples = 0
+    execution_fee_usd = 0.0
     for trade in day_trades:
         symbol = str(trade.get("symbol") or "").upper()
         trade_ts = _to_float(trade.get("time"), fallback=0.0)
@@ -1154,6 +1158,18 @@ def build_daily_summary(day_iso: str) -> dict[str, Any]:
         notional = price * size
         spread_cost_estimate_usd += (notional * (spread_bps / 10000.0)) / 2.0
         spread_samples += 1
+        fee_usd = _to_float(trade.get("fee_usd"), fallback=0.0)
+        if fee_usd > 0:
+            execution_fee_usd += fee_usd
+        quoted_price = _to_float(trade.get("quoted_price"), fallback=0.0)
+        if quoted_price > 0:
+            slippage_penalty_usd += abs(price - quoted_price) * size
+            slippage_samples += 1
+        else:
+            slippage_usd = _to_float(trade.get("slippage_usd"), fallback=0.0)
+            if slippage_usd > 0:
+                slippage_penalty_usd += slippage_usd
+                slippage_samples += 1
 
     stale_data_keywords = (
         "insufficient_data",
@@ -1172,6 +1188,7 @@ def build_daily_summary(day_iso: str) -> dict[str, Any]:
 
     runtime_event_counts = _parse_runtime_events(day_iso)
     health_check_issues = runtime_event_counts.get("health_check_issues", 0)
+    execution_metrics = aggregate_execution_metrics(day_trades)
 
     net_paper_pnl = realized_pnl + unrealized_pnl
     stale_losing_review_positions.sort(
@@ -1392,11 +1409,15 @@ def build_daily_summary(day_iso: str) -> dict[str, Any]:
         "paper_honesty": {
             "estimated_spread_cost_usd": round(spread_cost_estimate_usd, 4),
             "spread_sample_count": spread_samples,
-            "estimated_slippage_penalty_usd": 0.0,
+            "estimated_slippage_penalty_usd": round(slippage_penalty_usd, 4),
+            "slippage_sample_count": slippage_samples,
+            "execution_fee_usd": round(execution_fee_usd, 4),
             "fill_realism_notes": (
-                "Paper fills use snapshot-derived prices; spread estimate is approximate and slippage is not modeled."
+                "Paper fills can apply configurable fees/slippage/partials/timeouts. "
+                "If paper_execution.enabled is false, fills remain idealized."
             ),
         },
+        "execution_observability": execution_metrics,
         "state_references": {
             "paper_state_path": str(PAPER_STATE_PATH),
             "strategy_state_path": str(STRATEGY_STATE_PATH),

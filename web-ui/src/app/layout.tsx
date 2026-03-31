@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import TableEnhancer from "./components/TableEnhancer";
 
 export const metadata: Metadata = {
   title: "RevBot Portfolio Monitor",
@@ -13,7 +14,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <TableEnhancer />
+        {children}
+      </body>
     </html>
   );
 }

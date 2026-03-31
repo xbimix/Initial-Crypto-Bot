@@ -40,6 +40,7 @@ _MISSING_AUTH_WARNED = False
 _MISSING_SIGNING_WARNED = False
 _HTTP_SESSION = requests.Session()
 _HTTP_SESSION.trust_env = False
+_AUTH_CLOCK_SKEW_MS = 0
 
 
 def _parse_float_env(name: str, default: float, *, minimum: float = 0.0) -> float:
@@ -92,7 +93,7 @@ def _build_signed_headers(
             _MISSING_AUTH_WARNED = True
         raise RuntimeError("Revolut API key unavailable for authenticated request")
 
-    timestamp = str(int(time.time() * 1000))
+    timestamp = str(int((time.time() * 1000) + _AUTH_CLOCK_SKEW_MS))
     method_upper = method.upper().strip()
 
     query = urlencode(params or {}, doseq=True)
@@ -128,6 +129,44 @@ def _build_signed_headers(
     headers["X-Revx-Timestamp"] = timestamp
     headers["X-Revx-Signature"] = signature_b64
     return headers
+
+
+def _to_int(value) -> int | None:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def _maybe_adjust_auth_clock_skew(response: requests.Response) -> bool:
+    global _AUTH_CLOCK_SKEW_MS
+
+    if int(getattr(response, "status_code", 0) or 0) != 409:
+        return False
+
+    try:
+        payload = response.json()
+    except Exception:
+        return False
+    if not isinstance(payload, dict):
+        return False
+
+    message = str(payload.get("message") or "").strip().lower()
+    if "request timestamp" not in message:
+        return False
+
+    server_ms = _to_int(payload.get("timestamp"))
+    if server_ms is None:
+        return False
+
+    local_ms = int(time.time() * 1000)
+    skew_ms = int(server_ms - local_ms)
+    if abs(skew_ms) < 50:
+        return False
+
+    _AUTH_CLOCK_SKEW_MS = skew_ms
+    logger.warning(f"Adjusted Revolut auth clock skew to {skew_ms}ms after 409 timestamp response")
+    return True
 
 
 def _headers(auth_required: bool = False) -> dict:
@@ -185,6 +224,11 @@ def _get(path: str, params: dict | None = None, auth: bool = False) -> dict:
             proxies={},
         )
         last_response = response
+
+        if auth and _maybe_adjust_auth_clock_skew(response):
+            if attempt >= MAX_RETRIES:
+                break
+            continue
 
         if response.status_code not in RETRYABLE_STATUS_CODES:
             response.raise_for_status()
