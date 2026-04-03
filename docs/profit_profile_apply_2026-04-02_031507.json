@@ -1,0 +1,531 @@
+{
+  "generated_at_epoch": 1775096107.273772,
+  "phases": [
+    {
+      "phase": "data_integrity",
+      "state_dir": "d:\\Python-Codes\\RevBot\\.runtime\\state",
+      "changed_count": 8,
+      "changes": [
+        {
+          "path": "market_data.source_map.candles.allow_snapshot_fallback",
+          "before": true,
+          "after": false,
+          "rationale": "Keep decision-critical candles authoritative only."
+        },
+        {
+          "path": "market_data.source_map.candles.decision_use_snapshot_fallback",
+          "before": true,
+          "after": false,
+          "rationale": "Avoid stale snapshot fallbacks in decision path."
+        },
+        {
+          "path": "market_data.freshness_slo.min_fresh_1h",
+          "before": null,
+          "after": 1,
+          "rationale": "Require at least one fresh 1h coverage sample."
+        },
+        {
+          "path": "market_data.freshness_slo.min_fresh_4h",
+          "before": null,
+          "after": 1,
+          "rationale": "Require at least one fresh 4h coverage sample."
+        },
+        {
+          "path": "market_data.freshness_slo.max_degraded_jobs",
+          "before": null,
+          "after": 1,
+          "rationale": "Tighten degraded-job tolerance to reduce bad-data trading windows."
+        },
+        {
+          "path": "market_data.route_quality_min_confidence",
+          "before": 75,
+          "after": 78.0,
+          "rationale": "Raise confidence threshold to filter weak regime routes."
+        },
+        {
+          "path": "market_data.route_quality_min_stability",
+          "before": 60,
+          "after": 65.0,
+          "rationale": "Raise stability threshold to reduce route churn."
+        },
+        {
+          "path": "market_data.route_quality_min_persistence",
+          "before": 60,
+          "after": 65.0,
+          "rationale": "Raise persistence threshold to reduce transient routing."
+        }
+      ],
+      "normalize_warnings": [
+        "risk.block_bad_market_quality missing; defaulted to True",
+        "risk.max_consecutive_execution_failures missing; defaulted to 5",
+        "risk.execution_failure_pause_seconds missing; defaulted to 180",
+        "risk.min_trade_notional_usd missing; defaulted to 10.0",
+        "risk.stop_atr_mult_default missing; defaulted to 1.4",
+        "risk.stop_atr_mult_trend missing; defaulted to 2.0",
+        "risk.stop_atr_mult_breakout missing; defaulted to 1.7",
+        "risk.stop_atr_mult_mean_reversion missing; defaulted to 1.1",
+        "risk.liquidity_soft_spread_bps missing; defaulted to 45.0",
+        "risk.liquidity_hard_spread_bps missing; defaulted to 220.0",
+        "risk.liquidity_score_floor missing; defaulted to 0.15",
+        "paper_execution was missing/invalid; replaced with object",
+        "paper_execution.enabled missing; defaulted to False",
+        "paper_execution.taker_fee_bps missing; defaulted to 12.0",
+        "paper_execution.maker_fee_bps missing; defaulted to 2.0",
+        "paper_execution.base_slippage_bps missing; defaulted to 2.0",
+        "paper_execution.spread_slippage_weight missing; defaulted to 0.08",
+        "paper_execution.imbalance_penalty_bps missing; defaulted to 8.0",
+        "paper_execution.momentum_penalty_bps missing; defaulted to 4.0",
+        "paper_execution.microprice_weight missing; defaulted to 0.35",
+        "paper_execution.participation_penalty_bps missing; defaulted to 4.0",
+        "paper_execution.max_slippage_bps missing; defaulted to 120.0",
+        "paper_execution.soft_spread_bps missing; defaulted to 40.0",
+        "paper_execution.hard_reject_spread_bps missing; defaulted to 250.0",
+        "paper_execution.liquidity_reference_usd missing; defaulted to 5000.0",
+        "paper_execution.partial_fill_notional_pressure missing; defaulted to 1.0",
+        "paper_execution.partial_fill_slope missing; defaulted to 0.35",
+        "paper_execution.min_fill_ratio missing; defaulted to 0.2",
+        "paper_execution.reject_if_fill_ratio_below missing; defaulted to 0.08",
+        "paper_execution.enable_timeouts missing; defaulted to True",
+        "paper_execution.timeout_ms missing; defaulted to 2200",
+        "paper_execution.latency_pressure_ms missing; defaulted to 450",
+        "paper_execution.latency_slippage_bps_per_sec missing; defaulted to 1.5",
+        "paper_execution.maker_queue_latency_ms missing; defaulted to 250",
+        "paper_execution.maker_fill_decay missing; defaulted to 0.45",
+        "paper_execution.reject_on_bad_data missing; defaulted to True",
+        "market_data.freshness_slo.min_fresh_24h missing; defaulted to 0",
+        "market_data.freshness_slo.max_sync_errors missing; defaulted to 0",
+        "market_data.freshness_slo.min_sync_requests missing; defaulted to 1"
+      ],
+      "dry_run": true
+    },
+    {
+      "phase": "regime_participation",
+      "state_dir": "d:\\Python-Codes\\RevBot\\.runtime\\state",
+      "changed_count": 4,
+      "changes": [
+        {
+          "path": "strategy_defaults.router.auto_use_multitimeframe_advisory",
+          "before": false,
+          "after": true,
+          "rationale": "Make AUTO routing consistently advisory-driven."
+        },
+        {
+          "path": "strategy_defaults.router.auto_min_confidence",
+          "before": 68,
+          "after": 72.0,
+          "rationale": "Require higher AUTO confidence before route promotion."
+        },
+        {
+          "path": "strategy_defaults.router.auto_min_confirmations",
+          "before": 2,
+          "after": 3,
+          "rationale": "Require additional confirmations to reduce false promotion."
+        },
+        {
+          "path": "strategy_defaults.router.auto_use_current_cycle_shadow",
+          "before": false,
+          "after": true,
+          "rationale": "Ensure shadow stability participates in current cycle selection."
+        }
+      ],
+      "normalize_warnings": [
+        "risk.block_bad_market_quality missing; defaulted to True",
+        "risk.max_consecutive_execution_failures missing; defaulted to 5",
+        "risk.execution_failure_pause_seconds missing; defaulted to 180",
+        "risk.min_trade_notional_usd missing; defaulted to 10.0",
+        "risk.stop_atr_mult_default missing; defaulted to 1.4",
+        "risk.stop_atr_mult_trend missing; defaulted to 2.0",
+        "risk.stop_atr_mult_breakout missing; defaulted to 1.7",
+        "risk.stop_atr_mult_mean_reversion missing; defaulted to 1.1",
+        "risk.liquidity_soft_spread_bps missing; defaulted to 45.0",
+        "risk.liquidity_hard_spread_bps missing; defaulted to 220.0",
+        "risk.liquidity_score_floor missing; defaulted to 0.15",
+        "paper_execution was missing/invalid; replaced with object",
+        "paper_execution.enabled missing; defaulted to False",
+        "paper_execution.taker_fee_bps missing; defaulted to 12.0",
+        "paper_execution.maker_fee_bps missing; defaulted to 2.0",
+        "paper_execution.base_slippage_bps missing; defaulted to 2.0",
+        "paper_execution.spread_slippage_weight missing; defaulted to 0.08",
+        "paper_execution.imbalance_penalty_bps missing; defaulted to 8.0",
+        "paper_execution.momentum_penalty_bps missing; defaulted to 4.0",
+        "paper_execution.microprice_weight missing; defaulted to 0.35",
+        "paper_execution.participation_penalty_bps missing; defaulted to 4.0",
+        "paper_execution.max_slippage_bps missing; defaulted to 120.0",
+        "paper_execution.soft_spread_bps missing; defaulted to 40.0",
+        "paper_execution.hard_reject_spread_bps missing; defaulted to 250.0",
+        "paper_execution.liquidity_reference_usd missing; defaulted to 5000.0",
+        "paper_execution.partial_fill_notional_pressure missing; defaulted to 1.0",
+        "paper_execution.partial_fill_slope missing; defaulted to 0.35",
+        "paper_execution.min_fill_ratio missing; defaulted to 0.2",
+        "paper_execution.reject_if_fill_ratio_below missing; defaulted to 0.08",
+        "paper_execution.enable_timeouts missing; defaulted to True",
+        "paper_execution.timeout_ms missing; defaulted to 2200",
+        "paper_execution.latency_pressure_ms missing; defaulted to 450",
+        "paper_execution.latency_slippage_bps_per_sec missing; defaulted to 1.5",
+        "paper_execution.maker_queue_latency_ms missing; defaulted to 250",
+        "paper_execution.maker_fill_decay missing; defaulted to 0.45",
+        "paper_execution.reject_on_bad_data missing; defaulted to True",
+        "market_data.freshness_slo was missing/invalid; replaced with object",
+        "market_data.freshness_slo.min_fresh_1h missing; defaulted to 1",
+        "market_data.freshness_slo.min_fresh_4h missing; defaulted to 1",
+        "market_data.freshness_slo.min_fresh_24h missing; defaulted to 0",
+        "market_data.freshness_slo.max_sync_errors missing; defaulted to 0",
+        "market_data.freshness_slo.max_degraded_jobs missing; defaulted to 0",
+        "market_data.freshness_slo.min_sync_requests missing; defaulted to 1"
+      ],
+      "dry_run": true
+    },
+    {
+      "phase": "risk_sizing",
+      "state_dir": "d:\\Python-Codes\\RevBot\\.runtime\\state",
+      "changed_count": 13,
+      "changes": [
+        {
+          "path": "risk.sizing_mode",
+          "before": null,
+          "after": "auto",
+          "rationale": "Prefer stop-distance sizing when stop data is available while preserving compatibility."
+        },
+        {
+          "path": "risk.risk_percent",
+          "before": 0.02,
+          "after": 0.01,
+          "rationale": "Lower per-trade risk budget for lower-failure profile."
+        },
+        {
+          "path": "risk.max_loss_per_trade_usd",
+          "before": null,
+          "after": 40.0,
+          "rationale": "Hard cap expected loss per trade."
+        },
+        {
+          "path": "risk.trade_amount_usd",
+          "before": 200,
+          "after": 150.0,
+          "rationale": "Conservative legacy fallback notional."
+        },
+        {
+          "path": "risk.max_concurrent_trades",
+          "before": 40,
+          "after": 12,
+          "rationale": "Limit portfolio concurrency."
+        },
+        {
+          "path": "risk.max_concurrent_trades_per_token",
+          "before": 2,
+          "after": 1,
+          "rationale": "Prevent per-symbol stacking risk."
+        },
+        {
+          "path": "risk.max_trade_amount_usd",
+          "before": 10000,
+          "after": 750.0,
+          "rationale": "Hard cap single-trade amount."
+        },
+        {
+          "path": "risk.max_notional_usd",
+          "before": null,
+          "after": 750.0,
+          "rationale": "Hard cap single-trade notional in sizing contract."
+        },
+        {
+          "path": "risk.max_portfolio_exposure_pct",
+          "before": 100,
+          "after": 65.0,
+          "rationale": "Keep portfolio reserve for drawdown resilience."
+        },
+        {
+          "path": "risk.max_exposure_per_token_pct",
+          "before": 100,
+          "after": 12.0,
+          "rationale": "Limit symbol concentration risk."
+        },
+        {
+          "path": "risk.min_trade_notional_usd",
+          "before": null,
+          "after": 25.0,
+          "rationale": "Avoid ultra-small/noisy entries."
+        },
+        {
+          "path": "risk.liquidity_cap_notional_usd",
+          "before": null,
+          "after": 500.0,
+          "rationale": "Cap notional by liquidity profile."
+        },
+        {
+          "path": "risk.block_bad_market_quality",
+          "before": null,
+          "after": true,
+          "rationale": "Never allow entries under bad market quality."
+        }
+      ],
+      "normalize_warnings": [
+        "risk.max_consecutive_execution_failures missing; defaulted to 5",
+        "risk.execution_failure_pause_seconds missing; defaulted to 180",
+        "risk.stop_atr_mult_default missing; defaulted to 1.4",
+        "risk.stop_atr_mult_trend missing; defaulted to 2.0",
+        "risk.stop_atr_mult_breakout missing; defaulted to 1.7",
+        "risk.stop_atr_mult_mean_reversion missing; defaulted to 1.1",
+        "risk.liquidity_soft_spread_bps missing; defaulted to 45.0",
+        "risk.liquidity_hard_spread_bps missing; defaulted to 220.0",
+        "risk.liquidity_score_floor missing; defaulted to 0.15",
+        "paper_execution was missing/invalid; replaced with object",
+        "paper_execution.enabled missing; defaulted to False",
+        "paper_execution.taker_fee_bps missing; defaulted to 12.0",
+        "paper_execution.maker_fee_bps missing; defaulted to 2.0",
+        "paper_execution.base_slippage_bps missing; defaulted to 2.0",
+        "paper_execution.spread_slippage_weight missing; defaulted to 0.08",
+        "paper_execution.imbalance_penalty_bps missing; defaulted to 8.0",
+        "paper_execution.momentum_penalty_bps missing; defaulted to 4.0",
+        "paper_execution.microprice_weight missing; defaulted to 0.35",
+        "paper_execution.participation_penalty_bps missing; defaulted to 4.0",
+        "paper_execution.max_slippage_bps missing; defaulted to 120.0",
+        "paper_execution.soft_spread_bps missing; defaulted to 40.0",
+        "paper_execution.hard_reject_spread_bps missing; defaulted to 250.0",
+        "paper_execution.liquidity_reference_usd missing; defaulted to 5000.0",
+        "paper_execution.partial_fill_notional_pressure missing; defaulted to 1.0",
+        "paper_execution.partial_fill_slope missing; defaulted to 0.35",
+        "paper_execution.min_fill_ratio missing; defaulted to 0.2",
+        "paper_execution.reject_if_fill_ratio_below missing; defaulted to 0.08",
+        "paper_execution.enable_timeouts missing; defaulted to True",
+        "paper_execution.timeout_ms missing; defaulted to 2200",
+        "paper_execution.latency_pressure_ms missing; defaulted to 450",
+        "paper_execution.latency_slippage_bps_per_sec missing; defaulted to 1.5",
+        "paper_execution.maker_queue_latency_ms missing; defaulted to 250",
+        "paper_execution.maker_fill_decay missing; defaulted to 0.45",
+        "paper_execution.reject_on_bad_data missing; defaulted to True",
+        "market_data.freshness_slo was missing/invalid; replaced with object",
+        "market_data.freshness_slo.min_fresh_1h missing; defaulted to 1",
+        "market_data.freshness_slo.min_fresh_4h missing; defaulted to 1",
+        "market_data.freshness_slo.min_fresh_24h missing; defaulted to 0",
+        "market_data.freshness_slo.max_sync_errors missing; defaulted to 0",
+        "market_data.freshness_slo.max_degraded_jobs missing; defaulted to 0",
+        "market_data.freshness_slo.min_sync_requests missing; defaulted to 1"
+      ],
+      "dry_run": true
+    },
+    {
+      "phase": "execution_realism",
+      "state_dir": "d:\\Python-Codes\\RevBot\\.runtime\\state",
+      "changed_count": 10,
+      "changes": [
+        {
+          "path": "paper_execution.enabled",
+          "before": null,
+          "after": true,
+          "rationale": "Force paper fills through execution simulator."
+        },
+        {
+          "path": "paper_execution.base_slippage_bps",
+          "before": null,
+          "after": 4.0,
+          "rationale": "Use conservative baseline slippage."
+        },
+        {
+          "path": "paper_execution.max_slippage_bps",
+          "before": null,
+          "after": 80.0,
+          "rationale": "Cap extreme slippage assumptions."
+        },
+        {
+          "path": "paper_execution.soft_spread_bps",
+          "before": null,
+          "after": 30.0,
+          "rationale": "Start penalizing spread at tighter level."
+        },
+        {
+          "path": "paper_execution.hard_reject_spread_bps",
+          "before": null,
+          "after": 180.0,
+          "rationale": "Reject entries in very wide spread conditions."
+        },
+        {
+          "path": "paper_execution.min_fill_ratio",
+          "before": null,
+          "after": 0.35,
+          "rationale": "Require stronger expected fill quality."
+        },
+        {
+          "path": "paper_execution.reject_if_fill_ratio_below",
+          "before": null,
+          "after": 0.15,
+          "rationale": "Reject low-liquidity fills early."
+        },
+        {
+          "path": "paper_execution.enable_timeouts",
+          "before": null,
+          "after": true,
+          "rationale": "Keep timeout modeling active."
+        },
+        {
+          "path": "paper_execution.timeout_ms",
+          "before": null,
+          "after": 2000,
+          "rationale": "Slightly tighter timeout for execution realism."
+        },
+        {
+          "path": "paper_execution.reject_on_bad_data",
+          "before": null,
+          "after": true,
+          "rationale": "Do not execute in bad-data conditions."
+        }
+      ],
+      "normalize_warnings": [
+        "risk.block_bad_market_quality missing; defaulted to True",
+        "risk.max_consecutive_execution_failures missing; defaulted to 5",
+        "risk.execution_failure_pause_seconds missing; defaulted to 180",
+        "risk.min_trade_notional_usd missing; defaulted to 10.0",
+        "risk.stop_atr_mult_default missing; defaulted to 1.4",
+        "risk.stop_atr_mult_trend missing; defaulted to 2.0",
+        "risk.stop_atr_mult_breakout missing; defaulted to 1.7",
+        "risk.stop_atr_mult_mean_reversion missing; defaulted to 1.1",
+        "risk.liquidity_soft_spread_bps missing; defaulted to 45.0",
+        "risk.liquidity_hard_spread_bps missing; defaulted to 220.0",
+        "risk.liquidity_score_floor missing; defaulted to 0.15",
+        "paper_execution.taker_fee_bps missing; defaulted to 12.0",
+        "paper_execution.maker_fee_bps missing; defaulted to 2.0",
+        "paper_execution.spread_slippage_weight missing; defaulted to 0.08",
+        "paper_execution.imbalance_penalty_bps missing; defaulted to 8.0",
+        "paper_execution.momentum_penalty_bps missing; defaulted to 4.0",
+        "paper_execution.microprice_weight missing; defaulted to 0.35",
+        "paper_execution.participation_penalty_bps missing; defaulted to 4.0",
+        "paper_execution.liquidity_reference_usd missing; defaulted to 5000.0",
+        "paper_execution.partial_fill_notional_pressure missing; defaulted to 1.0",
+        "paper_execution.partial_fill_slope missing; defaulted to 0.35",
+        "paper_execution.latency_pressure_ms missing; defaulted to 450",
+        "paper_execution.latency_slippage_bps_per_sec missing; defaulted to 1.5",
+        "paper_execution.maker_queue_latency_ms missing; defaulted to 250",
+        "paper_execution.maker_fill_decay missing; defaulted to 0.45",
+        "market_data.freshness_slo was missing/invalid; replaced with object",
+        "market_data.freshness_slo.min_fresh_1h missing; defaulted to 1",
+        "market_data.freshness_slo.min_fresh_4h missing; defaulted to 1",
+        "market_data.freshness_slo.min_fresh_24h missing; defaulted to 0",
+        "market_data.freshness_slo.max_sync_errors missing; defaulted to 0",
+        "market_data.freshness_slo.max_degraded_jobs missing; defaulted to 0",
+        "market_data.freshness_slo.min_sync_requests missing; defaulted to 1"
+      ],
+      "dry_run": true
+    },
+    {
+      "phase": "runtime_safety",
+      "state_dir": "d:\\Python-Codes\\RevBot\\.runtime\\state",
+      "changed_count": 3,
+      "changes": [
+        {
+          "path": "risk.daily_loss_limit_usd",
+          "before": 0,
+          "after": 150.0,
+          "rationale": "Hard daily stop-loss guardrail."
+        },
+        {
+          "path": "risk.max_consecutive_execution_failures",
+          "before": null,
+          "after": 3,
+          "rationale": "Trigger pause sooner on repeated execution failures."
+        },
+        {
+          "path": "risk.execution_failure_pause_seconds",
+          "before": null,
+          "after": 300,
+          "rationale": "Cool-down period after repeated execution failures."
+        }
+      ],
+      "normalize_warnings": [
+        "risk.block_bad_market_quality missing; defaulted to True",
+        "risk.min_trade_notional_usd missing; defaulted to 10.0",
+        "risk.stop_atr_mult_default missing; defaulted to 1.4",
+        "risk.stop_atr_mult_trend missing; defaulted to 2.0",
+        "risk.stop_atr_mult_breakout missing; defaulted to 1.7",
+        "risk.stop_atr_mult_mean_reversion missing; defaulted to 1.1",
+        "risk.liquidity_soft_spread_bps missing; defaulted to 45.0",
+        "risk.liquidity_hard_spread_bps missing; defaulted to 220.0",
+        "risk.liquidity_score_floor missing; defaulted to 0.15",
+        "paper_execution was missing/invalid; replaced with object",
+        "paper_execution.enabled missing; defaulted to False",
+        "paper_execution.taker_fee_bps missing; defaulted to 12.0",
+        "paper_execution.maker_fee_bps missing; defaulted to 2.0",
+        "paper_execution.base_slippage_bps missing; defaulted to 2.0",
+        "paper_execution.spread_slippage_weight missing; defaulted to 0.08",
+        "paper_execution.imbalance_penalty_bps missing; defaulted to 8.0",
+        "paper_execution.momentum_penalty_bps missing; defaulted to 4.0",
+        "paper_execution.microprice_weight missing; defaulted to 0.35",
+        "paper_execution.participation_penalty_bps missing; defaulted to 4.0",
+        "paper_execution.max_slippage_bps missing; defaulted to 120.0",
+        "paper_execution.soft_spread_bps missing; defaulted to 40.0",
+        "paper_execution.hard_reject_spread_bps missing; defaulted to 250.0",
+        "paper_execution.liquidity_reference_usd missing; defaulted to 5000.0",
+        "paper_execution.partial_fill_notional_pressure missing; defaulted to 1.0",
+        "paper_execution.partial_fill_slope missing; defaulted to 0.35",
+        "paper_execution.min_fill_ratio missing; defaulted to 0.2",
+        "paper_execution.reject_if_fill_ratio_below missing; defaulted to 0.08",
+        "paper_execution.enable_timeouts missing; defaulted to True",
+        "paper_execution.timeout_ms missing; defaulted to 2200",
+        "paper_execution.latency_pressure_ms missing; defaulted to 450",
+        "paper_execution.latency_slippage_bps_per_sec missing; defaulted to 1.5",
+        "paper_execution.maker_queue_latency_ms missing; defaulted to 250",
+        "paper_execution.maker_fill_decay missing; defaulted to 0.45",
+        "paper_execution.reject_on_bad_data missing; defaulted to True",
+        "market_data.freshness_slo was missing/invalid; replaced with object",
+        "market_data.freshness_slo.min_fresh_1h missing; defaulted to 1",
+        "market_data.freshness_slo.min_fresh_4h missing; defaulted to 1",
+        "market_data.freshness_slo.min_fresh_24h missing; defaulted to 0",
+        "market_data.freshness_slo.max_sync_errors missing; defaulted to 0",
+        "market_data.freshness_slo.max_degraded_jobs missing; defaulted to 0",
+        "market_data.freshness_slo.min_sync_requests missing; defaulted to 1"
+      ],
+      "dry_run": true
+    },
+    {
+      "phase": "capital_efficiency",
+      "state_dir": "d:\\Python-Codes\\RevBot\\.runtime\\state",
+      "changed_count": 0,
+      "changes": [],
+      "normalize_warnings": [
+        "risk.block_bad_market_quality missing; defaulted to True",
+        "risk.max_consecutive_execution_failures missing; defaulted to 5",
+        "risk.execution_failure_pause_seconds missing; defaulted to 180",
+        "risk.min_trade_notional_usd missing; defaulted to 10.0",
+        "risk.stop_atr_mult_default missing; defaulted to 1.4",
+        "risk.stop_atr_mult_trend missing; defaulted to 2.0",
+        "risk.stop_atr_mult_breakout missing; defaulted to 1.7",
+        "risk.stop_atr_mult_mean_reversion missing; defaulted to 1.1",
+        "risk.liquidity_soft_spread_bps missing; defaulted to 45.0",
+        "risk.liquidity_hard_spread_bps missing; defaulted to 220.0",
+        "risk.liquidity_score_floor missing; defaulted to 0.15",
+        "paper_execution was missing/invalid; replaced with object",
+        "paper_execution.enabled missing; defaulted to False",
+        "paper_execution.taker_fee_bps missing; defaulted to 12.0",
+        "paper_execution.maker_fee_bps missing; defaulted to 2.0",
+        "paper_execution.base_slippage_bps missing; defaulted to 2.0",
+        "paper_execution.spread_slippage_weight missing; defaulted to 0.08",
+        "paper_execution.imbalance_penalty_bps missing; defaulted to 8.0",
+        "paper_execution.momentum_penalty_bps missing; defaulted to 4.0",
+        "paper_execution.microprice_weight missing; defaulted to 0.35",
+        "paper_execution.participation_penalty_bps missing; defaulted to 4.0",
+        "paper_execution.max_slippage_bps missing; defaulted to 120.0",
+        "paper_execution.soft_spread_bps missing; defaulted to 40.0",
+        "paper_execution.hard_reject_spread_bps missing; defaulted to 250.0",
+        "paper_execution.liquidity_reference_usd missing; defaulted to 5000.0",
+        "paper_execution.partial_fill_notional_pressure missing; defaulted to 1.0",
+        "paper_execution.partial_fill_slope missing; defaulted to 0.35",
+        "paper_execution.min_fill_ratio missing; defaulted to 0.2",
+        "paper_execution.reject_if_fill_ratio_below missing; defaulted to 0.08",
+        "paper_execution.enable_timeouts missing; defaulted to True",
+        "paper_execution.timeout_ms missing; defaulted to 2200",
+        "paper_execution.latency_pressure_ms missing; defaulted to 450",
+        "paper_execution.latency_slippage_bps_per_sec missing; defaulted to 1.5",
+        "paper_execution.maker_queue_latency_ms missing; defaulted to 250",
+        "paper_execution.maker_fill_decay missing; defaulted to 0.45",
+        "paper_execution.reject_on_bad_data missing; defaulted to True",
+        "market_data.freshness_slo was missing/invalid; replaced with object",
+        "market_data.freshness_slo.min_fresh_1h missing; defaulted to 1",
+        "market_data.freshness_slo.min_fresh_4h missing; defaulted to 1",
+        "market_data.freshness_slo.min_fresh_24h missing; defaulted to 0",
+        "market_data.freshness_slo.max_sync_errors missing; defaulted to 0",
+        "market_data.freshness_slo.max_degraded_jobs missing; defaulted to 0",
+        "market_data.freshness_slo.min_sync_requests missing; defaulted to 1"
+      ],
+      "dry_run": true
+    }
+  ]
+}

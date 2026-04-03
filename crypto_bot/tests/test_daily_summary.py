@@ -139,12 +139,35 @@ def test_daily_summary_build_and_write(tmp_path, monkeypatch):
     assert "symbols_flagged_high_opportunity_count" in report["summary"]
     assert report["summary"]["symbols_flagged_high_opportunity_count"] == 0
     assert report["summary"]["highest_opportunity_score"] is None
+    assert report["summary"]["capital_lockup_top_route"] == "mean_reversion"
+    assert report["summary"]["capital_lockup_top_route_notional_usd"] is not None
+    assert report["summary"]["capital_lockup_top_route_weighted_age_hours"] is not None
+    assert report["summary"]["capital_lockup_overall_weighted_age_hours"] is not None
+    assert report["summary"]["stale_release_exits_day"] == 0
+    assert report["summary"]["stale_redeploy_rate_day_pct"] == 0.0
+    assert report["summary"]["stale_redeploy_close_rate_day_pct"] == 0.0
+    assert report["summary"]["closed_trade_mae_mfe_samples_day"] == 1
     assert report["summary"]["regime_route_closed_trades"] == 1
     assert report["summary"]["best_regime_route_by_avg_pnl"] == "mean_reversion"
     assert "volatility_opportunity_radar" in report["advisory"]
     radar = report["advisory"]["volatility_opportunity_radar"]
     assert isinstance(radar["symbols"], list)
     assert radar["high_opportunity_symbol_count"] == 0
+    lockup = report["advisory"]["capital_lockup_by_route"]
+    assert lockup["total_open_positions"] == 1
+    assert lockup["routes"][0]["route"] == "mean_reversion"
+    assert lockup["routes"][0]["open_positions"] == 1
+    assert lockup["routes"][0]["symbols"] == ["ADA-USD"]
+    stale_window = report["advisory"]["stale_release_redeploy_window"]
+    stale_total = report["advisory"]["stale_release_redeploy_total"]
+    assert stale_window["stale_release_exits"] == 0
+    assert stale_total["stale_release_exits"] == 0
+    mae_mfe = report["advisory"]["closed_trade_mae_mfe_by_route"]
+    assert mae_mfe["sample_count"] == 1
+    assert mae_mfe["routes"]["mean_reversion"]["sample_count"] == 1
+    assert mae_mfe["routes"]["mean_reversion"]["avg_mfe_pct"] == 5.0
+    assert mae_mfe["routes"]["mean_reversion"]["avg_mae_pct"] == 0.0
+    assert mae_mfe["events"][0]["symbol"] == "BTC-USD"
     assert "regime_route_effectiveness" in report["advisory"]
     route_effectiveness = report["advisory"]["regime_route_effectiveness"]
     assert route_effectiveness["total_closed_trades"] == 1
@@ -165,3 +188,70 @@ def test_daily_summary_build_and_write(tmp_path, monkeypatch):
     assert latest_path.exists()
     latest = json.loads(latest_path.read_text(encoding="utf-8"))
     assert latest["day_utc"] == "2024-03-11"
+
+
+def test_stale_release_redeploy_attribution_tracks_redeploy_outcomes():
+    rows = [
+        {
+            "time": 1000.0,
+            "symbol": "BTC-USD",
+            "side": "SELL",
+            "price": 100.0,
+            "size": 1.0,
+            "reason": "stale_position_risk_release",
+        },
+        {
+            "time": 1300.0,
+            "symbol": "BTC-USD",
+            "side": "BUY",
+            "price": 95.0,
+            "size": 1.0,
+            "effective_route": "trend_pullback",
+            "reason": "trend_pullback_entry",
+        },
+        {
+            "time": 2000.0,
+            "symbol": "BTC-USD",
+            "side": "SELL",
+            "price": 98.0,
+            "size": 1.0,
+            "reason": "exit_signal",
+        },
+    ]
+
+    attribution = daily_summary._stale_release_redeploy_attribution(rows)
+    assert attribution["stale_release_exits"] == 1
+    assert attribution["redeployed"] == 1
+    assert attribution["closed_after_redeploy"] == 1
+    assert attribution["redeploy_rate_pct"] == 100.0
+    assert attribution["close_rate_after_redeploy_pct"] == 100.0
+    assert attribution["win_rate_after_redeploy_pct"] == 100.0
+    assert attribution["route_stats"]["trend_pullback"]["win_rate_after_redeploy_pct"] == 100.0
+
+
+def test_closed_trade_mae_mfe_by_route_uses_snapshot_extremes():
+    trades = [
+        {"time": 1000.0, "symbol": "BTC-USD", "side": "BUY", "price": 100.0, "reason": "entry_signal"},
+        {"time": 1600.0, "symbol": "BTC-USD", "side": "SELL", "price": 103.0, "reason": "exit_signal"},
+    ]
+    snapshots = {
+        "BTC-USD": [
+            daily_summary.SnapshotPoint(ts_epoch=1100.0, price=96.0, spread_bps=10.0, quality="ok", day_utc="2024-03-11"),
+            daily_summary.SnapshotPoint(ts_epoch=1300.0, price=108.0, spread_bps=10.0, quality="ok", day_utc="2024-03-11"),
+            daily_summary.SnapshotPoint(ts_epoch=1500.0, price=102.0, spread_bps=10.0, quality="ok", day_utc="2024-03-11"),
+        ]
+    }
+    ts_cache: dict[str, list[float]] = {}
+    payload = daily_summary._build_closed_trade_mae_mfe_by_route(
+        trades=trades,
+        day_start_ts=900.0,
+        day_end_ts=2000.0,
+        snapshots_by_symbol=snapshots,
+        snapshot_ts_cache=ts_cache,
+    )
+    assert payload["sample_count"] == 1
+    route = payload["routes"]["mean_reversion"]
+    assert route["avg_mae_pct"] == -4.0
+    assert route["avg_mfe_pct"] == 8.0
+    assert route["avg_capture_pct"] == 37.5
+    assert route["fallback_without_snapshot_count"] == 0

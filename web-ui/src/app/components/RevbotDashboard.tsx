@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useCallback, useEffect, useState } from "react";
+import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { buildMutatingAuthHeaders } from "../lib/mutatingAuthClient";
 
@@ -966,6 +966,7 @@ export default function RevbotDashboard() {
   const [advancedTab, setAdvancedTab] = useState<"analytics" | "riskControls">("analytics");
   const [riskDirty, setRiskDirty] = useState(false);
   const [savingRisk, setSavingRisk] = useState(false);
+  const loadSeqRef = useRef(0);
 
   const syncManualStoplossDrafts = useCallback(
     (
@@ -990,6 +991,7 @@ export default function RevbotDashboard() {
   );
 
   const loadDashboard = useCallback(async () => {
+    const loadSeq = ++loadSeqRef.current;
     try {
       const controller = new AbortController();
       const timeoutHandle = window.setTimeout(() => controller.abort(), 12000);
@@ -1028,6 +1030,10 @@ export default function RevbotDashboard() {
         } catch {
           // fallback for stoploss state is optional at render time
         }
+      }
+
+      if (loadSeq !== loadSeqRef.current) {
+        return;
       }
 
       startTransition(() => {
@@ -1069,6 +1075,9 @@ export default function RevbotDashboard() {
         };
       });
     } catch (requestError) {
+      if (loadSeq !== loadSeqRef.current) {
+        return;
+      }
       const message =
         requestError instanceof Error
           ? requestError.message
@@ -1111,6 +1120,9 @@ export default function RevbotDashboard() {
   }
 
   async function runAction(action: "start" | "stop" | "kill" | "refresh") {
+    if (busyAction !== null || busyCloseAll || savingRisk) {
+      return;
+    }
     if (action === "refresh") {
       await loadDashboard();
       return;
@@ -1155,6 +1167,15 @@ export default function RevbotDashboard() {
     side: "buy" | "sell",
     enabled: boolean,
   ) {
+    if (
+      busyAction !== null
+      || busySymbol !== null
+      || busyScalper !== null
+      || busyRegime !== null
+      || savingRisk
+    ) {
+      return;
+    }
     setBusySymbol(`${symbol}:${side}`);
 
     try {
@@ -1181,6 +1202,15 @@ export default function RevbotDashboard() {
   }
 
   async function setScalperMode(symbol: string, enabled: boolean) {
+    if (
+      busyAction !== null
+      || busyScalper !== null
+      || busySymbol !== null
+      || busyRegime !== null
+      || savingRisk
+    ) {
+      return;
+    }
     setBusyScalper(symbol);
 
     try {
@@ -1207,6 +1237,15 @@ export default function RevbotDashboard() {
   }
 
   async function setTokenRegime(symbol: string, regime: string) {
+    if (
+      busyAction !== null
+      || busyRegime !== null
+      || busySymbol !== null
+      || busyScalper !== null
+      || savingRisk
+    ) {
+      return;
+    }
     setBusyRegime(symbol);
 
     try {
@@ -1233,7 +1272,7 @@ export default function RevbotDashboard() {
   }
 
   async function saveRiskSettings() {
-    if (!riskDraft) {
+    if (!riskDraft || savingRisk) {
       return;
     }
 
@@ -1309,7 +1348,7 @@ export default function RevbotDashboard() {
   }
 
   async function saveCooldownOverride(removeOverride = false) {
-    if (!cooldownDraft?.symbol) {
+    if (!cooldownDraft?.symbol || busyCooldown || busyAction !== null || savingRisk) {
       return;
     }
 
@@ -1345,6 +1384,9 @@ export default function RevbotDashboard() {
   }
 
   async function closeAllPositions() {
+    if (busyCloseAll || busyAction !== null || savingRisk) {
+      return;
+    }
     const currentData = data;
     if (!currentData) {
       setError("Dashboard data not loaded.");
@@ -1404,6 +1446,9 @@ export default function RevbotDashboard() {
   }
 
   async function manualSell(position: DashboardPayload["positions"][number]) {
+    if (busyManualSell !== null || busyAction !== null || savingRisk) {
+      return;
+    }
     const directionLabel = position.unrealizedValue >= 0 ? "Estimated profit" : "Estimated loss";
     const currentPriceLabel =
       position.currentPrice === null
@@ -1469,6 +1514,9 @@ export default function RevbotDashboard() {
   }
 
   async function saveManualStoploss(symbol: string) {
+    if (busyManualStoploss !== null || busyAction !== null || savingRisk) {
+      return;
+    }
     const draft = manualStoplossDrafts[symbol] ?? buildManualStoplossDraft(manualStoplossRules[symbol]);
     const numericValue = Number(draft.valueText);
     const value = Number.isFinite(numericValue) && numericValue > 0 ? numericValue : null;
@@ -2115,6 +2163,9 @@ export default function RevbotDashboard() {
     });
   }
 
+  const controlActionLocked =
+    busyAction !== null || busyCloseAll || busyCooldown || savingRisk;
+
   return (
     <main className="rb-page min-h-screen px-3 py-8 sm:px-4 lg:px-6">
       <div className="rb-shell mx-auto flex w-full max-w-[1720px] justify-center">
@@ -2172,36 +2223,41 @@ export default function RevbotDashboard() {
 
             <div className="flex flex-wrap gap-3">
               <button
+                type="button"
                 onClick={() => runAction("start")}
-                disabled={busyAction !== null}
+                disabled={controlActionLocked}
                 className="rb-action-btn rb-action-btn--positive"
               >
                 {busyAction === "start" ? "Starting..." : "Start bot"}
               </button>
               <button
+                type="button"
                 onClick={() => runAction("stop")}
-                disabled={busyAction !== null}
+                disabled={controlActionLocked}
                 className="rb-action-btn rb-action-btn--warning"
               >
                 {busyAction === "stop" ? "Stopping..." : "Stop bot"}
               </button>
               <button
+                type="button"
                 onClick={() => runAction("kill")}
-                disabled={busyAction !== null}
+                disabled={controlActionLocked}
                 className="rb-action-btn rb-action-btn--danger"
               >
                 {busyAction === "kill" ? "Locking..." : "Emergency stop"}
               </button>
               <button
+                type="button"
                 onClick={() => runAction("refresh")}
-                disabled={busyAction !== null}
+                disabled={controlActionLocked}
                 className="rb-action-btn rb-action-btn--neutral"
               >
                 Refresh
               </button>
               <button
+                type="button"
                 onClick={closeAllPositions}
-                disabled={busyAction !== null || busyCloseAll || data.positions.length === 0}
+                disabled={controlActionLocked || data.positions.length === 0}
                 className="rb-action-btn rb-action-btn--accent"
               >
                 {busyCloseAll ? "Closing..." : "Close all"}
@@ -2557,6 +2613,7 @@ export default function RevbotDashboard() {
                         </td>
                         <td className="px-2 py-2.5 text-center">
                           <button
+                            type="button"
                             onClick={() => setScalperMode(control.symbol, !scalperOn)}
                             disabled={
                               busyAction !== null
@@ -2576,6 +2633,7 @@ export default function RevbotDashboard() {
                         </td>
                         <td className="px-2 py-2.5 text-center">
                           <button
+                            type="button"
                             onClick={() =>
                               setSymbolAutoTrade(
                                 control.symbol,
@@ -2585,6 +2643,7 @@ export default function RevbotDashboard() {
                             }
                             disabled={
                               busyAction !== null
+                              || busySymbol !== null
                               || busyBuy
                               || savingRisk
                               || busyScalper !== null
@@ -2601,6 +2660,7 @@ export default function RevbotDashboard() {
                         </td>
                         <td className="px-2 py-2.5 text-center">
                           <button
+                            type="button"
                             onClick={() =>
                               setSymbolAutoTrade(
                                 control.symbol,
@@ -2610,6 +2670,7 @@ export default function RevbotDashboard() {
                             }
                             disabled={
                               busyAction !== null
+                              || busySymbol !== null
                               || busySell
                               || savingRisk
                               || busyScalper !== null
@@ -2632,25 +2693,29 @@ export default function RevbotDashboard() {
             </div>
           </section>
 
-          <section className="rb-section p-5 sm:p-6">
+          <section className="rb-section p-4 sm:p-5">
             <p className="rb-kicker">
               Top Status
             </p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
-              {topStatusCards.map((card) => (
-                <article
-                  key={card.label}
-                  className="rb-summary-card px-4 py-3"
-                >
-                  <p className="rb-label">
-                    {card.label}
-                  </p>
-                  <p className={`mt-1.5 text-base font-semibold ${card.tone}`}>
-                    {card.value}
-                  </p>
-                  <p className="rb-helper mt-0.5">{card.helper}</p>
-                </article>
-              ))}
+            <div className="rb-table-wrap mt-3 overflow-x-auto">
+              <table className="rb-table min-w-[860px] text-xs">
+                <thead>
+                  <tr className="border-b border-white/10 text-left uppercase tracking-[0.12em] text-slate-400">
+                    <th className="px-3 py-2">Metric</th>
+                    <th className="px-3 py-2">Value</th>
+                    <th className="px-3 py-2">Context</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/8">
+                  {topStatusCards.map((card) => (
+                    <tr key={card.label}>
+                      <td className="px-3 py-2 text-slate-300">{card.label}</td>
+                      <td className={`px-3 py-2 font-semibold ${card.tone}`}>{card.value}</td>
+                      <td className="px-3 py-2 text-slate-400">{card.helper}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </section>
 
@@ -2661,28 +2726,31 @@ export default function RevbotDashboard() {
                   <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
                     Performance
                   </p>
-                  <h2 className="mt-1 text-xl font-semibold text-white">
-                    Performance Overview
+                  <h2 className="mt-1 text-base font-semibold text-white">
+                    Performance Summary
                   </h2>
                 </div>
                 <span className="rounded-md border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-slate-400">
                   Realized + Open split
                 </span>
               </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                {performanceMetrics.map((metric) => (
-                  <div
-                    key={metric.label}
-                    className="rb-content-card px-3 py-2.5"
-                  >
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">
-                      {metric.label}
-                    </p>
-                    <p className={`mt-1 text-sm font-semibold ${metric.tone}`}>
-                      {metric.value}
-                    </p>
-                  </div>
-                ))}
+              <div className="rb-table-wrap mt-3 overflow-x-auto">
+                <table className="rb-table min-w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 text-left uppercase tracking-[0.12em] text-slate-400">
+                      <th className="px-3 py-2">Metric</th>
+                      <th className="px-3 py-2 text-right">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/8">
+                    {performanceMetrics.map((metric) => (
+                      <tr key={metric.label}>
+                        <td className="px-3 py-2 text-slate-300">{metric.label}</td>
+                        <td className={`px-3 py-2 text-right font-semibold ${metric.tone}`}>{metric.value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </article>
 
@@ -2692,7 +2760,7 @@ export default function RevbotDashboard() {
                   <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">
                     Risk
                   </p>
-                  <h2 className="mt-1 text-xl font-semibold text-white">
+                  <h2 className="mt-1 text-base font-semibold text-white">
                     Risk & Exposure
                   </h2>
                 </div>
@@ -2706,20 +2774,23 @@ export default function RevbotDashboard() {
                   Daily Guard {data.summary.dailyBuyPaused ? "Paused" : "Active"}
                 </span>
               </div>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                {riskMetrics.map((metric) => (
-                  <div
-                    key={metric.label}
-                    className="rb-content-card px-3 py-2.5"
-                  >
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">
-                      {metric.label}
-                    </p>
-                    <p className={`mt-1 text-sm font-semibold ${metric.tone}`}>
-                      {metric.value}
-                    </p>
-                  </div>
-                ))}
+              <div className="rb-table-wrap mt-3 overflow-x-auto">
+                <table className="rb-table min-w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 text-left uppercase tracking-[0.12em] text-slate-400">
+                      <th className="px-3 py-2">Metric</th>
+                      <th className="px-3 py-2 text-right">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/8">
+                    {riskMetrics.map((metric) => (
+                      <tr key={metric.label}>
+                        <td className="px-3 py-2 text-slate-300">{metric.label}</td>
+                        <td className={`px-3 py-2 text-right font-semibold ${metric.tone}`}>{metric.value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </article>
           </section>

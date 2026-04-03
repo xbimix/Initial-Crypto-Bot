@@ -128,3 +128,63 @@ def test_route_quality_includes_buy_block_gate_summaries(tmp_path: Path):
     assert report["buy_block_gate_by_route_summary"]["mean_reversion"]["insufficient_data"] == 4
     assert report["buy_block_gate_by_route_summary"]["trend_pullback"]["score_below_threshold"] == 1
     assert report["buy_block_gate_by_symbol_route_summary"]["AAA-USD|mean_reversion"]["insufficient_data"] == 2
+    gate_health = report["gate_health_summary"]
+    assert gate_health["buy_block_total"] == 6
+    assert gate_health["top_buy_block_reasons"][0]["name"] == "insufficient_data"
+    assert gate_health["top_buy_block_reasons"][0]["count"] == 5
+
+
+def test_route_quality_gate_health_summary_tracks_readiness_and_promotion(tmp_path: Path):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    now = 1_000_000.0
+    write_json_file(state_dir / "trades.json", [])
+    write_json_file(
+        state_dir / "strategy_state.json",
+        {
+            "last_route_readiness_state": {
+                "AAA-USD": "ready",
+                "BBB-USD": "blocked",
+                "CCC-USD": "ready",
+            },
+            "last_route_timestamp_fresh": {
+                "AAA-USD": True,
+                "BBB-USD": False,
+                "CCC-USD": True,
+            },
+            "last_failed_gates": {
+                "BBB-USD": ["min_confidence", "data_quality"],
+                "DDD-USD": ["min_confidence"],
+            },
+        },
+    )
+    write_json_file(state_dir / "config.json", {})
+
+    cfg = {
+        "token_regimes": {},
+        "strategy_defaults": {
+            "router": {
+                "trend_min_closed_trades": 1,
+                "trend_min_win_rate_pct": 50,
+                "trend_min_expectancy_usd": 0.1,
+                "breakout_min_closed_trades": 1,
+                "breakout_min_win_rate_pct": 50,
+                "breakout_min_expectancy_usd": 0.1,
+            }
+        },
+    }
+    report = build_route_quality_report(state_dir=state_dir, cfg=cfg, now_epoch=now)
+
+    gate_health = report["gate_health_summary"]
+    assert gate_health["readiness_total"] == 3
+    assert gate_health["readiness_ready"] == 2
+    assert gate_health["readiness_not_ready"] == 1
+    assert gate_health["readiness_ready_rate_pct"] == 66.67
+    assert gate_health["timestamp_fresh_total"] == 3
+    assert gate_health["timestamp_fresh"] == 2
+    assert gate_health["timestamp_stale_or_missing"] == 1
+    assert gate_health["timestamp_fresh_rate_pct"] == 66.67
+    assert gate_health["failed_gate_total"] == 3
+    assert gate_health["top_failed_gates"][0]["name"] == "min_confidence"
+    assert gate_health["top_failed_gates"][0]["count"] == 2
+    assert "trend_pullback" in gate_health["blocked_routes"]

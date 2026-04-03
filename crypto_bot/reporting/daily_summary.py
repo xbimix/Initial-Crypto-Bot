@@ -67,6 +67,12 @@ def _to_float(value: Any, fallback: float = 0.0) -> float:
         return fallback
 
 
+def _pct(numerator: float, denominator: float) -> float:
+    if denominator <= 0:
+        return 0.0
+    return (numerator / denominator) * 100.0
+
+
 def _to_epoch_from_log_ts(raw: str) -> float:
     dt = datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
     return dt.replace(tzinfo=timezone.utc).timestamp()
@@ -120,6 +126,30 @@ def _find_min_price_since(
     return (min_row.price, min_row.ts_epoch)
 
 
+def _find_price_extremes_between(
+    symbol: str,
+    start_ts: float,
+    end_ts: float,
+    snapshots: dict[str, list[SnapshotPoint]],
+    ts_cache: dict[str, list[float]],
+) -> tuple[tuple[float, float | None] | None, tuple[float, float | None] | None]:
+    rows = snapshots.get(symbol, [])
+    if not rows:
+        return None, None
+
+    lower = min(start_ts, end_ts)
+    upper = max(start_ts, end_ts)
+    ts_values = ts_cache.setdefault(symbol, [row.ts_epoch for row in rows])
+    start_idx = bisect.bisect_left(ts_values, lower)
+    end_idx = bisect.bisect_right(ts_values, upper)
+    window_rows = rows[start_idx:end_idx]
+    if not window_rows:
+        return None, None
+    min_row = min(window_rows, key=lambda row: row.price)
+    max_row = max(window_rows, key=lambda row: row.price)
+    return (min_row.price, min_row.ts_epoch), (max_row.price, max_row.ts_epoch)
+
+
 def _to_iso_utc(ts: float | None) -> str | None:
     if ts is None or ts <= 0:
         return None
@@ -158,6 +188,25 @@ def _avg(values: list[float]) -> float | None:
     return sum(values) / len(values)
 
 
+def _median(values: list[float]) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2 == 1:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2.0
+
+
+def _normalize_route_name(value: Any) -> str:
+    token = str(value or "").strip().lower()
+    if token in {"mean_reversion", "mean_reversion_friendly", "mr"}:
+        return "mean_reversion"
+    if token in {"trend_pullback", "breakout_momentum", "volatility_scalper", "observe_only"}:
+        return token
+    return "unknown"
+
+
 def _entry_route_from_reason(reason: Any) -> str:
     raw = str(reason or "").strip().lower()
     if "trend_pullback" in raw:
@@ -171,6 +220,14 @@ def _entry_route_from_reason(reason: Any) -> str:
     if not raw:
         return "unknown"
     return "mean_reversion"
+
+
+def _entry_route_from_position(position: dict[str, Any]) -> str:
+    for key in ("entry_route", "effective_route", "entry_strategy", "effective_strategy", "strategy"):
+        route = _normalize_route_name(position.get(key))
+        if route != "unknown":
+            return route
+    return _entry_route_from_reason(position.get("reason"))
 
 
 def _build_regime_route_effectiveness(
@@ -275,6 +332,127 @@ def _build_regime_route_effectiveness(
     }
 
 
+def _build_capital_lockup_by_route(
+    *,
+    positions: dict[str, Any],
+    snapshots_by_symbol: dict[str, list[SnapshotPoint]],
+    generated_at_epoch: float,
+    stale_age_hours_threshold: float,
+) -> dict[str, Any]:
+    buckets: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {
+            "open_positions": 0,
+            "total_notional_usd": 0.0,
+            "age_hours_values": [],
+            "age_weighted_sum": 0.0,
+            "age_weighted_notional": 0.0,
+            "stale_age_count": 0,
+            "symbols": [],
+        }
+    )
+
+    for raw_symbol, raw_position in positions.items():
+        symbol = _normalize_symbol(raw_symbol)
+        position = raw_position if isinstance(raw_position, dict) else {}
+        entry_price = _to_float(position.get("price"), fallback=0.0)
+        size = _to_float(position.get("size"), fallback=0.0)
+        if not symbol or entry_price <= 0 or size <= 0:
+            continue
+
+        latest_price = _find_latest_price(symbol, snapshots_by_symbol) or entry_price
+        notional_usd = max(latest_price * size, 0.0)
+        route = _entry_route_from_position(position)
+        bucket = buckets[route]
+        bucket["open_positions"] += 1
+        bucket["total_notional_usd"] += notional_usd
+        bucket["symbols"].append(symbol)
+
+        entry_ts = _to_float(position.get("entry_time"), fallback=0.0)
+        if entry_ts <= 0:
+            continue
+        age_hours = max((generated_at_epoch - entry_ts) / 3600.0, 0.0)
+        bucket["age_hours_values"].append(age_hours)
+        bucket["age_weighted_sum"] += age_hours * notional_usd
+        bucket["age_weighted_notional"] += notional_usd
+        if age_hours >= stale_age_hours_threshold:
+            bucket["stale_age_count"] += 1
+
+    rows: list[dict[str, Any]] = []
+    total_notional_usd = 0.0
+    overall_weighted_sum = 0.0
+    overall_weighted_notional = 0.0
+    total_open_positions = 0
+    total_stale_age_positions = 0
+    for route, bucket in sorted(buckets.items(), key=lambda item: item[0]):
+        ages = [float(value) for value in bucket["age_hours_values"]]
+        total_notional = float(bucket["total_notional_usd"])
+        weighted_notional = float(bucket["age_weighted_notional"])
+        weighted_age = (
+            float(bucket["age_weighted_sum"]) / weighted_notional
+            if weighted_notional > 0
+            else None
+        )
+        total_notional_usd += total_notional
+        total_open_positions += int(bucket["open_positions"])
+        total_stale_age_positions += int(bucket["stale_age_count"])
+        overall_weighted_sum += float(bucket["age_weighted_sum"])
+        overall_weighted_notional += weighted_notional
+        rows.append(
+            {
+                "route": route,
+                "open_positions": int(bucket["open_positions"]),
+                "total_notional_usd": round(total_notional, 3),
+                "avg_age_hours": (
+                    round(_to_float(_avg(ages), 0.0), 3)
+                    if ages
+                    else None
+                ),
+                "median_age_hours": (
+                    round(_to_float(_median(ages), 0.0), 3)
+                    if ages
+                    else None
+                ),
+                "weighted_age_hours": (
+                    round(_to_float(weighted_age, 0.0), 3)
+                    if weighted_age is not None
+                    else None
+                ),
+                "oldest_age_hours": (
+                    round(max(ages), 3)
+                    if ages
+                    else None
+                ),
+                "stale_age_count": int(bucket["stale_age_count"]),
+                "symbols": sorted(set(str(symbol) for symbol in bucket["symbols"])),
+            }
+        )
+
+    rows.sort(
+        key=lambda row: (
+            -_to_float(row.get("weighted_age_hours"), fallback=-1.0),
+            -_to_float(row.get("total_notional_usd"), fallback=0.0),
+            str(row.get("route") or ""),
+        )
+    )
+    overall_weighted_age_hours = (
+        overall_weighted_sum / overall_weighted_notional
+        if overall_weighted_notional > 0
+        else None
+    )
+    return {
+        "stale_age_hours_threshold": round(stale_age_hours_threshold, 3),
+        "total_open_positions": total_open_positions,
+        "total_notional_usd": round(total_notional_usd, 3),
+        "total_stale_age_positions": total_stale_age_positions,
+        "overall_weighted_age_hours": (
+            round(overall_weighted_age_hours, 3)
+            if overall_weighted_age_hours is not None
+            else None
+        ),
+        "routes": rows,
+    }
+
+
 def _build_closed_trades_by_symbol(
     trades: list[dict[str, Any]],
     stale_review_age_hours_threshold: float,
@@ -336,6 +514,351 @@ def _build_closed_trades_by_symbol(
     for rows in closed_by_symbol.values():
         rows.sort(key=lambda row: float(row.get("exit_time") or 0.0), reverse=True)
     return closed_by_symbol
+
+
+def _route_from_trade_row(trade: dict[str, Any]) -> str:
+    for key in ("effective_route", "entry_route", "route", "effective_strategy", "strategy"):
+        route = _normalize_route_name(trade.get(key))
+        if route != "unknown":
+            return route
+    return _entry_route_from_reason(trade.get("reason"))
+
+
+def _build_closed_trade_mae_mfe_by_route(
+    *,
+    trades: list[dict[str, Any]],
+    day_start_ts: float,
+    day_end_ts: float,
+    snapshots_by_symbol: dict[str, list[SnapshotPoint]],
+    snapshot_ts_cache: dict[str, list[float]],
+) -> dict[str, Any]:
+    buy_queue_by_symbol: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    route_rows: dict[str, dict[str, Any]] = defaultdict(
+        lambda: {
+            "sample_count": 0,
+            "mae_pct_values": [],
+            "mfe_pct_values": [],
+            "capture_pct_values": [],
+            "hold_hours_values": [],
+            "fallback_without_snapshot_count": 0,
+        }
+    )
+    sample_events: list[dict[str, Any]] = []
+
+    for trade in sorted(trades, key=lambda row: _to_float(row.get("time"), 0.0)):
+        symbol = _normalize_symbol(trade.get("symbol"))
+        side = str(trade.get("side") or "").strip().upper()
+        ts = _to_float(trade.get("time"), fallback=0.0)
+        if not symbol or ts <= 0:
+            continue
+
+        if side == "BUY":
+            buy_queue_by_symbol[symbol].append(trade)
+            continue
+        if side != "SELL":
+            continue
+
+        matched_buy = None
+        if buy_queue_by_symbol[symbol]:
+            matched_buy = buy_queue_by_symbol[symbol].pop(0)
+        if not (day_start_ts <= ts < day_end_ts):
+            continue
+
+        entry_price = _to_float((matched_buy or {}).get("price"), fallback=0.0)
+        entry_ts = _to_float((matched_buy or {}).get("time"), fallback=0.0)
+        exit_price = _to_float(trade.get("price"), fallback=0.0)
+        if entry_price <= 0 or exit_price <= 0:
+            continue
+
+        route = _route_from_trade_row(matched_buy or trade)
+        pnl_pct = ((exit_price - entry_price) / entry_price) * 100.0
+        min_row, max_row = _find_price_extremes_between(
+            symbol,
+            entry_ts if entry_ts > 0 else ts,
+            ts,
+            snapshots_by_symbol,
+            snapshot_ts_cache,
+        )
+        used_fallback = False
+        if min_row is None or max_row is None:
+            used_fallback = True
+            min_price = min(entry_price, exit_price)
+            max_price = max(entry_price, exit_price)
+            min_ts = entry_ts if entry_price <= exit_price else ts
+            max_ts = ts if exit_price >= entry_price else entry_ts
+        else:
+            min_price, min_ts = min_row
+            max_price, max_ts = max_row
+
+        mae_pct = min(((min_price - entry_price) / entry_price) * 100.0, 0.0)
+        mfe_pct = max(((max_price - entry_price) / entry_price) * 100.0, 0.0)
+        capture_pct = None
+        if mfe_pct > 0:
+            capture_pct = max(min((pnl_pct / mfe_pct) * 100.0, 150.0), -150.0)
+
+        route_bucket = route_rows[route]
+        route_bucket["sample_count"] += 1
+        route_bucket["mae_pct_values"].append(mae_pct)
+        route_bucket["mfe_pct_values"].append(mfe_pct)
+        if capture_pct is not None:
+            route_bucket["capture_pct_values"].append(capture_pct)
+        if entry_ts > 0:
+            route_bucket["hold_hours_values"].append(max((ts - entry_ts) / 3600.0, 0.0))
+        if used_fallback:
+            route_bucket["fallback_without_snapshot_count"] += 1
+
+        sample_events.append(
+            {
+                "symbol": symbol,
+                "route": route,
+                "entry_ts": entry_ts if entry_ts > 0 else None,
+                "exit_ts": ts,
+                "entry_price": round(entry_price, 8),
+                "exit_price": round(exit_price, 8),
+                "mae_pct": round(mae_pct, 4),
+                "mfe_pct": round(mfe_pct, 4),
+                "capture_pct": round(capture_pct, 4) if capture_pct is not None else None,
+                "min_price_observed": round(min_price, 8),
+                "max_price_observed": round(max_price, 8),
+                "min_price_time_utc": _to_iso_utc(min_ts),
+                "max_price_time_utc": _to_iso_utc(max_ts),
+                "fallback_without_snapshot": bool(used_fallback),
+            }
+        )
+
+    routes: dict[str, Any] = {}
+    for route, bucket in sorted(route_rows.items(), key=lambda item: item[0]):
+        sample_count = int(bucket.get("sample_count", 0) or 0)
+        if sample_count <= 0:
+            continue
+        mae_values = [float(v) for v in bucket.get("mae_pct_values", [])]
+        mfe_values = [float(v) for v in bucket.get("mfe_pct_values", [])]
+        capture_values = [float(v) for v in bucket.get("capture_pct_values", [])]
+        hold_values = [float(v) for v in bucket.get("hold_hours_values", [])]
+        routes[route] = {
+            "sample_count": sample_count,
+            "avg_mae_pct": round(_to_float(_avg(mae_values), 0.0), 4) if mae_values else None,
+            "median_mae_pct": round(_to_float(_median(mae_values), 0.0), 4) if mae_values else None,
+            "avg_mfe_pct": round(_to_float(_avg(mfe_values), 0.0), 4) if mfe_values else None,
+            "median_mfe_pct": round(_to_float(_median(mfe_values), 0.0), 4) if mfe_values else None,
+            "avg_capture_pct": (
+                round(_to_float(_avg(capture_values), 0.0), 4)
+                if capture_values
+                else None
+            ),
+            "median_capture_pct": (
+                round(_to_float(_median(capture_values), 0.0), 4)
+                if capture_values
+                else None
+            ),
+            "avg_hold_hours": (
+                round(_to_float(_avg(hold_values), 0.0), 3)
+                if hold_values
+                else None
+            ),
+            "fallback_without_snapshot_count": int(bucket.get("fallback_without_snapshot_count", 0) or 0),
+        }
+
+    sample_events.sort(key=lambda row: _to_float(row.get("exit_ts"), 0.0), reverse=True)
+    return {
+        "sample_count": sum(int(row.get("sample_count", 0) or 0) for row in routes.values()),
+        "routes": routes,
+        "events": sample_events[:25],
+        "note": (
+            "Advisory-only MAE/MFE approximation from available snapshot history between entry and exit; "
+            "falls back to entry/exit bounds when intra-trade snapshots are unavailable."
+        ),
+    }
+
+
+def _stale_release_redeploy_attribution(
+    trades: list[dict[str, Any]],
+    *,
+    stale_exit_start_ts: float | None = None,
+    stale_exit_end_ts: float | None = None,
+) -> dict[str, Any]:
+    ordered = sorted(trades, key=lambda item: _to_float(item.get("time"), 0.0))
+    stale_indices: list[int] = []
+    for idx, row in enumerate(ordered):
+        if str(row.get("side") or "").strip().upper() != "SELL":
+            continue
+        if str(row.get("reason") or "").strip() != "stale_position_risk_release":
+            continue
+        ts = _to_float(row.get("time"), 0.0)
+        if ts <= 0:
+            continue
+        if stale_exit_start_ts is not None and ts < stale_exit_start_ts:
+            continue
+        if stale_exit_end_ts is not None and ts >= stale_exit_end_ts:
+            continue
+        stale_indices.append(idx)
+
+    if not stale_indices:
+        return {
+            "stale_release_exits": 0,
+            "redeployed": 0,
+            "redeploy_rate_pct": 0.0,
+            "closed_after_redeploy": 0,
+            "close_rate_after_redeploy_pct": 0.0,
+            "win_rate_after_redeploy_pct": 0.0,
+            "median_redeploy_delay_minutes": None,
+            "median_close_delay_hours": None,
+            "median_redeploy_pnl_pct": None,
+            "route_stats": {},
+            "latest_events": [],
+        }
+
+    route_stats: dict[str, dict[str, Any]] = {}
+    redeployed = 0
+    closed_after_redeploy = 0
+    wins = 0
+    redeploy_delays: list[float] = []
+    close_delays: list[float] = []
+    redeploy_pnl_pcts: list[float] = []
+    events: list[dict[str, Any]] = []
+
+    for idx in stale_indices:
+        stale_row = ordered[idx]
+        symbol = _normalize_symbol(stale_row.get("symbol"))
+        stale_ts = _to_float(stale_row.get("time"), 0.0)
+        stale_price = _to_float(stale_row.get("price"), 0.0)
+        stale_size = _to_float(stale_row.get("size"), 0.0)
+        if not symbol:
+            continue
+
+        event: dict[str, Any] = {
+            "symbol": symbol,
+            "stale_exit_ts": stale_ts,
+            "stale_exit_price": stale_price,
+            "stale_exit_size": stale_size,
+            "redeployed": False,
+            "closed_after_redeploy": False,
+        }
+
+        next_buy_idx: int | None = None
+        next_buy: dict[str, Any] | None = None
+        for j in range(idx + 1, len(ordered)):
+            row = ordered[j]
+            if _normalize_symbol(row.get("symbol")) != symbol:
+                continue
+            if str(row.get("side") or "").strip().upper() == "BUY":
+                next_buy = row
+                next_buy_idx = j
+                break
+
+        if next_buy is None or next_buy_idx is None:
+            events.append(event)
+            continue
+
+        buy_ts = _to_float(next_buy.get("time"), 0.0)
+        buy_price = _to_float(next_buy.get("price"), 0.0)
+        buy_size = _to_float(next_buy.get("size"), 0.0)
+        route = _route_from_trade_row(next_buy)
+        event["redeployed"] = True
+        event["redeploy_ts"] = buy_ts
+        event["redeploy_price"] = buy_price
+        event["redeploy_size"] = buy_size
+        event["redeploy_route"] = route
+        redeployed += 1
+        if stale_ts > 0 and buy_ts > stale_ts:
+            delay_minutes = (buy_ts - stale_ts) / 60.0
+            event["redeploy_delay_minutes"] = round(delay_minutes, 3)
+            redeploy_delays.append(delay_minutes)
+
+        route_bucket = route_stats.setdefault(
+            route,
+            {
+                "stale_release_exits": 0,
+                "redeployed": 0,
+                "closed_after_redeploy": 0,
+                "wins": 0,
+                "redeploy_delay_minutes_values": [],
+                "close_delay_hours_values": [],
+                "redeploy_pnl_pct_values": [],
+            },
+        )
+        route_bucket["stale_release_exits"] += 1
+        route_bucket["redeployed"] += 1
+        if event.get("redeploy_delay_minutes") is not None:
+            route_bucket["redeploy_delay_minutes_values"].append(
+                _to_float(event.get("redeploy_delay_minutes"), 0.0)
+            )
+
+        close_row: dict[str, Any] | None = None
+        for k in range(next_buy_idx + 1, len(ordered)):
+            row = ordered[k]
+            if _normalize_symbol(row.get("symbol")) != symbol:
+                continue
+            if str(row.get("side") or "").strip().upper() == "SELL":
+                close_row = row
+                break
+        if close_row is None:
+            events.append(event)
+            continue
+
+        close_ts = _to_float(close_row.get("time"), 0.0)
+        close_price = _to_float(close_row.get("price"), 0.0)
+        close_reason = str(close_row.get("reason") or "")
+        close_delay_hours = ((close_ts - buy_ts) / 3600.0) if close_ts > buy_ts > 0 else 0.0
+        pnl_pct = ((close_price - buy_price) / buy_price) * 100.0 if buy_price > 0 else 0.0
+
+        event["closed_after_redeploy"] = True
+        event["close_ts"] = close_ts
+        event["close_price"] = close_price
+        event["close_reason"] = close_reason
+        event["close_delay_hours"] = round(close_delay_hours, 3)
+        event["redeploy_pnl_pct"] = round(pnl_pct, 4)
+        event["redeploy_outcome"] = "win" if pnl_pct > 0 else ("loss" if pnl_pct < 0 else "flat")
+        closed_after_redeploy += 1
+        close_delays.append(close_delay_hours)
+        redeploy_pnl_pcts.append(pnl_pct)
+        route_bucket["closed_after_redeploy"] += 1
+        route_bucket["close_delay_hours_values"].append(close_delay_hours)
+        route_bucket["redeploy_pnl_pct_values"].append(pnl_pct)
+        if pnl_pct > 0:
+            wins += 1
+            route_bucket["wins"] += 1
+        events.append(event)
+
+    route_summary: dict[str, Any] = {}
+    for route, row in route_stats.items():
+        stale_release_exits = int(row.get("stale_release_exits", 0) or 0)
+        redeploy_count = int(row.get("redeployed", 0) or 0)
+        closed_count = int(row.get("closed_after_redeploy", 0) or 0)
+        route_wins = int(row.get("wins", 0) or 0)
+        route_summary[route] = {
+            "stale_release_exits": stale_release_exits,
+            "redeployed": redeploy_count,
+            "closed_after_redeploy": closed_count,
+            "redeploy_rate_pct": round(_pct(redeploy_count, max(stale_release_exits, 1)), 2),
+            "close_rate_after_redeploy_pct": round(_pct(closed_count, max(redeploy_count, 1)), 2),
+            "win_rate_after_redeploy_pct": round(_pct(route_wins, max(closed_count, 1)), 2),
+            "median_redeploy_delay_minutes": _median(
+                [float(v) for v in row.get("redeploy_delay_minutes_values", [])]
+            ),
+            "median_close_delay_hours": _median(
+                [float(v) for v in row.get("close_delay_hours_values", [])]
+            ),
+            "median_redeploy_pnl_pct": _median(
+                [float(v) for v in row.get("redeploy_pnl_pct_values", [])]
+            ),
+        }
+
+    events.sort(key=lambda item: _to_float(item.get("stale_exit_ts"), 0.0), reverse=True)
+    stale_release_exits_total = len(stale_indices)
+    return {
+        "stale_release_exits": stale_release_exits_total,
+        "redeployed": redeployed,
+        "redeploy_rate_pct": round(_pct(redeployed, max(stale_release_exits_total, 1)), 2),
+        "closed_after_redeploy": closed_after_redeploy,
+        "close_rate_after_redeploy_pct": round(_pct(closed_after_redeploy, max(redeployed, 1)), 2),
+        "win_rate_after_redeploy_pct": round(_pct(wins, max(closed_after_redeploy, 1)), 2),
+        "median_redeploy_delay_minutes": _median(redeploy_delays),
+        "median_close_delay_hours": _median(close_delays),
+        "median_redeploy_pnl_pct": _median(redeploy_pnl_pcts),
+        "route_stats": dict(sorted(route_summary.items(), key=lambda item: item[0])),
+        "latest_events": events[:25],
+    }
 
 
 def _select_rotation_window_rows(
@@ -1124,6 +1647,19 @@ def build_daily_summary(day_iso: str) -> dict[str, Any]:
         day_buys=day_buys,
         day_sells=day_sells,
     )
+    stale_redeploy_window = _stale_release_redeploy_attribution(
+        trades,
+        stale_exit_start_ts=day_start,
+        stale_exit_end_ts=next_day_start,
+    )
+    stale_redeploy_total = _stale_release_redeploy_attribution(trades)
+    closed_trade_mae_mfe_by_route = _build_closed_trade_mae_mfe_by_route(
+        trades=trades,
+        day_start_ts=day_start,
+        day_end_ts=next_day_start,
+        snapshots_by_symbol=snapshots_by_symbol,
+        snapshot_ts_cache=snapshot_ts_cache,
+    )
 
     entry_reason_counts: dict[str, int] = defaultdict(int)
     for trade in day_buys:
@@ -1275,6 +1811,17 @@ def build_daily_summary(day_iso: str) -> dict[str, Any]:
         for row in valid_volatility_rows
         if str(row.get("label") or "") == "HIGH"
     )
+    capital_lockup_by_route = _build_capital_lockup_by_route(
+        positions=positions,
+        snapshots_by_symbol=snapshots_by_symbol,
+        generated_at_epoch=generated_at_epoch,
+        stale_age_hours_threshold=stale_review_age_hours_threshold,
+    )
+    top_lockup_route = (
+        capital_lockup_by_route["routes"][0]
+        if capital_lockup_by_route.get("routes")
+        else None
+    )
     coverage_end_age_hours = max((generated_at_epoch - next_day_start) / 3600.0, 0.0)
     is_fresh = coverage_end_age_hours <= 30.0
     report = {
@@ -1329,6 +1876,30 @@ def build_daily_summary(day_iso: str) -> dict[str, Any]:
                 else None
             ),
             "symbols_flagged_high_opportunity_count": symbols_flagged_high_opportunity_count,
+            "capital_lockup_overall_weighted_age_hours": capital_lockup_by_route.get(
+                "overall_weighted_age_hours"
+            ),
+            "capital_lockup_top_route": (
+                str((top_lockup_route or {}).get("route"))
+                if top_lockup_route
+                else None
+            ),
+            "capital_lockup_top_route_weighted_age_hours": (
+                (top_lockup_route or {}).get("weighted_age_hours")
+                if top_lockup_route
+                else None
+            ),
+            "capital_lockup_top_route_notional_usd": (
+                (top_lockup_route or {}).get("total_notional_usd")
+                if top_lockup_route
+                else None
+            ),
+            "stale_release_exits_day": int(stale_redeploy_window.get("stale_release_exits") or 0),
+            "stale_redeploy_rate_day_pct": stale_redeploy_window.get("redeploy_rate_pct"),
+            "stale_redeploy_close_rate_day_pct": stale_redeploy_window.get("close_rate_after_redeploy_pct"),
+            "closed_trade_mae_mfe_samples_day": int(
+                closed_trade_mae_mfe_by_route.get("sample_count") or 0
+            ),
             "regime_route_closed_trades": int(
                 regime_route_effectiveness.get("total_closed_trades") or 0
             ),
@@ -1392,6 +1963,26 @@ def build_daily_summary(day_iso: str) -> dict[str, Any]:
                 ),
             },
             "regime_route_effectiveness": regime_route_effectiveness,
+            "stale_release_redeploy_window": {
+                **stale_redeploy_window,
+                "note": (
+                    "Advisory-only stale-release redeploy attribution for this day window."
+                ),
+            },
+            "stale_release_redeploy_total": {
+                **stale_redeploy_total,
+                "note": (
+                    "Advisory-only stale-release redeploy attribution across full available trade history."
+                ),
+            },
+            "closed_trade_mae_mfe_by_route": closed_trade_mae_mfe_by_route,
+            "capital_lockup_by_route": {
+                **capital_lockup_by_route,
+                "note": (
+                    "Advisory-only open-capital lock-up profile by route; "
+                    "used for diagnostics and tuning, not direct execution changes."
+                ),
+            },
         },
         "trade_reasons": {
             "entry_reasons": _counter_to_sorted_dict(entry_reason_counts),

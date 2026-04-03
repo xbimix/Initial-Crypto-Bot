@@ -295,10 +295,11 @@ function sleep(ms: number) {
 async function readJson<T>(filePath: string, fallback: T): Promise<T> {
   try {
     const raw = await fs.readFile(resolveReadPath(filePath), "utf8");
-    if (!raw.trim()) {
+    const normalized = raw.replace(/^\uFEFF/, "");
+    if (!normalized.trim()) {
       return fallback;
     }
-    return JSON.parse(raw) as T;
+    return JSON.parse(normalized) as T;
   } catch {
     return fallback;
   }

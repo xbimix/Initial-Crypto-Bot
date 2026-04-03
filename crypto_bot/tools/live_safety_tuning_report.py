@@ -76,6 +76,12 @@ def _route_from_buy_reason(reason: str) -> str:
 
 def _compute_route_realized(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Build realized route expectancy using FIFO lot matching."""
+    closed_parts = _build_closed_parts(rows)
+    return _compute_route_realized_from_closed_parts(closed_parts)
+
+
+def _build_closed_parts(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build realized close parts using FIFO lot matching."""
     open_lots: dict[str, list[dict[str, Any]]] = defaultdict(list)
     closed_parts: list[dict[str, Any]] = []
 
@@ -142,7 +148,10 @@ def _compute_route_realized(rows: list[dict[str, Any]]) -> dict[str, Any]:
             remaining -= take
             if _f(lot.get("size"), 0.0) <= 1e-12:
                 lots.pop(0)
+    return closed_parts
 
+
+def _compute_route_realized_from_closed_parts(closed_parts: list[dict[str, Any]]) -> dict[str, Any]:
     by_route: dict[str, dict[str, Any]] = {}
     for part in closed_parts:
         route = str(part["route"])
@@ -198,6 +207,151 @@ def _compute_route_realized(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return overall
 
 
+def _max_drawdown_from_trades(trades_rows: list[dict[str, Any]], *, starting_balance: float) -> dict[str, float | None]:
+    balances: list[tuple[float, float]] = []
+    for row in sorted(trades_rows, key=lambda item: _f(item.get("time"), 0.0)):
+        ts = _f(row.get("time"), 0.0)
+        bal = _f(row.get("balance"), 0.0)
+        if ts <= 0 or bal <= 0:
+            continue
+        balances.append((ts, bal))
+
+    if not balances:
+        equity = max(starting_balance, 0.0)
+        for row in sorted(trades_rows, key=lambda item: _f(item.get("time"), 0.0)):
+            side = str(row.get("side") or "").strip().upper()
+            if side != "SELL":
+                continue
+            equity += _f(row.get("pnl"), 0.0)
+            ts = _f(row.get("time"), 0.0)
+            if ts > 0:
+                balances.append((ts, equity))
+
+    if not balances:
+        return {
+            "max_drawdown_usd": None,
+            "max_drawdown_pct": None,
+        }
+
+    peak = balances[0][1]
+    max_dd_usd = 0.0
+    max_dd_pct = 0.0
+    for _ts, equity in balances:
+        if equity > peak:
+            peak = equity
+            continue
+        dd_usd = max(peak - equity, 0.0)
+        dd_pct = (dd_usd / peak * 100.0) if peak > 0 else 0.0
+        if dd_usd > max_dd_usd:
+            max_dd_usd = dd_usd
+        if dd_pct > max_dd_pct:
+            max_dd_pct = dd_pct
+
+    return {
+        "max_drawdown_usd": round(max_dd_usd, 6),
+        "max_drawdown_pct": round(max_dd_pct, 4),
+    }
+
+
+def _trade_performance_summary(
+    closed_parts: list[dict[str, Any]],
+    *,
+    trades_rows: list[dict[str, Any]],
+    starting_balance: float,
+) -> dict[str, Any]:
+    if not closed_parts:
+        drawdown = _max_drawdown_from_trades(trades_rows, starting_balance=starting_balance)
+        return {
+            "closed_parts": 0,
+            "wins": 0,
+            "losses": 0,
+            "win_rate_pct": 0.0,
+            "net_pnl_usd": 0.0,
+            "gross_profit_usd": 0.0,
+            "gross_loss_usd": 0.0,
+            "profit_factor": None,
+            "expectancy_per_trade_usd": 0.0,
+            "average_hold_hours": None,
+            **drawdown,
+        }
+
+    wins = 0
+    losses = 0
+    gross_profit = 0.0
+    gross_loss = 0.0
+    holds: list[float] = []
+    for part in closed_parts:
+        pnl = _f(part.get("pnl_usd"), 0.0)
+        if pnl > 0:
+            wins += 1
+            gross_profit += pnl
+        elif pnl < 0:
+            losses += 1
+            gross_loss += pnl
+        hold_hours = part.get("hold_hours")
+        if isinstance(hold_hours, (int, float)):
+            holds.append(float(hold_hours))
+
+    closed = len(closed_parts)
+    net = gross_profit + gross_loss
+    drawdown = _max_drawdown_from_trades(trades_rows, starting_balance=starting_balance)
+    return {
+        "closed_parts": closed,
+        "wins": wins,
+        "losses": losses,
+        "win_rate_pct": round(_pct(float(wins), max(float(closed), 1.0)), 2),
+        "net_pnl_usd": round(net, 6),
+        "gross_profit_usd": round(gross_profit, 6),
+        "gross_loss_usd": round(gross_loss, 6),
+        "profit_factor": round(gross_profit / abs(gross_loss), 6) if gross_loss < 0 else None,
+        "expectancy_per_trade_usd": round(net / max(float(closed), 1.0), 6),
+        "average_hold_hours": round(sum(holds) / len(holds), 6) if holds else None,
+        **drawdown,
+    }
+
+
+def _slippage_fee_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    slippages = []
+    fees = []
+    fill_ratios = []
+    for row in rows:
+        s = _f(row.get("slippage_bps"), float("nan"))
+        if s == s:  # nan-safe check
+            slippages.append(float(s))
+        fee = _f(row.get("fee_usd"), float("nan"))
+        if fee == fee:
+            fees.append(float(fee))
+        fr = _f(row.get("fill_ratio"), float("nan"))
+        if fr == fr:
+            fill_ratios.append(float(fr))
+    return {
+        "slippage_samples": len(slippages),
+        "avg_slippage_bps": round(sum(slippages) / len(slippages), 6) if slippages else None,
+        "median_slippage_bps": _median(slippages),
+        "avg_fee_usd": round(sum(fees) / len(fees), 6) if fees else None,
+        "avg_fill_ratio": round(sum(fill_ratios) / len(fill_ratios), 6) if fill_ratios else None,
+    }
+
+
+def _buy_rejection_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    buy_rows = [r for r in rows if str(r.get("action", "")).upper() == "BUY"]
+    executed = [r for r in buy_rows if bool(r.get("executed", False))]
+    blocked = [r for r in buy_rows if not bool(r.get("executed", False))]
+    blocked_reasons: dict[str, int] = {}
+    for row in blocked:
+        reason = str(row.get("blocked_reason") or row.get("decision_reason") or "unknown")
+        blocked_reasons[reason] = blocked_reasons.get(reason, 0) + 1
+    return {
+        "buy_attempts": len(buy_rows),
+        "buy_executed": len(executed),
+        "buy_blocked": len(blocked),
+        "rejection_rate_pct": round(_pct(float(len(blocked)), max(float(len(buy_rows)), 1.0)), 4)
+        if buy_rows
+        else 0.0,
+        "blocked_reason_counts": dict(sorted(blocked_reasons.items(), key=lambda item: (-item[1], item[0]))),
+    }
+
+
 def _parse_snapshot_fields(raw_fields: str) -> dict[str, str]:
     values: dict[str, str] = {}
     for token in raw_fields.split():
@@ -241,6 +395,7 @@ def _stale_open_positions(
     now = time.time()
     candidates: list[dict[str, Any]] = []
     stale_total = 0
+    all_holds: list[float] = []
     for symbol, row in positions.items():
         if not isinstance(row, dict):
             continue
@@ -250,6 +405,7 @@ def _stale_open_positions(
         if entry <= 0 or entry_ts <= 0 or last <= 0:
             continue
         hold_seconds = max(0.0, now - entry_ts)
+        all_holds.append(hold_seconds / 3600.0)
         if hold_seconds < stale_max_hold_seconds:
             continue
         stale_total += 1
@@ -270,6 +426,8 @@ def _stale_open_positions(
         "open_positions": len(positions),
         "stale_positions_total": stale_total,
         "stale_release_candidates": len(candidates),
+        "median_open_hold_hours": _median(all_holds),
+        "max_open_hold_hours": round(max(all_holds), 4) if all_holds else None,
         "candidates": candidates[:25],
     }
 
@@ -524,6 +682,7 @@ def main() -> int:
         trades_rows = []
     if not isinstance(config, dict):
         config = {}
+    starting_balance = _f(config.get("starting_balance"), 10000.0) or 10000.0
 
     now = time.time()
     window_hours = max(args.hours, 0.5)
@@ -593,6 +752,21 @@ def main() -> int:
 
     report["realized_window"] = _compute_route_realized(trades_window)
     report["realized_total"] = _compute_route_realized(trades_rows)
+    closed_parts_window = _build_closed_parts(trades_window)
+    closed_parts_total = _build_closed_parts(trades_rows)
+    report["performance_window"] = _trade_performance_summary(
+        closed_parts_window,
+        trades_rows=trades_window,
+        starting_balance=starting_balance,
+    )
+    report["performance_total"] = _trade_performance_summary(
+        closed_parts_total,
+        trades_rows=trades_rows,
+        starting_balance=starting_balance,
+    )
+    report["execution_costs_window"] = _slippage_fee_metrics(trades_window)
+    report["execution_costs_total"] = _slippage_fee_metrics(trades_rows)
+    report["buy_rejections_window"] = _buy_rejection_summary(audit_rows)
     report["stale_redeploy_window"] = _stale_release_redeploy_attribution(trades_window)
     report["stale_redeploy_total"] = _stale_release_redeploy_attribution(trades_rows)
 

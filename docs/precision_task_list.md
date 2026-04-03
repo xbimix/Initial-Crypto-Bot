@@ -1,6 +1,6 @@
 # RevBot Precision Task List
 
-Last updated: 2026-03-29
+Last updated: 2026-04-02
 
 ## Objective
 Maximize long-run profitability while reducing or not increasing risk by:
@@ -32,9 +32,12 @@ Maximize long-run profitability while reducing or not increasing risk by:
 | `crypto_bot/strategy/sell_eval.py` | Added stale position risk-release logic | Monitor release reason frequency and post-release redeploy outcomes | Capital recycling from stale trades | Lower stale exposure risk | Done (new) |
 | `crypto_bot/strategy/strategy_orchestrator.py` | Added stale-exit config wiring | Continue tightening buy/sell telemetry for route-level attribution | Higher tuning precision | Lower hidden state drift | In progress |
 | `crypto_bot/utils/config_schema.py` | Added schema for stale-exit keys | Add guardrails docs for conservative/aggressive profiles | Safer operator tuning | Lower config error risk | Done (new) |
-| `crypto_bot/strategy/route_quality.py` | Quality gates active | Add rolling gate health report (promotion/block reasons) | Better route throughput tuning | Lower overfitting risk | Pending |
+| `crypto_bot/strategy/route_quality.py` | Quality gates active | Added rolling gate-health report (promotion/block reasons/readiness/freshness) | Better route throughput tuning | Lower overfitting risk | Done (new) |
 | `crypto_bot/tools/live_safety_tuning_report.py` | Uses sync + audit metrics | Add stale-capital + route expectancy + stale-release attribution sections | Faster tuning feedback loop | Lower blind tuning risk | Done (upgraded) |
-| `crypto_bot/reporting/daily_summary.py` | Rich metrics available | Add route-level “capital lock-up age” metric | Better profit bottleneck visibility | Lower stale risk | Pending |
+| `crypto_bot/tools/profit_profile_rollout.py` | Phase rollout helper available | Added guarded profile switch (`conservative/balanced/aggressive`) with preview-first flow | Safer staged tuning and reduced accidental risk jumps | Lower operator error risk | Done (new) |
+| `crypto_bot/tools/regime_confidence_recalibration_report.py` | Weekly regime confidence analytics missing | Added advisory weekly confidence recalibration report from realized outcomes | Better confidence-threshold tuning quality | Lower over/under-filtering risk | Done (new) |
+| `crypto_bot/tools/profit_profile_verify.py` | Post-apply drift checks were manual | Added 12h/24h SLO drift verification command with pass/fail checks | Faster, safer profile promotion decisions | Lower rollout regression risk | Done (new) |
+| `crypto_bot/reporting/daily_summary.py` | Rich metrics available | Added route-level capital lock-up, stale-redeploy attribution, and closed-trade MAE/MFE approximation | Better profit bottleneck visibility | Lower stale and hidden downside risk | Done (new) |
 | `crypto_bot/tests/test_strategy_regression.py` | Extended with stale-exit tests | Keep adding regression tests for each new tuning guard | Safer iteration speed | Lower regression risk | Done (updated) |
 | `crypto_bot/tests/test_regime_router.py` | Updated to new canonical routing | Add explicit live-like AUTO tests for partial-quality advisory | Better confidence in AUTO behavior | Lower accidental rerouting risk | In progress |
 
@@ -44,6 +47,6 @@ Maximize long-run profitability while reducing or not increasing risk by:
 - Exit reason: `stale_position_risk_release`
 
 ## Next High-Impact Tasks
-1. Add route-level post-exit redeploy attribution (`stale release -> next entry -> outcome`).
-2. Add an automated weekly threshold suggestion report based on actual route expectancy deltas.
-3. Add a safe staged profile switch (`conservative`, `balanced`, `aggressive`) for router+exit tuning.
+1. Add route-level MAE/MFE to weekly aggregation (`weekly_summary`) so trend shifts are visible in one weekly panel.
+2. Add controlled AUTO confidence backtests using replay fixtures before applying recalibration suggestions live.
+3. Add post-apply verifier thresholds for route-level expectancy drift, not only freshness/rejection metrics.

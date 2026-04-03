@@ -4,6 +4,9 @@ import { resolveStateFileCandidates } from "../_lib/stateFallback";
 import { analyzeVolatilityOpportunity } from "../../lib/volatilityOpportunityRadar.mjs";
 import { analyzeRegimeGovernor } from "../../lib/regimeGovernorAnalyzer.mjs";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type ConfigState = {
   enabled?: boolean;
   trading_enabled?: boolean;
@@ -402,10 +405,11 @@ async function readJson<T>(filePath: string | string[], fallback: T): Promise<T>
   for (const candidate of candidates) {
     try {
       const raw = await fs.readFile(candidate, "utf8");
-      if (!raw.trim()) {
+      const normalized = raw.replace(/^\uFEFF/, "");
+      if (!normalized.trim()) {
         return fallback;
       }
-      return JSON.parse(raw) as T;
+      return JSON.parse(normalized) as T;
     } catch {
       continue;
     }
@@ -3123,5 +3127,11 @@ export async function GET() {
         maxNegativeZScore: round(row.exitDiagnostics.maxNegativeZScore, 3),
       },
     })),
+  }, {
+    headers: {
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      Pragma: "no-cache",
+      Expires: "0",
+    },
   });
 }

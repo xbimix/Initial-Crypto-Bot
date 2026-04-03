@@ -1,0 +1,118 @@
+﻿{
+  "window_hours": 168.0,
+  "sync_samples": 7687,
+  "audit_samples": 30736,
+  "trade_rows_window": 1,
+  "trade_rows_total": 134,
+  "sync": {
+    "effective_hours": 71.499,
+    "rate_limited_events_per_hour_proxy": 0.825,
+    "degraded_jobs_per_hour": 15.651,
+    "avg_requests_per_sample": 1.918,
+    "avg_new_inserted_per_sample": 90.717,
+    "fresh_1h_median": 0.0,
+    "fresh_4h_median": 0.0,
+    "fresh_24h_median": 0.0,
+    "fresh_1h_latest": 0,
+    "fresh_4h_latest": 0,
+    "fresh_24h_latest": 0
+  },
+  "audit": {
+    "buy_rows": 0,
+    "non_mr_buy_rows": 0,
+    "non_mr_executed": 0,
+    "non_mr_blocked": 0,
+    "non_mr_block_rate_pct": 0.0,
+    "blocked_reason_counts": {},
+    "confidence_median_blocked": null,
+    "confidence_median_executed": null
+  },
+  "realized_window": {
+    "closed_parts_total": 0,
+    "routes": {}
+  },
+  "realized_total": {
+    "closed_parts_total": 56,
+    "routes": {
+      "mean_reversion": {
+        "closed_parts": 55,
+        "win_rate_pct": 94.55,
+        "expectancy_usd": 5.266327,
+        "net_pnl_usd": 289.648011,
+        "return_on_notional_pct": 2.9028,
+        "median_pnl_pct": 2.9949558638083076,
+        "median_hold_hours": 30.510850142571663,
+        "stale_release_exits": 1
+      },
+      "trend_pullback": {
+        "closed_parts": 1,
+        "win_rate_pct": 100.0,
+        "expectancy_usd": 16.14614,
+        "net_pnl_usd": 16.14614,
+        "return_on_notional_pct": 8.0731,
+        "median_pnl_pct": 8.073070123747808,
+        "median_hold_hours": 10.268612642023298,
+        "stale_release_exits": 0
+      }
+    }
+  },
+  "stale_redeploy_window": {
+    "stale_release_exits": 1,
+    "redeployed": 0,
+    "redeploy_rate_pct": 0.0,
+    "closed_after_redeploy": 0,
+    "close_rate_after_redeploy_pct": 0.0,
+    "win_rate_after_redeploy_pct": 0.0,
+    "median_redeploy_delay_minutes": null,
+    "median_close_delay_hours": null,
+    "median_redeploy_pnl_pct": null,
+    "route_stats": {},
+    "latest_events": [
+      {
+        "symbol": "CRV-USD",
+        "stale_exit_ts": 1774760602.999816,
+        "stale_exit_price": 0.21192,
+        "stale_exit_size": 763.467196,
+        "redeployed": false,
+        "closed_after_redeploy": false
+      }
+    ]
+  },
+  "stale_redeploy_total": {
+    "stale_release_exits": 1,
+    "redeployed": 0,
+    "redeploy_rate_pct": 0.0,
+    "closed_after_redeploy": 0,
+    "close_rate_after_redeploy_pct": 0.0,
+    "win_rate_after_redeploy_pct": 0.0,
+    "median_redeploy_delay_minutes": null,
+    "median_close_delay_hours": null,
+    "median_redeploy_pnl_pct": null,
+    "route_stats": {},
+    "latest_events": [
+      {
+        "symbol": "CRV-USD",
+        "stale_exit_ts": 1774760602.999816,
+        "stale_exit_price": 0.21192,
+        "stale_exit_size": 763.467196,
+        "redeployed": false,
+        "closed_after_redeploy": false
+      }
+    ]
+  },
+  "stale_positions": {
+    "open_positions": 22,
+    "stale_positions_total": 0,
+    "stale_release_candidates": 0,
+    "candidates": []
+  },
+  "stale_settings": {
+    "stale_exit_max_hold_seconds": 1814400.0,
+    "stale_exit_min_pnl_pct": 0.003
+  },
+  "recommendations": [
+    "Throttle pressure low: safe to trial +1 sync request cap during active windows.",
+    "Degraded sync elevated: prioritize symbol health demotion or widen unsupported backoff.",
+    "Stale-release redeploy rate is low; check symbol readiness freshness and route gate strictness."
+  ]
+}

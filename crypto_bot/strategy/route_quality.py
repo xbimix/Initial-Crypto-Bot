@@ -277,6 +277,74 @@ def _sanitize_reason_counts(value: Any) -> dict[str, int]:
     return out
 
 
+def _top_counts(counts: dict[str, int], *, limit: int = 5) -> list[dict[str, int | str]]:
+    rows = sorted(
+        counts.items(),
+        key=lambda item: (-int(item[1]), str(item[0])),
+    )
+    return [{"name": str(name), "count": int(count)} for name, count in rows[: max(1, int(limit))]]
+
+
+def _build_gate_health_summary(
+    *,
+    readiness_counts: dict[str, int],
+    timestamp_fresh_counts: dict[str, int],
+    failed_gate_counts: dict[str, int],
+    buy_block_gate_summary: dict[str, int],
+    promoted_routes: dict[str, bool],
+    promotion_reasons: dict[str, str],
+) -> dict[str, Any]:
+    readiness_total = sum(int(value) for value in readiness_counts.values())
+    readiness_ready = 0
+    for raw_name, raw_count in readiness_counts.items():
+        name = str(raw_name or "").strip().lower()
+        if name in {"ready", "pass", "ok", "true", "yes", "allow"}:
+            readiness_ready += int(raw_count)
+    readiness_not_ready = max(readiness_total - readiness_ready, 0)
+
+    fresh = int(timestamp_fresh_counts.get("fresh", 0) or 0)
+    stale_or_missing = int(timestamp_fresh_counts.get("stale_or_missing", 0) or 0)
+    freshness_total = fresh + stale_or_missing
+
+    promoted = sorted(route for route, state in promoted_routes.items() if bool(state))
+    blocked = sorted(route for route, state in promoted_routes.items() if not bool(state))
+    blocked_reasons: dict[str, int] = {}
+    for route in blocked:
+        reason = str(promotion_reasons.get(route) or "unknown").strip()
+        if not reason:
+            reason = "unknown"
+        blocked_reasons[reason] = blocked_reasons.get(reason, 0) + 1
+
+    failed_gate_total = sum(int(value) for value in failed_gate_counts.values())
+    buy_block_total = sum(int(value) for value in buy_block_gate_summary.values())
+
+    return {
+        "promoted_routes": promoted,
+        "blocked_routes": blocked,
+        "blocked_promotion_reasons": blocked_reasons,
+        "readiness_total": readiness_total,
+        "readiness_ready": readiness_ready,
+        "readiness_not_ready": readiness_not_ready,
+        "readiness_ready_rate_pct": (
+            round((readiness_ready / readiness_total) * 100.0, 2)
+            if readiness_total > 0
+            else None
+        ),
+        "timestamp_fresh_total": freshness_total,
+        "timestamp_fresh": fresh,
+        "timestamp_stale_or_missing": stale_or_missing,
+        "timestamp_fresh_rate_pct": (
+            round((fresh / freshness_total) * 100.0, 2)
+            if freshness_total > 0
+            else None
+        ),
+        "failed_gate_total": failed_gate_total,
+        "buy_block_total": buy_block_total,
+        "top_failed_gates": _top_counts(failed_gate_counts),
+        "top_buy_block_reasons": _top_counts(buy_block_gate_summary),
+    }
+
+
 def _summarize_buy_block_counters(
     *,
     by_symbol: Any,
@@ -440,6 +508,14 @@ def build_route_quality_report(*, state_dir: Path, cfg: dict[str, Any], now_epoc
 
     manual_vs_auto = _count_by_mode(token_regimes=token_regimes, route_map=last_effective_route)
     per_token_history = _build_per_token_route_history(trades=trades, max_items_per_symbol=20)
+    gate_health_summary = _build_gate_health_summary(
+        readiness_counts=readiness_counts,
+        timestamp_fresh_counts=timestamp_fresh_counts,
+        failed_gate_counts=failed_gate_counts,
+        buy_block_gate_summary=buy_block_gate_summary,
+        promoted_routes=promoted_routes,
+        promotion_reasons=promotion_reasons,
+    )
 
     return {
         "generated_at_epoch": now,
@@ -467,6 +543,7 @@ def build_route_quality_report(*, state_dir: Path, cfg: dict[str, Any], now_epoc
             "promoted_routes": promoted_routes,
             "promotion_reasons": promotion_reasons,
         },
+        "gate_health_summary": gate_health_summary,
     }
 
 
