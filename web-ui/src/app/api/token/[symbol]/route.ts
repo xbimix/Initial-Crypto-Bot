@@ -33,6 +33,7 @@ type DashboardSymbolControl = {
   detectedRegime?: string | null;
   detectedRegimeConfidenceLabel?: string | null;
   detectedRegimeConfidenceScore?: number | null;
+  detectedRegimeConfidenceInferred?: boolean;
   detectionSource?: string | null;
   detectionTimestampEpoch?: number | null;
   detectionTimestampAt?: string | null;
@@ -46,6 +47,8 @@ type DashboardSymbolControl = {
   detectedRegimeMixedScore?: number | null;
   detectedRegimeStabilityScore?: number | null;
   detectedRegimePersistenceScore?: number | null;
+  detectedRegimeStabilityInferred?: boolean;
+  detectedRegimePersistenceInferred?: boolean;
   detectedRegimeDataQualityStatus?: string;
   detectedRegimeKeyWindowsSupported?: boolean;
   suggestedRegimeV2?: string | null;
@@ -138,6 +141,54 @@ function normalizeSymbol(value: string) {
 function asNumber(value: unknown): number | null {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
+}
+
+function confidenceScoreFromLabel(value: unknown): number | null {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  if (normalized === "HIGH") {
+    return 85;
+  }
+  if (normalized === "MEDIUM") {
+    return 62;
+  }
+  if (normalized === "LOW") {
+    return 35;
+  }
+  return null;
+}
+
+function resolveRegimeCspBackfill(args: {
+  confidenceScore: number | null;
+  controlStability: number | null;
+  controlPersistence: number | null;
+  advisoryStability: number | null;
+  advisoryPersistence: number | null;
+  controlStabilityInferred: boolean;
+  controlPersistenceInferred: boolean;
+  advisoryStabilityInferred: boolean;
+  advisoryPersistenceInferred: boolean;
+}) {
+  const confidenceScore = asNumber(args.confidenceScore);
+  let stabilityScore = asNumber(args.controlStability) ?? asNumber(args.advisoryStability);
+  let persistenceScore = asNumber(args.controlPersistence) ?? asNumber(args.advisoryPersistence);
+  let stabilityInferred = Boolean(args.controlStabilityInferred || args.advisoryStabilityInferred);
+  let persistenceInferred = Boolean(args.controlPersistenceInferred || args.advisoryPersistenceInferred);
+
+  if (stabilityScore === null && confidenceScore !== null) {
+    stabilityScore = confidenceScore;
+    stabilityInferred = true;
+  }
+  if (persistenceScore === null && confidenceScore !== null) {
+    persistenceScore = confidenceScore;
+    persistenceInferred = true;
+  }
+
+  return {
+    stabilityScore,
+    persistenceScore,
+    stabilityInferred,
+    persistenceInferred,
+  };
 }
 
 function parseLogTimestampToEpoch(raw: string): number | null {
@@ -427,6 +478,24 @@ export async function GET(
     pricePoints: snapshotHistory,
     wallClockEpoch,
   });
+  const detectedRegimeConfidenceScore = (
+    control?.detectedRegimeConfidenceScore
+    ?? regimeAdvisory.confidenceScore
+    ?? confidenceScoreFromLabel(control?.detectedRegimeConfidenceLabel ?? regimeAdvisory.confidenceLabel)
+  );
+  const cspBackfill = resolveRegimeCspBackfill({
+    confidenceScore: detectedRegimeConfidenceScore,
+    controlStability: control?.detectedRegimeStabilityScore ?? null,
+    controlPersistence: control?.detectedRegimePersistenceScore ?? null,
+    advisoryStability: asNumber(regimeAdvisory.stability_score ?? regimeAdvisory.stabilityScore ?? null),
+    advisoryPersistence: asNumber(regimeAdvisory.persistence_score ?? regimeAdvisory.persistenceScore ?? null),
+    controlStabilityInferred: control?.detectedRegimeStabilityInferred ?? false,
+    controlPersistenceInferred: control?.detectedRegimePersistenceInferred ?? false,
+    advisoryStabilityInferred:
+      regimeAdvisory.stability_inferred === true || regimeAdvisory.stabilityInferred === true,
+    advisoryPersistenceInferred:
+      regimeAdvisory.persistence_inferred === true || regimeAdvisory.persistenceInferred === true,
+  });
 
   return NextResponse.json({
     generatedAt: new Date().toISOString(),
@@ -489,7 +558,10 @@ export async function GET(
       detectedRegimeConfidenceLabel:
         control?.detectedRegimeConfidenceLabel ?? regimeAdvisory.confidenceLabel,
       detectedRegimeConfidenceScore:
-        control?.detectedRegimeConfidenceScore ?? regimeAdvisory.confidenceScore,
+        detectedRegimeConfidenceScore,
+      detectedRegimeConfidenceInferred:
+        control?.detectedRegimeConfidenceInferred
+        ?? (control?.detectedRegimeConfidenceScore === null || control?.detectedRegimeConfidenceScore === undefined),
       detectionSource:
         control?.detectionSource ?? regimeAdvisory.detectionSource ?? "advisory_multitimeframe",
       detectionTimestampEpoch:
@@ -525,13 +597,13 @@ export async function GET(
         ?? regimeAdvisory.componentScores?.mixedScore
         ?? null,
       detectedRegimeStabilityScore:
-        control?.detectedRegimeStabilityScore
-        ?? regimeAdvisory.stability_score
-        ?? regimeAdvisory.stabilityScore
-        ?? null,
+        cspBackfill.stabilityScore,
       detectedRegimePersistenceScore:
-        control?.detectedRegimePersistenceScore
-        ?? null,
+        cspBackfill.persistenceScore,
+      detectedRegimeStabilityInferred:
+        cspBackfill.stabilityInferred,
+      detectedRegimePersistenceInferred:
+        cspBackfill.persistenceInferred,
       detectedRegimeDataQualityStatus:
         control?.detectedRegimeDataQualityStatus
         ?? regimeAdvisory?.data_quality?.status

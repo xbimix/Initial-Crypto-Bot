@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import logging
 from pathlib import Path
 
 
@@ -9,6 +10,8 @@ BOT_DATA_DIR_ENV = "BOT_DATA_DIR"
 LEGACY_STATE_DIR_ENV = "REVBOT_STATE_DIR"
 DEFAULT_RUNTIME_DATA_DIR = ".runtime"
 DEFAULT_STATE_SUBDIR = "state"
+_FALLBACK_WARNED_KEYS: set[tuple[str, str]] = set()
+_LOGGER = logging.getLogger("state_paths")
 
 
 def project_root() -> Path:
@@ -57,12 +60,29 @@ def resolve_legacy_state_file(default_state_dir: str | Path, filename: str) -> P
     return resolve_legacy_state_dir(default_state_dir) / filename
 
 
-def read_path_with_legacy_fallback(primary_path: str | Path, legacy_path: str | Path) -> Path:
+def read_path_with_legacy_fallback(
+    primary_path: str | Path,
+    legacy_path: str | Path,
+    *,
+    context: str | None = None,
+    emit_warning: bool = True,
+) -> Path:
     primary = Path(primary_path)
     if primary.exists():
         return primary
     legacy = Path(legacy_path)
     if legacy.exists():
+        if emit_warning:
+            key = (str(primary.resolve()), str(legacy.resolve()))
+            if key not in _FALLBACK_WARNED_KEYS:
+                _FALLBACK_WARNED_KEYS.add(key)
+                detail = f" [{context}]" if context else ""
+                _LOGGER.warning(
+                    "Legacy state fallback in use%s: primary_missing=%s legacy=%s",
+                    detail,
+                    primary,
+                    legacy,
+                )
         return legacy
     return primary
 

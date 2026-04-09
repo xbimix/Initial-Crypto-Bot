@@ -22,6 +22,7 @@ from strategy.route_quality import load_route_quality_report_cached
 from strategy.route_scoring.breakout_score import compute_breakout_score_bundle
 from strategy.route_scoring.mr_score import compute_mr_score_bundle
 from strategy.route_scoring.trend_score import compute_trend_score_bundle
+from strategy.runtime_state_object import StrategyRuntimeState
 from strategy.state_io import (
     load_strategy_state as _load_strategy_state_impl,
     paper_state_mtime as _paper_state_mtime_impl,
@@ -54,6 +55,7 @@ from strategy.strategy_orchestrator import (
 )
 from strategy import strategy_runtime_state as rt
 from utils.logger import setup_logger
+from utils.runtime_events import append_runtime_event as _append_runtime_event
 from utils.state_paths import resolve_state_dir
 from utils.state_io import read_json_file, write_json_file
 
@@ -63,84 +65,79 @@ STATE_DIR = resolve_state_dir(Path(__file__).resolve().parent.parent / "state")
 STRATEGY_STATE_FILE = STATE_DIR / "strategy_state.json"
 PAPER_STATE_FILE = STATE_DIR / "paper_state.json"
 
-# Compatibility aliases for external users/tests expecting these names on this module.
-_route_metadata_maps = rt.ROUTE_METADATA_MAPS
-_last_signal = rt._last_signal
-_last_sell_price = rt._last_sell_price
-_entry_price = rt._entry_price
-_entry_time = rt._entry_time
-_profit_lock = rt._profit_lock
-_peak_pnl = rt._peak_pnl
-_last_momentum = rt._last_momentum
-_last_regime = rt._last_regime
-_last_score = rt._last_score
-_last_volatility = rt._last_volatility
-_last_configured_regime = rt._last_configured_regime
-_last_detected_regime = rt._last_detected_regime
-_last_detected_regime_confidence = rt._last_detected_regime_confidence
-_last_detected_regime_confidence_label = rt._last_detected_regime_confidence_label
-_last_detected_regime_stability = rt._last_detected_regime_stability
-_last_detected_regime_persistence = rt._last_detected_regime_persistence
-_last_detected_regime_stability_inferred = rt._last_detected_regime_stability_inferred
-_last_detected_regime_persistence_inferred = rt._last_detected_regime_persistence_inferred
-_last_regime_data_quality_status = rt._last_regime_data_quality_status
-_last_regime_key_windows_supported = rt._last_regime_key_windows_supported
-_last_suggested_regime_v2 = rt._last_suggested_regime_v2
-_last_detection_source = rt._last_detection_source
-_last_detection_timestamp_epoch = rt._last_detection_timestamp_epoch
-_last_effective_strategy = rt._last_effective_strategy
-_last_effective_route = rt._last_effective_route
-_last_route_eval_ts = rt._last_route_eval_ts
-_last_regime_eval_ts = rt._last_regime_eval_ts
-_last_auto_fallback_reason = rt._last_auto_fallback_reason
-_last_fallback_reason = rt._last_fallback_reason
-_last_ready_for_non_mr_route = rt._last_ready_for_non_mr_route
-_last_non_mr_ready_reason = rt._last_non_mr_ready_reason
-_last_route_readiness_state = rt._last_route_readiness_state
-_last_route_timestamp_age_seconds = rt._last_route_timestamp_age_seconds
-_last_route_timestamp_fresh = rt._last_route_timestamp_fresh
-_last_shadow_continuity_state = rt._last_shadow_continuity_state
-_last_shadow_age_seconds = rt._last_shadow_age_seconds
-_last_failed_gates = rt._last_failed_gates
-_last_decision_diagnostics = rt._last_decision_diagnostics
-_last_buy_block_reason = rt._last_buy_block_reason
-_last_buy_block_route = rt._last_buy_block_route
-_buy_block_counts_by_symbol = rt._buy_block_counts_by_symbol
-_buy_block_counts_by_symbol_route = rt._buy_block_counts_by_symbol_route
-_entry_route = rt._entry_route
-_entry_regime = rt._entry_regime
-_exit_policy = rt._exit_policy
-_entry_confidence = rt._entry_confidence
-_entry_timestamp = rt._entry_timestamp
-_entry_route_eval_ts = rt._entry_route_eval_ts
-_entry_regime_eval_ts = rt._entry_regime_eval_ts
-_pending_entry_contract = rt._pending_entry_contract
-_shadow_regime_state = rt._shadow_regime_state
+RUNTIME_STATE = StrategyRuntimeState.from_runtime_module(rt)
+RUNTIME_SCALARS = RUNTIME_STATE.scalars
 
-# Scalar mirror for compatibility with monkeypatching this module directly.
-_synced = rt._synced
-_last_paper_state_mtime = rt._last_paper_state_mtime
-_metrics_dirty = rt._metrics_dirty
-_last_metrics_flush_at = rt._last_metrics_flush_at
-
-
-def _push_scalar_state_to_runtime():
-    rt._synced = _synced
-    rt._last_paper_state_mtime = _last_paper_state_mtime
-    rt._metrics_dirty = _metrics_dirty
-    rt._last_metrics_flush_at = _last_metrics_flush_at
+# Backward-compatible exported state names for legacy callers/tests.
+_COMPAT_RUNTIME_EXPORTS = {
+    "_route_metadata_maps": "ROUTE_METADATA_MAPS",
+    "_last_signal": "_last_signal",
+    "_last_sell_price": "_last_sell_price",
+    "_entry_price": "_entry_price",
+    "_entry_time": "_entry_time",
+    "_profit_lock": "_profit_lock",
+    "_peak_pnl": "_peak_pnl",
+    "_last_momentum": "_last_momentum",
+    "_last_regime": "_last_regime",
+    "_last_score": "_last_score",
+    "_last_volatility": "_last_volatility",
+    "_last_configured_regime": "_last_configured_regime",
+    "_last_detected_regime": "_last_detected_regime",
+    "_last_detected_regime_confidence": "_last_detected_regime_confidence",
+    "_last_detected_regime_confidence_label": "_last_detected_regime_confidence_label",
+    "_last_detected_regime_stability": "_last_detected_regime_stability",
+    "_last_detected_regime_persistence": "_last_detected_regime_persistence",
+    "_last_detected_regime_stability_inferred": "_last_detected_regime_stability_inferred",
+    "_last_detected_regime_persistence_inferred": "_last_detected_regime_persistence_inferred",
+    "_last_regime_data_quality_status": "_last_regime_data_quality_status",
+    "_last_regime_key_windows_supported": "_last_regime_key_windows_supported",
+    "_last_suggested_regime_v2": "_last_suggested_regime_v2",
+    "_last_detection_source": "_last_detection_source",
+    "_last_detection_timestamp_epoch": "_last_detection_timestamp_epoch",
+    "_last_effective_strategy": "_last_effective_strategy",
+    "_last_effective_route": "_last_effective_route",
+    "_last_route_eval_ts": "_last_route_eval_ts",
+    "_last_regime_eval_ts": "_last_regime_eval_ts",
+    "_last_auto_fallback_reason": "_last_auto_fallback_reason",
+    "_last_fallback_reason": "_last_fallback_reason",
+    "_last_ready_for_non_mr_route": "_last_ready_for_non_mr_route",
+    "_last_non_mr_ready_reason": "_last_non_mr_ready_reason",
+    "_last_route_readiness_state": "_last_route_readiness_state",
+    "_last_route_timestamp_age_seconds": "_last_route_timestamp_age_seconds",
+    "_last_route_timestamp_fresh": "_last_route_timestamp_fresh",
+    "_last_shadow_continuity_state": "_last_shadow_continuity_state",
+    "_last_shadow_age_seconds": "_last_shadow_age_seconds",
+    "_last_failed_gates": "_last_failed_gates",
+    "_last_decision_diagnostics": "_last_decision_diagnostics",
+    "_last_buy_block_reason": "_last_buy_block_reason",
+    "_last_buy_block_route": "_last_buy_block_route",
+    "_buy_block_counts_by_symbol": "_buy_block_counts_by_symbol",
+    "_buy_block_counts_by_symbol_route": "_buy_block_counts_by_symbol_route",
+    "_entry_route": "_entry_route",
+    "_entry_regime": "_entry_regime",
+    "_exit_policy": "_exit_policy",
+    "_entry_confidence": "_entry_confidence",
+    "_entry_timestamp": "_entry_timestamp",
+    "_entry_route_eval_ts": "_entry_route_eval_ts",
+    "_entry_regime_eval_ts": "_entry_regime_eval_ts",
+    "_pending_entry_contract": "_pending_entry_contract",
+    "_shadow_regime_state": "_shadow_regime_state",
+}
 
 
-def _pull_scalar_state_from_runtime():
-    global _synced, _last_paper_state_mtime, _metrics_dirty, _last_metrics_flush_at
-    _synced = rt._synced
-    _last_paper_state_mtime = rt._last_paper_state_mtime
-    _metrics_dirty = rt._metrics_dirty
-    _last_metrics_flush_at = rt._last_metrics_flush_at
+def __getattr__(name: str):
+    runtime_name = _COMPAT_RUNTIME_EXPORTS.get(name)
+    if runtime_name is None:
+        raise AttributeError(name)
+    return getattr(rt, runtime_name)
 
 
 def _decision(symbol, action, price, momentum, reason):
     return _decision_impl(symbol, action, price, momentum, reason, logger=logger)
+
+
+def append_runtime_event(event_name: str, **payload):
+    _append_runtime_event(event_name, service="strategy", **payload)
 
 
 def _resolve_scalper_config(cfg):
@@ -152,7 +149,7 @@ def _flush_metrics_state_if_due(force=False):
 
 
 def _save_strategy_state():
-    _push_scalar_state_to_runtime()
+    RUNTIME_STATE.persist_to_runtime()
     rt._last_metrics_flush_at = _save_strategy_state_impl(
         state_dir=STATE_DIR,
         strategy_state_file=STRATEGY_STATE_FILE,
@@ -183,7 +180,7 @@ def _save_strategy_state():
         shadow_regime_state=rt._shadow_regime_state,
     )
     rt._metrics_dirty = False
-    _pull_scalar_state_from_runtime()
+    RUNTIME_STATE.hydrate_from_runtime()
 
 
 def _load_strategy_state():
@@ -217,7 +214,7 @@ def _load_strategy_state():
         shadow_regime_state=rt._shadow_regime_state,
         logger=logger,
     )
-    _pull_scalar_state_from_runtime()
+    RUNTIME_STATE.hydrate_from_runtime()
 
 
 def confirm_entry(
@@ -256,17 +253,45 @@ def confirm_exit(symbol: str, price: float):
     )
 
 
+def set_runtime_scalars_for_compat(
+    *,
+    synced: bool | None = None,
+    last_paper_state_mtime: float | None = None,
+    metrics_dirty: bool | None = None,
+    last_metrics_flush_at: float | None = None,
+):
+    if synced is not None:
+        RUNTIME_SCALARS.synced = bool(synced)
+    if last_paper_state_mtime is not None:
+        RUNTIME_SCALARS.last_paper_state_mtime = float(last_paper_state_mtime)
+    if metrics_dirty is not None:
+        RUNTIME_SCALARS.metrics_dirty = bool(metrics_dirty)
+    if last_metrics_flush_at is not None:
+        RUNTIME_SCALARS.last_metrics_flush_at = float(last_metrics_flush_at)
+    RUNTIME_STATE.persist_to_runtime()
+
+
 def evaluate_symbol(snapshot: dict, cfg: dict) -> dict:
-    _push_scalar_state_to_runtime()
-    result = _evaluate_symbol_impl(snapshot, cfg, ctx=sys.modules[__name__])
-    _pull_scalar_state_from_runtime()
+    RUNTIME_STATE.persist_to_runtime()
+    result = _evaluate_symbol_impl(
+        snapshot,
+        cfg,
+        ctx=sys.modules[__name__],
+        runtime_state=RUNTIME_STATE,
+    )
+    RUNTIME_STATE.hydrate_from_runtime()
     return result
 
 
 def generate_decision(snapshot: dict, cfg: dict) -> dict:
-    _push_scalar_state_to_runtime()
-    result = _generate_decision_impl(snapshot, cfg, ctx=sys.modules[__name__])
-    _pull_scalar_state_from_runtime()
+    RUNTIME_STATE.persist_to_runtime()
+    result = _generate_decision_impl(
+        snapshot,
+        cfg,
+        ctx=sys.modules[__name__],
+        runtime_state=RUNTIME_STATE,
+    )
+    RUNTIME_STATE.hydrate_from_runtime()
     return result
 
 

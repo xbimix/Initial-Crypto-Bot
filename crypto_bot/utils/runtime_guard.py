@@ -153,6 +153,78 @@ def cleanup_log_rotations(
     }
 
 
+def cleanup_large_jsonl_files(
+    state_dir: str | Path,
+    *,
+    file_names: list[str] | tuple[str, ...],
+    max_file_mb: float | None = None,
+    keep_ratio: float = 0.6,
+) -> dict[str, Any]:
+    base = Path(state_dir)
+    max_mb = (
+        float(max_file_mb)
+        if max_file_mb is not None
+        else _parse_float_env("REVBOT_JSONL_MAX_FILE_MB", 64.0)
+    )
+    max_bytes = int(max(0.001, max_mb) * 1024 * 1024)
+    keep_ratio = max(0.05, min(float(keep_ratio), 0.95))
+    scanned = 0
+    trimmed = 0
+    failed: list[str] = []
+    results: list[dict[str, Any]] = []
+
+    for file_name in file_names:
+        path = base / str(file_name)
+        if not path.exists() or not path.is_file():
+            continue
+        scanned += 1
+        try:
+            size_before = int(path.stat().st_size)
+        except OSError:
+            failed.append(path.name)
+            continue
+        if size_before <= max_bytes:
+            continue
+
+        keep_bytes = int(max(1, max_bytes * keep_ratio))
+        try:
+            with path.open("rb") as handle:
+                if size_before > keep_bytes:
+                    handle.seek(-keep_bytes, os.SEEK_END)
+                chunk = handle.read()
+            # Keep a clean JSONL boundary by dropping a partial first line.
+            boundary = chunk.find(b"\n")
+            if boundary != -1 and boundary < len(chunk) - 1:
+                chunk = chunk[boundary + 1 :]
+            if chunk and not chunk.endswith(b"\n"):
+                chunk = chunk + b"\n"
+            with path.open("wb") as handle:
+                handle.write(chunk)
+            size_after = int(path.stat().st_size)
+            trimmed += 1
+            results.append(
+                {
+                    "file": path.name,
+                    "size_before_bytes": size_before,
+                    "size_after_bytes": size_after,
+                    "removed_bytes": max(0, size_before - size_after),
+                }
+            )
+        except OSError:
+            failed.append(path.name)
+            continue
+
+    return {
+        "scanned": scanned,
+        "trimmed_count": trimmed,
+        "trimmed": results,
+        "failed_count": len(failed),
+        "failed": failed,
+        "max_file_mb": max_mb,
+        "keep_ratio": keep_ratio,
+    }
+
+
 def check_disk_space(
     state_dir: str | Path,
     *,

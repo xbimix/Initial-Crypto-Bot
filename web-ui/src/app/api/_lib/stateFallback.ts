@@ -81,6 +81,8 @@ const STATE_DIR = LEGACY_OVERRIDE_DIR
 const READ_FALLBACK_DIRS = LEGACY_OVERRIDE_DIR
   ? []
   : LEGACY_STATE_DIR_CANDIDATES.filter((candidate) => path.resolve(candidate) !== path.resolve(STATE_DIR));
+const WARN_ON_LEGACY_FALLBACK = String(process.env.REVBOT_WARN_ON_LEGACY_FALLBACK ?? "1").trim() !== "0";
+const warnedLegacyFallbacks = new Set<string>();
 
 export function resolvePrimaryStateDir(): string {
   return STATE_DIR;
@@ -132,6 +134,15 @@ function resolveReadPath(filePath: string): string {
   for (const fallbackDir of READ_FALLBACK_DIRS) {
     const candidate = path.join(fallbackDir, relative);
     if (fsSync.existsSync(candidate)) {
+      if (WARN_ON_LEGACY_FALLBACK) {
+        const key = `${path.resolve(filePath)}|${path.resolve(candidate)}`;
+        if (!warnedLegacyFallbacks.has(key)) {
+          warnedLegacyFallbacks.add(key);
+          console.warn(
+            `[revbot-state] legacy fallback in use: primary_missing=${filePath} legacy=${candidate}`,
+          );
+        }
+      }
       return candidate;
     }
   }

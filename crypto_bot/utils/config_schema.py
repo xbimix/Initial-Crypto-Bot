@@ -360,6 +360,121 @@ def normalize_config(
         False,
         "strategy_defaults.router.auto_use_multitimeframe_advisory",
     )
+    normalize_bool(
+        router,
+        "auto_use_route_quality_gates",
+        True,
+        "strategy_defaults.router.auto_use_route_quality_gates",
+    )
+    normalize_bool(
+        router,
+        "auto_require_core_candle_readiness",
+        True,
+        "strategy_defaults.router.auto_require_core_candle_readiness",
+    )
+    normalize_float(
+        router,
+        "auto_min_stability",
+        58.0,
+        "strategy_defaults.router.auto_min_stability",
+        min_value=0.0,
+        max_value=100.0,
+    )
+    normalize_float(
+        router,
+        "auto_min_persistence",
+        58.0,
+        "strategy_defaults.router.auto_min_persistence",
+        min_value=0.0,
+        max_value=100.0,
+    )
+    normalize_float(
+        router,
+        "auto_max_route_age_seconds",
+        900.0,
+        "strategy_defaults.router.auto_max_route_age_seconds",
+        min_value=60.0,
+    )
+    normalize_float(
+        router,
+        "auto_trend_min_confidence",
+        74.0,
+        "strategy_defaults.router.auto_trend_min_confidence",
+        min_value=0.0,
+        max_value=100.0,
+    )
+    normalize_float(
+        router,
+        "auto_trend_min_stability",
+        68.0,
+        "strategy_defaults.router.auto_trend_min_stability",
+        min_value=0.0,
+        max_value=100.0,
+    )
+    normalize_float(
+        router,
+        "auto_trend_min_persistence",
+        68.0,
+        "strategy_defaults.router.auto_trend_min_persistence",
+        min_value=0.0,
+        max_value=100.0,
+    )
+    normalize_float(
+        router,
+        "auto_breakout_min_confidence",
+        82.0,
+        "strategy_defaults.router.auto_breakout_min_confidence",
+        min_value=0.0,
+        max_value=100.0,
+    )
+    normalize_float(
+        router,
+        "auto_breakout_min_stability",
+        76.0,
+        "strategy_defaults.router.auto_breakout_min_stability",
+        min_value=0.0,
+        max_value=100.0,
+    )
+    normalize_float(
+        router,
+        "auto_breakout_min_persistence",
+        76.0,
+        "strategy_defaults.router.auto_breakout_min_persistence",
+        min_value=0.0,
+        max_value=100.0,
+    )
+    normalize_float(
+        router,
+        "auto_trend_max_route_share_pct",
+        35.0,
+        "strategy_defaults.router.auto_trend_max_route_share_pct",
+        min_value=0.0,
+        max_value=100.0,
+    )
+    normalize_float(
+        router,
+        "auto_breakout_max_route_share_pct",
+        8.0,
+        "strategy_defaults.router.auto_breakout_max_route_share_pct",
+        min_value=0.0,
+        max_value=100.0,
+    )
+    normalize_float(
+        router,
+        "auto_volatile_breakout_min",
+        86.0,
+        "strategy_defaults.router.auto_volatile_breakout_min",
+        min_value=0.0,
+        max_value=100.0,
+    )
+    normalize_float(
+        router,
+        "auto_volatile_breakout_min_confidence",
+        80.0,
+        "strategy_defaults.router.auto_volatile_breakout_min_confidence",
+        min_value=0.0,
+        max_value=100.0,
+    )
 
     # Risk section.
     risk = ensure_dict(cfg, "risk", "risk")
@@ -790,6 +905,88 @@ def normalize_config(
         "market_data.trade_confirmation_limit",
         min_value=0,
     )
+    raw_decision_tf = str(market_data.get("decision_candle_timeframe", "1m") or "").strip().lower()
+    allowed_decision_timeframes = {"1m", "5m", "15m", "30m", "1h", "4h", "1d"}
+    if raw_decision_tf not in allowed_decision_timeframes:
+        market_data["decision_candle_timeframe"] = "1m"
+        changed = True
+        warn("market_data.decision_candle_timeframe invalid; defaulted to '1m'")
+    elif market_data.get("decision_candle_timeframe") != raw_decision_tf:
+        market_data["decision_candle_timeframe"] = raw_decision_tf
+        changed = True
+    normalize_int(
+        market_data,
+        "decision_candle_limit",
+        6000,
+        "market_data.decision_candle_limit",
+        min_value=50,
+    )
+    normalize_bool(
+        market_data,
+        "decision_candle_sync_enabled",
+        False,
+        "market_data.decision_candle_sync_enabled",
+    )
+    normalize_bool(
+        market_data,
+        "decision_candle_allow_concurrent_sync",
+        False,
+        "market_data.decision_candle_allow_concurrent_sync",
+    )
+    normalize_int(
+        market_data,
+        "decision_candle_sync_interval_seconds",
+        20,
+        "market_data.decision_candle_sync_interval_seconds",
+        min_value=1,
+    )
+    normalize_int(
+        market_data,
+        "decision_candle_stale_intervals",
+        3,
+        "market_data.decision_candle_stale_intervals",
+        min_value=1,
+    )
+    normalize_int(
+        market_data,
+        "decision_candle_min_stale_seconds",
+        300,
+        "market_data.decision_candle_min_stale_seconds",
+        min_value=60,
+    )
+    normalize_bool(
+        market_data,
+        "strict_strategy_eval_gate_enabled",
+        True,
+        "market_data.strict_strategy_eval_gate_enabled",
+    )
+    normalize_float(
+        market_data,
+        "strategy_eval_max_snapshot_age_seconds",
+        20.0,
+        "market_data.strategy_eval_max_snapshot_age_seconds",
+        min_value=1.0,
+    )
+    normalize_float(
+        market_data,
+        "strategy_eval_min_quality_score",
+        0.0,
+        "market_data.strategy_eval_min_quality_score",
+        min_value=0.0,
+        max_value=1.0,
+    )
+    normalize_bool(
+        market_data,
+        "strategy_allow_partial_participation",
+        False,
+        "market_data.strategy_allow_partial_participation",
+    )
+    normalize_bool(
+        market_data,
+        "decision_context_require_quality",
+        False,
+        "market_data.decision_context_require_quality",
+    )
     normalize_bool(
         market_data,
         "dynamic_tiering_enabled",
@@ -798,10 +995,80 @@ def normalize_config(
     )
     normalize_int(
         market_data,
+        "max_sync_requests_per_tick",
+        8,
+        "market_data.max_sync_requests_per_tick",
+        min_value=1,
+    )
+    normalize_int(
+        market_data,
         "dynamic_tier_promotion_count",
         2,
         "market_data.dynamic_tier_promotion_count",
         min_value=1,
+    )
+    raw_sync_symbol_scope = str(market_data.get("sync_symbol_scope", "scan") or "").strip().lower()
+    allowed_sync_symbol_scopes = {"cycle", "scan", "scan_plus_open"}
+    if raw_sync_symbol_scope not in allowed_sync_symbol_scopes:
+        market_data["sync_symbol_scope"] = "scan"
+        changed = True
+        warn("market_data.sync_symbol_scope invalid; defaulted to 'scan'")
+    elif market_data.get("sync_symbol_scope") != raw_sync_symbol_scope:
+        market_data["sync_symbol_scope"] = raw_sync_symbol_scope
+        changed = True
+    normalize_bool(
+        market_data,
+        "sync_stale_catchup_enabled",
+        True,
+        "market_data.sync_stale_catchup_enabled",
+    )
+    normalize_int(
+        market_data,
+        "sync_stale_catchup_age_intervals",
+        6,
+        "market_data.sync_stale_catchup_age_intervals",
+        min_value=1,
+    )
+    normalize_int(
+        market_data,
+        "sync_stale_catchup_reserved_requests",
+        2,
+        "market_data.sync_stale_catchup_reserved_requests",
+        min_value=0,
+    )
+    normalize_int(
+        market_data,
+        "sync_stale_catchup_max_symbols",
+        8,
+        "market_data.sync_stale_catchup_max_symbols",
+        min_value=1,
+    )
+    normalize_bool(
+        market_data,
+        "sync_persist_watermark_enabled",
+        True,
+        "market_data.sync_persist_watermark_enabled",
+    )
+    normalize_int(
+        market_data,
+        "sync_watermark_ttl_seconds",
+        21600,
+        "market_data.sync_watermark_ttl_seconds",
+        min_value=60,
+    )
+    normalize_int(
+        market_data,
+        "sync_watermark_persist_interval_seconds",
+        30,
+        "market_data.sync_watermark_persist_interval_seconds",
+        min_value=1,
+    )
+    normalize_int(
+        market_data,
+        "sync_watermark_max_entries",
+        5000,
+        "market_data.sync_watermark_max_entries",
+        min_value=100,
     )
     normalize_int(
         market_data,
@@ -1007,10 +1274,84 @@ def normalize_config(
         "market_data.freshness_slo.min_sync_requests",
         min_value=0,
     )
+    normalize_bool(
+        freshness_slo,
+        "entry_block_on_degraded",
+        True,
+        "market_data.freshness_slo.entry_block_on_degraded",
+    )
+    normalize_int(
+        freshness_slo,
+        "entry_block_after_degraded_cycles",
+        3,
+        "market_data.freshness_slo.entry_block_after_degraded_cycles",
+        min_value=1,
+    )
+    normalize_bool(
+        freshness_slo,
+        "decision_timeframe_enforce",
+        True,
+        "market_data.freshness_slo.decision_timeframe_enforce",
+    )
+    normalize_int(
+        freshness_slo,
+        "min_fresh_decision_timeframe",
+        1,
+        "market_data.freshness_slo.min_fresh_decision_timeframe",
+        min_value=0,
+    )
+    normalize_float(
+        freshness_slo,
+        "decision_timeframe_max_oldest_due_seconds",
+        420.0,
+        "market_data.freshness_slo.decision_timeframe_max_oldest_due_seconds",
+        min_value=0.0,
+    )
+    normalize_int(
+        market_data,
+        "sync_reserved_requests_decision_timeframe",
+        3,
+        "market_data.sync_reserved_requests_decision_timeframe",
+        min_value=0,
+    )
+    normalize_float(
+        market_data,
+        "sync_max_background_share",
+        0.5,
+        "market_data.sync_max_background_share",
+        min_value=0.0,
+        max_value=1.0,
+    )
+    share_caps = ensure_dict(
+        market_data,
+        "sync_timeframe_max_share",
+        "market_data.sync_timeframe_max_share",
+    )
+    cleaned_share_caps: dict[str, float] = {}
+    allowed_sync_timeframes = {"1m", "5m", "15m", "30m", "1h", "4h", "1d"}
+    for raw_tf, raw_share in share_caps.items():
+        tf = str(raw_tf or "").strip().lower()
+        if tf not in allowed_sync_timeframes:
+            changed = True
+            warn(f"market_data.sync_timeframe_max_share contains unsupported timeframe '{tf}'; removed")
+            continue
+        share = _to_float(raw_share)
+        if share is None:
+            changed = True
+            warn(f"market_data.sync_timeframe_max_share.{tf} invalid; removed")
+            continue
+        bounded = min(max(float(share), 0.0), 1.0)
+        if bounded != share:
+            changed = True
+            warn(f"market_data.sync_timeframe_max_share.{tf} out of bounds; clamped to {bounded}")
+        cleaned_share_caps[tf] = bounded
+    if market_data.get("sync_timeframe_max_share") != cleaned_share_caps:
+        market_data["sync_timeframe_max_share"] = cleaned_share_caps
+        changed = True
+
     sync_timeframes_default = ["1h", "4h", "1d"]
     raw_sync_timeframes = market_data.get("sync_timeframes")
     cleaned_sync_timeframes: list[str] = []
-    allowed_sync_timeframes = {"1m", "5m", "15m", "30m", "1h", "4h", "1d"}
     if isinstance(raw_sync_timeframes, list):
         for item in raw_sync_timeframes:
             tf = str(item or "").strip().lower()
@@ -1024,6 +1365,10 @@ def normalize_config(
         if raw_sync_timeframes != cleaned_sync_timeframes:
             changed = True
             warn("market_data.sync_timeframes missing/invalid; core-first default applied")
+    if raw_decision_tf in allowed_sync_timeframes and raw_decision_tf not in cleaned_sync_timeframes:
+        cleaned_sync_timeframes.append(raw_decision_tf)
+        changed = True
+        warn("market_data.sync_timeframes missing decision timeframe; appended automatically")
     if market_data.get("sync_timeframes") != cleaned_sync_timeframes:
         market_data["sync_timeframes"] = cleaned_sync_timeframes
         changed = True

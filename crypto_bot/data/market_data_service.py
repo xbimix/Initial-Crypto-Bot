@@ -5,10 +5,15 @@ import time
 from pathlib import Path
 
 from data.data_quality import QualityInput, resolve_quality
+from data.market_quality_policy import resolve_freshness_policy
 from data.revolut_candle_fetcher import timeframe_to_interval_minutes
 from data.revolut_candle_store import RevolutCandleStore
 from data.revolut_market_db import resolve_db_path
-from data.revolut_orderbook_cache import get_orderbook_cache, update_orderbook_cache
+from data.revolut_orderbook_cache import (
+    get_orderbook_cache,
+    get_orderbook_cache_metrics,
+    update_orderbook_cache,
+)
 
 
 class MarketDataService:
@@ -37,13 +42,25 @@ class MarketDataService:
         symbol: str,
         timeframe: str,
         *,
-        stale_after_seconds: int = 120,
+        stale_after_seconds: int | None = None,
     ) -> dict:
+        requested_tf = str(timeframe or "").strip().lower()
         supported_timeframe = True
+        interval_minutes = None
         try:
-            timeframe_to_interval_minutes(timeframe)
+            interval_minutes = timeframe_to_interval_minutes(requested_tf)
         except Exception:
             supported_timeframe = False
+
+        if stale_after_seconds is None:
+            policy = resolve_freshness_policy(
+                timeframe=timeframe,
+                stale_intervals=3,
+                min_stale_seconds=300,
+            )
+            stale_after_seconds = int(policy.stale_after_seconds)
+        else:
+            stale_after_seconds = max(int(stale_after_seconds), 1)
 
         latest_open = None
         earliest_open = None
@@ -61,9 +78,33 @@ class MarketDataService:
         except Exception:
             quality_reason = "meta_fetch_failed"
         now_ms = int(time.time() * 1000)
+        interval_ms = int(interval_minutes or 1) * 60_000 if interval_minutes is not None else 60_000
+        freshness_reference = "none"
+        freshness_reference_ts = None
+        age_seconds = None
+
+        # Prefer candle-time freshness over write-time freshness so staleness
+        # reflects market-data age rather than storage mutation time.
+        if latest_open is not None:
+            try:
+                freshness_reference_ts = int(latest_open) + int(interval_ms)
+                freshness_reference = "latest_candle_close_estimate"
+            except (TypeError, ValueError):
+                freshness_reference_ts = None
+                freshness_reference = "none"
+        if freshness_reference_ts is None and updated_at is not None:
+            try:
+                freshness_reference_ts = int(updated_at)
+                freshness_reference = "last_updated_at"
+            except (TypeError, ValueError):
+                freshness_reference_ts = None
+                freshness_reference = "none"
+
         stale = True
-        if updated_at is not None:
-            stale = (now_ms - int(updated_at)) > (int(stale_after_seconds) * 1000)
+        if freshness_reference_ts is not None:
+            age_ms = max(0, int(now_ms - int(freshness_reference_ts)))
+            age_seconds = float(age_ms) / 1000.0
+            stale = age_ms > (int(stale_after_seconds) * 1000)
         quality = resolve_quality(
             QualityInput(
                 sample_count=int(count or 0),
@@ -77,6 +118,9 @@ class MarketDataService:
             "symbol": symbol,
             "timeframe": timeframe,
             "last_update_ts": updated_at,
+            "freshness_reference_ts": freshness_reference_ts,
+            "freshness_reference": freshness_reference,
+            "age_seconds": age_seconds,
             "candle_count": count,
             "earliest_open_time": earliest_open,
             "latest_open_time": latest_open,
@@ -100,10 +144,13 @@ class MarketDataService:
         if cached is None and refresh_if_stale:
             cached = update_orderbook_cache(symbol)
         elif cached is not None and refresh_if_stale:
-            now_ms = int(time.time() * 1000)
-            age_ms = now_ms - int(cached["ts"])
-            if age_ms > int(stale_after_seconds) * 1000:
+            if bool(cached.get("stale")):
                 cached = update_orderbook_cache(symbol)
+            else:
+                now_ms = int(time.time() * 1000)
+                age_ms = now_ms - int(cached["ts"])
+                if age_ms > int(stale_after_seconds) * 1000:
+                    cached = update_orderbook_cache(symbol)
 
         if cached is None:
             return None
@@ -112,6 +159,7 @@ class MarketDataService:
         payload = dict(cached)
         payload["staleness_seconds"] = age_seconds
         payload["source"] = payload.get("source", "revolut")
+        payload["cache_metrics"] = get_orderbook_cache_metrics()
         return payload
 
 
@@ -137,7 +185,7 @@ def get_candle_meta(
     symbol: str,
     timeframe: str,
     *,
-    stale_after_seconds: int = 120,
+    stale_after_seconds: int | None = None,
 ) -> dict:
     return _service().get_candle_meta(
         symbol=symbol,

@@ -94,6 +94,18 @@ class RevolutCandleStore:
             db_path=self.db_path,
         )
 
+    def list_sync_states(
+        self,
+        *,
+        symbols: list[str] | None = None,
+        timeframes: list[str] | None = None,
+    ) -> list[dict]:
+        return revolut_market_db.list_sync_states(
+            symbols=symbols,
+            timeframes=timeframes,
+            db_path=self.db_path,
+        )
+
     def upsert_sync_state(
         self,
         *,

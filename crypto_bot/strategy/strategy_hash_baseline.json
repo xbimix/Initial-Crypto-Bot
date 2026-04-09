@@ -1,17 +1,17 @@
 ﻿{
-    "generated_at_utc":  "2026-03-30T02:30:24.9805914Z",
+    "generated_at_utc":  "2026-04-06T11:43:49.2884382Z",
     "hash_scope":  "behavior_sensitive",
     "repo_root":  "D:\\Python-Codes\\RevBot",
     "files":  {
-                  "crypto_bot/strategy/strategy_engine.py":  "77E4A79BCCFE95246616218EBFA62B1925BB23F914C737F1A9694745B04C26F3",
-                  "crypto_bot/strategy/regime_router.py":  "C380D2921FF2BA68A390125DCD0C5BA5E9EC7B6CF48BB6942024CC1739EB29AB",
+                  "crypto_bot/strategy/strategy_engine.py":  "4AA74B7E5804B7D0B01C6BF7CE1DA374B1B1E54E8DDE3AE9E820BFCFC02F5C0E",
+                  "crypto_bot/strategy/regime_router.py":  "0A2DFECC771A8BCC2795C144E5EE72092BB1751E8318108FFD4DA7D2CAADEB83",
                   "crypto_bot/strategy/trend_pullback.py":  "213B10827D8DB5F4287C5A4731F1D73CCCBD3227A9665BEDE275CFAAF65AED85",
                   "crypto_bot/strategy/breakout_momentum.py":  "11F0AEC058BD3FDFEC0439A9A809AC1B860C4255DCDF4E8B145C4FB52415B420",
                   "crypto_bot/strategy/regime.py":  "6DF5393396AC5DA342FB51B0842DEE528A777C7B64C51ADF73D7E8B6702F1D64",
                   "crypto_bot/strategy/scoring.py":  "4921B1A74F1C171036A869E6CE81F7C3ECA9430CD5829C42D87DB3A9A37BAEEC",
-                  "crypto_bot/trading/executor.py":  "46A8E2E2A4368AB0979DB17A82ACFC25B50D93CCA4B9190661FAE703100BB1DF",
+                  "crypto_bot/trading/executor.py":  "37CC7BF66EB8782441E3109BC82A7BA1105B423009729833C88E50A979943D5C",
                   "crypto_bot/risk/risk_manager.py":  "FA8D3BC8B1B8F96B5B021E9CACAFE9A87E1F3A31C68070A5D8639DF0F821AD96",
-                  "crypto_bot/main.py":  "E070567BE288CE8E2240CB5B8931DB44BD944272D192445017428B6A85A54241",
-                  "crypto_bot/paper/paper_broker.py":  "C8A0B135FEC28369E94F2618368674964992558DF7E5AE096A08C0B75FAC2C8D"
+                  "crypto_bot/main.py":  "04C0515101723A7D9AF28BBED344D3A83757A54D997CC168443F07FA5CD1818D",
+                  "crypto_bot/paper/paper_broker.py":  "DA1BC535D107E3F3660F995017957E6663424408C720C61E165207A057147AB6"
               }
 }

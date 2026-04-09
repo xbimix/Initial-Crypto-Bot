@@ -23,6 +23,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r crypto_bot/requirements.txt -r crypto_bot/requirements-dev.txt
 
+      - name: Behavior lock hash check
+        shell: pwsh
+        run: |
+          ./scripts/check_behavior_lock_contract.ps1
+          ./scripts/check_strategy_hashes.ps1
+
       - name: Compile Python
         run: |
           python -m compileall -q \
@@ -74,4 +80,3 @@ jobs:
 
       - name: Type check
         run: npx tsc --noEmit
-

@@ -20,7 +20,11 @@ class PaperBroker:
         self.state = self._load_state()
 
     def _load_state(self):
-        path = read_path_with_legacy_fallback(STATE_FILE, LEGACY_STATE_FILE)
+        path = read_path_with_legacy_fallback(
+            STATE_FILE,
+            LEGACY_STATE_FILE,
+            context="trading.trader.load_state",
+        )
         if not path.exists():
             return {
                 "balance": STARTING_BALANCE,

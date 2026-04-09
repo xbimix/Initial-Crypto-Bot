@@ -16,6 +16,8 @@ from strategy.strategy_engine import (
 )
 
 logger = setup_logger("executor")
+EXECUTION_REPORT_SCHEMA_NAME = "execution_report"
+EXECUTION_REPORT_SCHEMA_VERSION = 1
 
 
 class Executor:
@@ -58,6 +60,13 @@ class Executor:
                 execution_fail_pause_until=float(
                     self._safe_float(getattr(self, "_execution_fail_pause_until", 0.0), 0.0) or 0.0
                 ),
+                freshness_degraded_streak=int(
+                    self._safe_float(getattr(self, "_freshness_degraded_streak", 0), 0) or 0
+                ),
+                freshness_guard_active=bool(getattr(self, "_freshness_guard_active", False)),
+                freshness_block_reason=(
+                    str(getattr(self, "_freshness_block_reason", "")).strip() or None
+                ),
             )
             self.runtime_safety = RuntimeSafetyService(
                 cfg=self.cfg,
@@ -72,6 +81,9 @@ class Executor:
         self._daily_loss_close_all_day = state.daily_loss_close_all_day
         self._consecutive_execution_failures = state.consecutive_execution_failures
         self._execution_fail_pause_until = state.execution_fail_pause_until
+        self._freshness_degraded_streak = state.freshness_degraded_streak
+        self._freshness_guard_active = state.freshness_guard_active
+        self._freshness_block_reason = state.freshness_block_reason
 
     # --------------------------------------------------
     # HOT RELOAD SUPPORT
@@ -180,6 +192,31 @@ class Executor:
         except (TypeError, ValueError):
             return default
 
+    @staticmethod
+    def _normalize_execution_report(
+        payload: dict | None,
+        *,
+        infer_legacy_schema: bool = False,
+    ) -> dict:
+        report = dict(payload) if isinstance(payload, dict) else {}
+        if "schema_name" not in report:
+            report["schema_name"] = EXECUTION_REPORT_SCHEMA_NAME
+            if infer_legacy_schema and isinstance(payload, dict):
+                report["_legacy_schema_inferred"] = True
+        if "schema_version" not in report:
+            report["schema_version"] = EXECUTION_REPORT_SCHEMA_VERSION
+            if infer_legacy_schema and isinstance(payload, dict):
+                report["_legacy_schema_inferred"] = True
+        return report
+
+    @staticmethod
+    def _as_execution_report(payload: dict | None) -> dict:
+        return Executor._normalize_execution_report(payload, infer_legacy_schema=False)
+
+    @staticmethod
+    def read_execution_report(payload: dict | None) -> dict:
+        return Executor._normalize_execution_report(payload, infer_legacy_schema=True)
+
     def _estimate_stop_price(
         self,
         *,
@@ -244,6 +281,12 @@ class Executor:
         self.runtime_safety.record_execution_failure(reason=reason)
         self._sync_runtime_safety_compat_state()
 
+    def record_freshness_slo(self, slo: dict | None) -> RuntimeSafetyResult:
+        self._ensure_services()
+        result = self.runtime_safety.record_freshness_slo(slo if isinstance(slo, dict) else {})
+        self._sync_runtime_safety_compat_state()
+        return result
+
     # --------------------------------------------------
     # BUY HANDLER
     # --------------------------------------------------
@@ -265,6 +308,14 @@ class Executor:
         try:
             runtime_safety = self.runtime_safety.check_buy_allowed(symbol)
             if not runtime_safety.allowed:
+                self.last_execution_report = self._as_execution_report({
+                    "status": "rejected",
+                    "reason": runtime_safety.blocked_reason or "runtime_safety_blocked",
+                    "side": "BUY",
+                    "symbol": symbol,
+                    "runtime_safety_counters": dict(runtime_safety.counters or {}),
+                    "runtime_safety_thresholds": dict(runtime_safety.thresholds or {}),
+                })
                 return False
 
             has_position = self.has_open_position(symbol)
@@ -361,7 +412,7 @@ class Executor:
                 reason=reason,
                 trade_meta=trade_meta,
             )
-            self.last_execution_report = dict(execution_report)
+            self.last_execution_report = self._as_execution_report(execution_report)
             if ok:
                 fill_price, _fill_size = self.portfolio.register_buy_fill(
                     symbol=symbol,
@@ -405,12 +456,12 @@ class Executor:
         if not self.has_open_position(symbol):
             logger.warning(f"No open position to sell for {symbol}")
             confirm_exit(symbol, price)
-            self.last_execution_report = {
+            self.last_execution_report = self._as_execution_report({
                 "status": "rejected",
                 "reason": "no_open_position",
                 "side": "SELL",
                 "symbol": symbol,
-            }
+            })
             return False
 
         position = self.portfolio.get_position(symbol) or {}
@@ -422,7 +473,7 @@ class Executor:
             reason=reason,
             trade_meta=sell_trade_meta,
         )
-        self.last_execution_report = dict(execution_report)
+        self.last_execution_report = self._as_execution_report(execution_report)
         if ok:
             position_closed = self.portfolio.register_sell_fill(
                 symbol=symbol,

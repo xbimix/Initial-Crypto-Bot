@@ -490,6 +490,54 @@ def get_sync_state(
     return dict(row) if row else None
 
 
+def list_sync_states(
+    *,
+    symbols: list[str] | None = None,
+    timeframes: list[str] | None = None,
+    db_path: str | Path | None = None,
+) -> list[dict]:
+    ensure_schema(db_path)
+    query = """
+        SELECT
+            symbol, timeframe, earliest_ms, latest_ms, last_sync_ms, status, note, updated_at
+        FROM sync_state
+    """
+    where_parts: list[str] = []
+    params: list[object] = []
+
+    if isinstance(symbols, list):
+        cleaned_symbols = [
+            str(symbol or "").strip().upper()
+            for symbol in symbols
+            if str(symbol or "").strip()
+        ]
+        cleaned_symbols = list(dict.fromkeys(cleaned_symbols))
+        if cleaned_symbols:
+            placeholders = ",".join("?" for _ in cleaned_symbols)
+            where_parts.append(f"symbol IN ({placeholders})")
+            params.extend(cleaned_symbols)
+
+    if isinstance(timeframes, list):
+        cleaned_timeframes = [
+            str(timeframe or "").strip().lower()
+            for timeframe in timeframes
+            if str(timeframe or "").strip()
+        ]
+        cleaned_timeframes = list(dict.fromkeys(cleaned_timeframes))
+        if cleaned_timeframes:
+            placeholders = ",".join("?" for _ in cleaned_timeframes)
+            where_parts.append(f"timeframe IN ({placeholders})")
+            params.extend(cleaned_timeframes)
+
+    if where_parts:
+        query += " WHERE " + " AND ".join(where_parts)
+    query += " ORDER BY symbol ASC, timeframe ASC"
+
+    with connect(db_path) as conn:
+        rows = conn.execute(query, tuple(params)).fetchall()
+    return [dict(row) for row in rows]
+
+
 def upsert_sync_state(
     symbol: str,
     timeframe: str,

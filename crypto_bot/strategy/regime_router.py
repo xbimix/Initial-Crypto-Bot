@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from utils.token_regimes import (
@@ -37,55 +38,120 @@ TUNING_PROFILE_BALANCED = "balanced"
 TUNING_PROFILE_AGGRESSIVE = "aggressive"
 DEFAULT_TUNING_PROFILE = TUNING_PROFILE_CONSERVATIVE
 
-TUNING_PROFILE_DEFAULTS: dict[str, dict[str, float]] = {
-    TUNING_PROFILE_CONSERVATIVE: {
-        "auto_min_confidence": AUTO_DEFAULT_MIN_CONFIDENCE_SCORE,
-        "auto_min_stability": AUTO_DEFAULT_MIN_STABILITY_SCORE,
-        "auto_min_persistence": AUTO_DEFAULT_MIN_PERSISTENCE_SCORE,
-        "auto_max_route_age_seconds": AUTO_DEFAULT_MAX_ROUTE_AGE_SECONDS,
-        "auto_trend_min_confidence": AUTO_DEFAULT_TREND_MIN_CONFIDENCE_SCORE,
-        "auto_trend_min_stability": AUTO_DEFAULT_TREND_MIN_STABILITY_SCORE,
-        "auto_trend_min_persistence": AUTO_DEFAULT_TREND_MIN_PERSISTENCE_SCORE,
-        "auto_breakout_min_confidence": AUTO_DEFAULT_BREAKOUT_MIN_CONFIDENCE_SCORE,
-        "auto_breakout_min_stability": AUTO_DEFAULT_BREAKOUT_MIN_STABILITY_SCORE,
-        "auto_breakout_min_persistence": AUTO_DEFAULT_BREAKOUT_MIN_PERSISTENCE_SCORE,
-        "auto_trend_max_route_share_pct": AUTO_DEFAULT_TREND_MAX_ROUTE_SHARE_PCT,
-        "auto_breakout_max_route_share_pct": AUTO_DEFAULT_BREAKOUT_MAX_ROUTE_SHARE_PCT,
-        "auto_volatile_breakout_min": 86.0,
-        "auto_volatile_breakout_min_confidence": 80.0,
-    },
-    TUNING_PROFILE_BALANCED: {
-        "auto_min_confidence": 66.0,
-        "auto_min_stability": 56.0,
-        "auto_min_persistence": 56.0,
-        "auto_max_route_age_seconds": 18 * 60,
-        "auto_trend_min_confidence": 72.0,
-        "auto_trend_min_stability": 66.0,
-        "auto_trend_min_persistence": 66.0,
-        "auto_breakout_min_confidence": 80.0,
-        "auto_breakout_min_stability": 74.0,
-        "auto_breakout_min_persistence": 74.0,
-        "auto_trend_max_route_share_pct": 40.0,
-        "auto_breakout_max_route_share_pct": 10.0,
-        "auto_volatile_breakout_min": 84.0,
-        "auto_volatile_breakout_min_confidence": 78.0,
-    },
-    TUNING_PROFILE_AGGRESSIVE: {
-        "auto_min_confidence": 64.0,
-        "auto_min_stability": 54.0,
-        "auto_min_persistence": 54.0,
-        "auto_max_route_age_seconds": 22 * 60,
-        "auto_trend_min_confidence": 70.0,
-        "auto_trend_min_stability": 64.0,
-        "auto_trend_min_persistence": 64.0,
-        "auto_breakout_min_confidence": 78.0,
-        "auto_breakout_min_stability": 72.0,
-        "auto_breakout_min_persistence": 72.0,
-        "auto_trend_max_route_share_pct": 45.0,
-        "auto_breakout_max_route_share_pct": 12.0,
-        "auto_volatile_breakout_min": 82.0,
-        "auto_volatile_breakout_min_confidence": 76.0,
-    },
+@dataclass(frozen=True)
+class StrategyThresholdProfile:
+    min_confidence: float
+    min_stability: float
+    min_persistence: float
+    max_route_share_pct: float | None = None
+
+
+@dataclass(frozen=True)
+class RouterThresholdProfile:
+    max_route_age_seconds: float
+    volatile_breakout_min: float
+    volatile_breakout_min_confidence: float
+    strategy_defaults: dict[str, StrategyThresholdProfile]
+
+    def strategy(self, strategy: str) -> StrategyThresholdProfile:
+        return self.strategy_defaults.get(strategy, self.strategy_defaults[STRATEGY_MEAN_REVERSION])
+
+
+def _build_router_profile(
+    *,
+    mean_conf: float,
+    mean_stability: float,
+    mean_persistence: float,
+    max_route_age_seconds: float,
+    trend_conf: float,
+    trend_stability: float,
+    trend_persistence: float,
+    trend_max_share: float,
+    breakout_conf: float,
+    breakout_stability: float,
+    breakout_persistence: float,
+    breakout_max_share: float,
+    volatile_breakout_min: float,
+    volatile_breakout_min_confidence: float,
+) -> RouterThresholdProfile:
+    mean_profile = StrategyThresholdProfile(
+        min_confidence=float(mean_conf),
+        min_stability=float(mean_stability),
+        min_persistence=float(mean_persistence),
+    )
+    return RouterThresholdProfile(
+        max_route_age_seconds=float(max_route_age_seconds),
+        volatile_breakout_min=float(volatile_breakout_min),
+        volatile_breakout_min_confidence=float(volatile_breakout_min_confidence),
+        strategy_defaults={
+            STRATEGY_MEAN_REVERSION: mean_profile,
+            STRATEGY_OBSERVE_ONLY: mean_profile,
+            STRATEGY_VOLATILITY_SCALPER: mean_profile,
+            STRATEGY_TREND_PULLBACK: StrategyThresholdProfile(
+                min_confidence=float(trend_conf),
+                min_stability=float(trend_stability),
+                min_persistence=float(trend_persistence),
+                max_route_share_pct=float(trend_max_share),
+            ),
+            STRATEGY_BREAKOUT_MOMENTUM: StrategyThresholdProfile(
+                min_confidence=float(breakout_conf),
+                min_stability=float(breakout_stability),
+                min_persistence=float(breakout_persistence),
+                max_route_share_pct=float(breakout_max_share),
+            ),
+        },
+    )
+
+
+TUNING_PROFILE_DEFAULTS: dict[str, RouterThresholdProfile] = {
+    TUNING_PROFILE_CONSERVATIVE: _build_router_profile(
+        mean_conf=AUTO_DEFAULT_MIN_CONFIDENCE_SCORE,
+        mean_stability=AUTO_DEFAULT_MIN_STABILITY_SCORE,
+        mean_persistence=AUTO_DEFAULT_MIN_PERSISTENCE_SCORE,
+        max_route_age_seconds=AUTO_DEFAULT_MAX_ROUTE_AGE_SECONDS,
+        trend_conf=AUTO_DEFAULT_TREND_MIN_CONFIDENCE_SCORE,
+        trend_stability=AUTO_DEFAULT_TREND_MIN_STABILITY_SCORE,
+        trend_persistence=AUTO_DEFAULT_TREND_MIN_PERSISTENCE_SCORE,
+        trend_max_share=AUTO_DEFAULT_TREND_MAX_ROUTE_SHARE_PCT,
+        breakout_conf=AUTO_DEFAULT_BREAKOUT_MIN_CONFIDENCE_SCORE,
+        breakout_stability=AUTO_DEFAULT_BREAKOUT_MIN_STABILITY_SCORE,
+        breakout_persistence=AUTO_DEFAULT_BREAKOUT_MIN_PERSISTENCE_SCORE,
+        breakout_max_share=AUTO_DEFAULT_BREAKOUT_MAX_ROUTE_SHARE_PCT,
+        volatile_breakout_min=86.0,
+        volatile_breakout_min_confidence=80.0,
+    ),
+    TUNING_PROFILE_BALANCED: _build_router_profile(
+        mean_conf=66.0,
+        mean_stability=56.0,
+        mean_persistence=56.0,
+        max_route_age_seconds=18 * 60,
+        trend_conf=72.0,
+        trend_stability=66.0,
+        trend_persistence=66.0,
+        trend_max_share=40.0,
+        breakout_conf=80.0,
+        breakout_stability=74.0,
+        breakout_persistence=74.0,
+        breakout_max_share=10.0,
+        volatile_breakout_min=84.0,
+        volatile_breakout_min_confidence=78.0,
+    ),
+    TUNING_PROFILE_AGGRESSIVE: _build_router_profile(
+        mean_conf=64.0,
+        mean_stability=54.0,
+        mean_persistence=54.0,
+        max_route_age_seconds=22 * 60,
+        trend_conf=70.0,
+        trend_stability=64.0,
+        trend_persistence=64.0,
+        trend_max_share=45.0,
+        breakout_conf=78.0,
+        breakout_stability=72.0,
+        breakout_persistence=72.0,
+        breakout_max_share=12.0,
+        volatile_breakout_min=82.0,
+        volatile_breakout_min_confidence=76.0,
+    ),
 }
 
 SUGGESTED_REGIME_TREND_UP = "TREND_UP"
@@ -172,6 +238,33 @@ HUMAN_LABEL_TO_SUGGESTED = {
     "LOW-PARTICIPATION DEAD MARKET": SUGGESTED_REGIME_LOW_VOL,
     "MIXED / UNCLEAR": SUGGESTED_REGIME_UNKNOWN,
 }
+
+
+@dataclass(frozen=True)
+class AutoRouterThresholds:
+    min_confirmations: int
+    max_route_age_seconds: float
+    use_multitimeframe_advisory: bool
+    use_route_quality_gates: bool
+    require_core_candle_readiness: bool
+    min_confidence_by_strategy: dict[str, float]
+    min_stability_by_strategy: dict[str, float]
+    min_persistence_by_strategy: dict[str, float]
+    max_route_share_pct_by_strategy: dict[str, float | None]
+    volatile_breakout_min: float
+    volatile_breakout_min_confidence: float
+
+    def min_confidence(self, strategy: str) -> float:
+        return float(self.min_confidence_by_strategy.get(strategy, self.min_confidence_by_strategy[STRATEGY_MEAN_REVERSION]))
+
+    def min_stability(self, strategy: str) -> float:
+        return float(self.min_stability_by_strategy.get(strategy, self.min_stability_by_strategy[STRATEGY_MEAN_REVERSION]))
+
+    def min_persistence(self, strategy: str) -> float:
+        return float(self.min_persistence_by_strategy.get(strategy, self.min_persistence_by_strategy[STRATEGY_MEAN_REVERSION]))
+
+    def max_route_share_pct(self, strategy: str) -> float | None:
+        return self.max_route_share_pct_by_strategy.get(strategy)
 
 
 def _normalize_suggested_regime(value: Any) -> str | None:
@@ -286,21 +379,63 @@ def _tuning_profile(cfg: dict[str, Any]) -> str:
     return DEFAULT_TUNING_PROFILE
 
 
-def _profile_default(cfg: dict[str, Any], key: str, fallback: float) -> float:
+def _profile_defaults(cfg: dict[str, Any]) -> RouterThresholdProfile:
     profile = _tuning_profile(cfg)
-    defaults = TUNING_PROFILE_DEFAULTS.get(profile, {})
-    value = _as_float(defaults.get(key))
-    if value is None:
-        return float(fallback)
-    return float(value)
+    return TUNING_PROFILE_DEFAULTS.get(profile, TUNING_PROFILE_DEFAULTS[DEFAULT_TUNING_PROFILE])
+
+
+_STRATEGY_THRESHOLD_OVERRIDE_KEYS: dict[str, dict[str, str]] = {
+    "min_confidence": {
+        STRATEGY_MEAN_REVERSION: "auto_min_confidence",
+        STRATEGY_TREND_PULLBACK: "auto_trend_min_confidence",
+        STRATEGY_BREAKOUT_MOMENTUM: "auto_breakout_min_confidence",
+    },
+    "min_stability": {
+        STRATEGY_MEAN_REVERSION: "auto_min_stability",
+        STRATEGY_TREND_PULLBACK: "auto_trend_min_stability",
+        STRATEGY_BREAKOUT_MOMENTUM: "auto_breakout_min_stability",
+    },
+    "min_persistence": {
+        STRATEGY_MEAN_REVERSION: "auto_min_persistence",
+        STRATEGY_TREND_PULLBACK: "auto_trend_min_persistence",
+        STRATEGY_BREAKOUT_MOMENTUM: "auto_breakout_min_persistence",
+    },
+    "max_route_share_pct": {
+        STRATEGY_TREND_PULLBACK: "auto_trend_max_route_share_pct",
+        STRATEGY_BREAKOUT_MOMENTUM: "auto_breakout_max_route_share_pct",
+    },
+}
+
+
+def _strategy_threshold_default(cfg: dict[str, Any], strategy: str) -> StrategyThresholdProfile:
+    return _profile_defaults(cfg).strategy(strategy)
+
+
+def _strategy_threshold(cfg: dict[str, Any], strategy: str, metric: str) -> float | None:
+    defaults = _strategy_threshold_default(cfg, strategy)
+    key_map = _STRATEGY_THRESHOLD_OVERRIDE_KEYS.get(metric, {})
+    override_key = key_map.get(strategy)
+    if override_key is None:
+        if metric == "max_route_share_pct":
+            return defaults.max_route_share_pct
+        return float(getattr(defaults, metric))
+
+    router = _router_cfg(cfg)
+    raw_value = router.get(override_key)
+    if metric == "max_route_share_pct":
+        configured = _as_float(raw_value)
+        if configured is None:
+            return defaults.max_route_share_pct
+        return max(0.0, min(configured, 100.0))
+
+    configured = _normalize_confidence_score(raw_value)
+    if configured is None:
+        return float(getattr(defaults, metric))
+    return configured
 
 
 def _auto_min_confidence_score(cfg: dict[str, Any]) -> float:
-    router = _router_cfg(cfg)
-    configured = _normalize_confidence_score(router.get("auto_min_confidence"))
-    if configured is None:
-        return _profile_default(cfg, "auto_min_confidence", AUTO_DEFAULT_MIN_CONFIDENCE_SCORE)
-    return configured
+    return float(_strategy_threshold(cfg, STRATEGY_MEAN_REVERSION, "min_confidence") or AUTO_DEFAULT_MIN_CONFIDENCE_SCORE)
 
 
 def _auto_min_confirmations(cfg: dict[str, Any]) -> int:
@@ -319,19 +454,11 @@ def _auto_use_multitimeframe_advisory(cfg: dict[str, Any]) -> bool:
 
 
 def _auto_min_stability_score(cfg: dict[str, Any]) -> float:
-    router = _router_cfg(cfg)
-    configured = _normalize_confidence_score(router.get("auto_min_stability"))
-    if configured is None:
-        return _profile_default(cfg, "auto_min_stability", AUTO_DEFAULT_MIN_STABILITY_SCORE)
-    return configured
+    return float(_strategy_threshold(cfg, STRATEGY_MEAN_REVERSION, "min_stability") or AUTO_DEFAULT_MIN_STABILITY_SCORE)
 
 
 def _auto_min_persistence_score(cfg: dict[str, Any]) -> float:
-    router = _router_cfg(cfg)
-    configured = _normalize_confidence_score(router.get("auto_min_persistence"))
-    if configured is None:
-        return _profile_default(cfg, "auto_min_persistence", AUTO_DEFAULT_MIN_PERSISTENCE_SCORE)
-    return configured
+    return float(_strategy_threshold(cfg, STRATEGY_MEAN_REVERSION, "min_persistence") or AUTO_DEFAULT_MIN_PERSISTENCE_SCORE)
 
 
 def _auto_use_route_quality_gates(cfg: dict[str, Any]) -> bool:
@@ -340,67 +467,28 @@ def _auto_use_route_quality_gates(cfg: dict[str, Any]) -> bool:
 
 
 def _auto_strategy_min_confidence_score(cfg: dict[str, Any], strategy: str) -> float:
-    router = _router_cfg(cfg)
-    if strategy == STRATEGY_TREND_PULLBACK:
-        configured = _normalize_confidence_score(router.get("auto_trend_min_confidence"))
-        if configured is not None:
-            return configured
-        return _profile_default(cfg, "auto_trend_min_confidence", AUTO_DEFAULT_TREND_MIN_CONFIDENCE_SCORE)
-    if strategy == STRATEGY_BREAKOUT_MOMENTUM:
-        configured = _normalize_confidence_score(router.get("auto_breakout_min_confidence"))
-        if configured is not None:
-            return configured
-        return _profile_default(cfg, "auto_breakout_min_confidence", AUTO_DEFAULT_BREAKOUT_MIN_CONFIDENCE_SCORE)
-    return _auto_min_confidence_score(cfg)
+    value = _strategy_threshold(cfg, strategy, "min_confidence")
+    if value is None:
+        return _auto_min_confidence_score(cfg)
+    return float(value)
 
 
 def _auto_strategy_min_stability_score(cfg: dict[str, Any], strategy: str) -> float:
-    router = _router_cfg(cfg)
-    if strategy == STRATEGY_TREND_PULLBACK:
-        configured = _normalize_confidence_score(router.get("auto_trend_min_stability"))
-        if configured is not None:
-            return configured
-        return _profile_default(cfg, "auto_trend_min_stability", AUTO_DEFAULT_TREND_MIN_STABILITY_SCORE)
-    if strategy == STRATEGY_BREAKOUT_MOMENTUM:
-        configured = _normalize_confidence_score(router.get("auto_breakout_min_stability"))
-        if configured is not None:
-            return configured
-        return _profile_default(cfg, "auto_breakout_min_stability", AUTO_DEFAULT_BREAKOUT_MIN_STABILITY_SCORE)
-    return _auto_min_stability_score(cfg)
+    value = _strategy_threshold(cfg, strategy, "min_stability")
+    if value is None:
+        return _auto_min_stability_score(cfg)
+    return float(value)
 
 
 def _auto_strategy_min_persistence_score(cfg: dict[str, Any], strategy: str) -> float:
-    router = _router_cfg(cfg)
-    if strategy == STRATEGY_TREND_PULLBACK:
-        configured = _normalize_confidence_score(router.get("auto_trend_min_persistence"))
-        if configured is not None:
-            return configured
-        return _profile_default(cfg, "auto_trend_min_persistence", AUTO_DEFAULT_TREND_MIN_PERSISTENCE_SCORE)
-    if strategy == STRATEGY_BREAKOUT_MOMENTUM:
-        configured = _normalize_confidence_score(router.get("auto_breakout_min_persistence"))
-        if configured is not None:
-            return configured
-        return _profile_default(cfg, "auto_breakout_min_persistence", AUTO_DEFAULT_BREAKOUT_MIN_PERSISTENCE_SCORE)
-    return _auto_min_persistence_score(cfg)
+    value = _strategy_threshold(cfg, strategy, "min_persistence")
+    if value is None:
+        return _auto_min_persistence_score(cfg)
+    return float(value)
 
 
 def _auto_strategy_max_route_share_pct(cfg: dict[str, Any], strategy: str) -> float | None:
-    router = _router_cfg(cfg)
-    if strategy == STRATEGY_TREND_PULLBACK:
-        configured = _as_float(router.get("auto_trend_max_route_share_pct"))
-        if configured is None:
-            return _profile_default(cfg, "auto_trend_max_route_share_pct", AUTO_DEFAULT_TREND_MAX_ROUTE_SHARE_PCT)
-        return max(0.0, min(configured, 100.0))
-    if strategy == STRATEGY_BREAKOUT_MOMENTUM:
-        configured = _as_float(router.get("auto_breakout_max_route_share_pct"))
-        if configured is None:
-            return _profile_default(
-                cfg,
-                "auto_breakout_max_route_share_pct",
-                AUTO_DEFAULT_BREAKOUT_MAX_ROUTE_SHARE_PCT,
-            )
-        return max(0.0, min(configured, 100.0))
-    return None
+    return _strategy_threshold(cfg, strategy, "max_route_share_pct")
 
 
 def _route_quality_payload(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -452,13 +540,67 @@ def _auto_max_route_age_seconds(cfg: dict[str, Any]) -> float:
     router = _router_cfg(cfg)
     age = _as_float(router.get("auto_max_route_age_seconds"))
     if age is None or age <= 0:
-        return _profile_default(cfg, "auto_max_route_age_seconds", AUTO_DEFAULT_MAX_ROUTE_AGE_SECONDS)
+        return float(_profile_defaults(cfg).max_route_age_seconds)
     return max(age, 60.0)
 
 
 def _auto_require_core_candle_readiness(cfg: dict[str, Any]) -> bool:
     router = _router_cfg(cfg)
     return _as_bool(router.get("auto_require_core_candle_readiness"), True)
+
+
+def _build_auto_router_thresholds(cfg: dict[str, Any]) -> AutoRouterThresholds:
+    profile_defaults = _profile_defaults(cfg)
+    mean_conf = _auto_min_confidence_score(cfg)
+    mean_stability = _auto_min_stability_score(cfg)
+    mean_persistence = _auto_min_persistence_score(cfg)
+    trend_conf = _auto_strategy_min_confidence_score(cfg, STRATEGY_TREND_PULLBACK)
+    trend_stability = _auto_strategy_min_stability_score(cfg, STRATEGY_TREND_PULLBACK)
+    trend_persistence = _auto_strategy_min_persistence_score(cfg, STRATEGY_TREND_PULLBACK)
+    breakout_conf = _auto_strategy_min_confidence_score(cfg, STRATEGY_BREAKOUT_MOMENTUM)
+    breakout_stability = _auto_strategy_min_stability_score(cfg, STRATEGY_BREAKOUT_MOMENTUM)
+    breakout_persistence = _auto_strategy_min_persistence_score(cfg, STRATEGY_BREAKOUT_MOMENTUM)
+    volatile_breakout_min = _normalize_confidence_score(_router_cfg(cfg).get("auto_volatile_breakout_min"))
+    if volatile_breakout_min is None:
+        volatile_breakout_min = float(profile_defaults.volatile_breakout_min)
+    volatile_breakout_min_conf = _normalize_confidence_score(_router_cfg(cfg).get("auto_volatile_breakout_min_confidence"))
+    if volatile_breakout_min_conf is None:
+        volatile_breakout_min_conf = float(profile_defaults.volatile_breakout_min_confidence)
+
+    return AutoRouterThresholds(
+        min_confirmations=_auto_min_confirmations(cfg),
+        max_route_age_seconds=_auto_max_route_age_seconds(cfg),
+        use_multitimeframe_advisory=_auto_use_multitimeframe_advisory(cfg),
+        use_route_quality_gates=_auto_use_route_quality_gates(cfg),
+        require_core_candle_readiness=_auto_require_core_candle_readiness(cfg),
+        min_confidence_by_strategy={
+            STRATEGY_MEAN_REVERSION: mean_conf,
+            STRATEGY_TREND_PULLBACK: trend_conf,
+            STRATEGY_BREAKOUT_MOMENTUM: breakout_conf,
+            STRATEGY_OBSERVE_ONLY: mean_conf,
+            STRATEGY_VOLATILITY_SCALPER: mean_conf,
+        },
+        min_stability_by_strategy={
+            STRATEGY_MEAN_REVERSION: mean_stability,
+            STRATEGY_TREND_PULLBACK: trend_stability,
+            STRATEGY_BREAKOUT_MOMENTUM: breakout_stability,
+            STRATEGY_OBSERVE_ONLY: mean_stability,
+            STRATEGY_VOLATILITY_SCALPER: mean_stability,
+        },
+        min_persistence_by_strategy={
+            STRATEGY_MEAN_REVERSION: mean_persistence,
+            STRATEGY_TREND_PULLBACK: trend_persistence,
+            STRATEGY_BREAKOUT_MOMENTUM: breakout_persistence,
+            STRATEGY_OBSERVE_ONLY: mean_persistence,
+            STRATEGY_VOLATILITY_SCALPER: mean_persistence,
+        },
+        max_route_share_pct_by_strategy={
+            STRATEGY_TREND_PULLBACK: _auto_strategy_max_route_share_pct(cfg, STRATEGY_TREND_PULLBACK),
+            STRATEGY_BREAKOUT_MOMENTUM: _auto_strategy_max_route_share_pct(cfg, STRATEGY_BREAKOUT_MOMENTUM),
+        },
+        volatile_breakout_min=float(volatile_breakout_min),
+        volatile_breakout_min_confidence=float(volatile_breakout_min_conf),
+    )
 
 
 def _core_candle_readiness(snapshot: dict[str, Any]) -> tuple[bool, str | None]:
@@ -473,7 +615,13 @@ def _core_candle_readiness(snapshot: dict[str, Any]) -> tuple[bool, str | None]:
     return ready, reason.strip().lower()
 
 
-def _volatile_breakout_override(snapshot: dict[str, Any], cfg: dict[str, Any], confidence_score: float | None) -> bool:
+def _volatile_breakout_override(
+    snapshot: dict[str, Any],
+    cfg: dict[str, Any],
+    confidence_score: float | None,
+    *,
+    thresholds: AutoRouterThresholds | None = None,
+) -> bool:
     advisory = snapshot.get("regime_advisory")
     if not isinstance(advisory, dict):
         return False
@@ -482,13 +630,9 @@ def _volatile_breakout_override(snapshot: dict[str, Any], cfg: dict[str, Any], c
     )
     if breakout_score is None:
         return False
-    router = _router_cfg(cfg)
-    breakout_min = _normalize_confidence_score(router.get("auto_volatile_breakout_min"))
-    if breakout_min is None:
-        breakout_min = _profile_default(cfg, "auto_volatile_breakout_min", 86.0)
-    confidence_min = _normalize_confidence_score(router.get("auto_volatile_breakout_min_confidence"))
-    if confidence_min is None:
-        confidence_min = _profile_default(cfg, "auto_volatile_breakout_min_confidence", 80.0)
+    threshold_set = thresholds if isinstance(thresholds, AutoRouterThresholds) else _build_auto_router_thresholds(cfg)
+    breakout_min = float(threshold_set.volatile_breakout_min)
+    confidence_min = float(threshold_set.volatile_breakout_min_confidence)
     confidence_probe = confidence_score if confidence_score is not None else 0.0
     return breakout_score >= breakout_min and confidence_probe >= confidence_min
 
@@ -737,7 +881,8 @@ def resolve_entry_route(
 ) -> dict[str, Any]:
     configured_regime = _configured_regime(cfg, symbol)
     manual_scalper_toggle = _is_manual_scalper_toggle_enabled(cfg, symbol)
-    max_route_age_seconds = _auto_max_route_age_seconds(cfg)
+    thresholds = _build_auto_router_thresholds(cfg)
+    max_route_age_seconds = thresholds.max_route_age_seconds
     route_eval_ts = _as_float(snapshot.get("router_eval_ts")) or time.time()
     min_confidence_score: float | None = None
     min_stability_score: float | None = None
@@ -899,11 +1044,11 @@ def resolve_entry_route(
         _mark_not_ready("manual_mean_reversion", gate="manual_mean_reversion")
         return result
 
-    min_confidence_score = _auto_min_confidence_score(cfg)
-    min_stability_score = _auto_min_stability_score(cfg)
-    min_persistence_score = _auto_min_persistence_score(cfg)
-    min_confirmations = _auto_min_confirmations(cfg)
-    use_multitimeframe_advisory = _auto_use_multitimeframe_advisory(cfg)
+    min_confidence_score = thresholds.min_confidence(STRATEGY_MEAN_REVERSION)
+    min_stability_score = thresholds.min_stability(STRATEGY_MEAN_REVERSION)
+    min_persistence_score = thresholds.min_persistence(STRATEGY_MEAN_REVERSION)
+    min_confirmations = thresholds.min_confirmations
+    use_multitimeframe_advisory = thresholds.use_multitimeframe_advisory
     advisory = {
         "suggested_regime": None,
         "confidence_score": None,
@@ -984,7 +1129,7 @@ def resolve_entry_route(
         _mark_not_ready(result["fallback_reason"], gate="data_quality_not_acceptable")
         return result
 
-    if _auto_require_core_candle_readiness(cfg):
+    if thresholds.require_core_candle_readiness:
         readiness_ok, readiness_reason = _core_candle_readiness(snapshot)
         if not readiness_ok:
             result["auto_fallback_reason"] = "core_timeframe_not_ready"
@@ -1019,13 +1164,13 @@ def resolve_entry_route(
     if (
         suggested_regime == SUGGESTED_REGIME_VOLATILE
         and mapped_strategy == STRATEGY_OBSERVE_ONLY
-        and _volatile_breakout_override(snapshot, cfg, confidence_score)
+        and _volatile_breakout_override(snapshot, cfg, confidence_score, thresholds=thresholds)
     ):
         mapped_strategy = STRATEGY_BREAKOUT_MOMENTUM
 
-    min_confidence_score = _auto_strategy_min_confidence_score(cfg, mapped_strategy)
-    min_stability_score = _auto_strategy_min_stability_score(cfg, mapped_strategy)
-    min_persistence_score = _auto_strategy_min_persistence_score(cfg, mapped_strategy)
+    min_confidence_score = thresholds.min_confidence(mapped_strategy)
+    min_stability_score = thresholds.min_stability(mapped_strategy)
+    min_persistence_score = thresholds.min_persistence(mapped_strategy)
 
     if confidence_score is None or confidence_score < min_confidence_score:
         result["auto_fallback_reason"] = "low_confidence"
@@ -1047,7 +1192,7 @@ def resolve_entry_route(
         _mark_not_ready(result["fallback_reason"], gate="low_persistence")
         return result
 
-    if _auto_use_route_quality_gates(cfg) and mapped_strategy in {STRATEGY_TREND_PULLBACK, STRATEGY_BREAKOUT_MOMENTUM}:
+    if thresholds.use_route_quality_gates and mapped_strategy in {STRATEGY_TREND_PULLBACK, STRATEGY_BREAKOUT_MOMENTUM}:
         promoted, promotion_reason = _is_route_promoted(snapshot, mapped_strategy)
         promoted_state = promoted
         if not promoted:
@@ -1056,7 +1201,7 @@ def resolve_entry_route(
             _mark_not_ready(result["fallback_reason"], gate="route_not_promoted")
             return result
 
-        max_share_pct = _auto_strategy_max_route_share_pct(cfg, mapped_strategy)
+        max_share_pct = thresholds.max_route_share_pct(mapped_strategy)
         route_share_cap_pct = max_share_pct
         if max_share_pct is not None:
             current_share = _route_share_pct(snapshot, mapped_strategy)

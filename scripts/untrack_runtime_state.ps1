@@ -6,9 +6,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Push-Location $repoRoot
 try {
-    $trackedStateFiles = git ls-files "crypto_bot/state/*" "crypto_bot/state/**/*" | Where-Object {
-        $_ -and $_ -notmatch "^crypto_bot/state/(baseline|README|\.gitkeep)"
-    }
+    $trackedStateFiles = git ls-files "crypto_bot/state/*" "crypto_bot/state/**/*" | Where-Object { $_ }
 
     if (-not $trackedStateFiles) {
         Write-Host "No tracked runtime state files found."
@@ -25,9 +23,7 @@ try {
         return
     }
 
-    foreach ($path in $trackedStateFiles) {
-        git rm --cached -- "$path" | Out-Null
-    }
+    git rm --cached -r --ignore-unmatch crypto_bot/state | Out-Null
 
     Write-Host "Runtime state files were removed from git index (kept locally)."
     Write-Host "Next: commit .gitignore + index changes."
@@ -35,4 +31,3 @@ try {
 finally {
     Pop-Location
 }
-

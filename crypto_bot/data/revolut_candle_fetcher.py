@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import quote
 
 from api.revolut_api import _get
 
@@ -76,6 +77,20 @@ def _normalize_symbol(raw: Any) -> str:
     if not token:
         return ""
     return token.replace("/", "-").replace("_", "-")
+
+
+def _symbol_path_variants(symbol: str) -> list[str]:
+    canonical = _normalize_symbol(symbol)
+    if not canonical:
+        return []
+    variants: list[str] = [canonical]
+    slash_variant = canonical.replace("-", "/")
+    if slash_variant not in variants:
+        variants.append(slash_variant)
+    encoded_slash_variant = quote(slash_variant, safe="")
+    if encoded_slash_variant not in variants:
+        variants.append(encoded_slash_variant)
+    return variants
 
 
 def _candidate_targets_symbol(path: str, symbol: str) -> bool:
@@ -325,6 +340,10 @@ def fetch_candles(
     global _CANDLE_SCOPE_UNAUTHORIZED_UNTIL_EPOCH
 
     interval = int(interval_minutes)
+    normalized_symbol = _normalize_symbol(symbol)
+    if not normalized_symbol:
+        raise ValueError("symbol cannot be empty")
+    symbol_variants = _symbol_path_variants(normalized_symbol)
     _CANDLE_TELEMETRY["fetch_calls"] = int(_CANDLE_TELEMETRY.get("fetch_calls", 0) or 0) + 1
     if interval not in SUPPORTED_INTERVALS_MINUTES:
         raise ValueError(f"Unsupported interval minutes: {interval}")
@@ -354,22 +373,26 @@ def fetch_candles(
         )
 
     def _to_iso(ms: int) -> str:
-        return datetime.utcfromtimestamp(ms / 1000.0).isoformat(timespec="seconds") + "Z"
+        return (
+            datetime.fromtimestamp(ms / 1000.0, tz=timezone.utc)
+            .isoformat(timespec="seconds")
+            .replace("+00:00", "Z")
+        )
 
     params_primary = {
-        "symbol": str(symbol),
+        "symbol": str(normalized_symbol),
         "interval": interval,
         "since": int(since_ms),
         "until": int(until_ms),
     }
     params_seconds = {
-        "symbol": str(symbol),
+        "symbol": str(normalized_symbol),
         "interval": interval,
         "since": int(since_ms // 1000),
         "until": int(until_ms // 1000),
     }
     params_iso = {
-        "symbol": str(symbol),
+        "symbol": str(normalized_symbol),
         "interval": interval,
         "since": _to_iso(int(since_ms)),
         "until": _to_iso(int(until_ms)),
@@ -380,13 +403,13 @@ def fetch_candles(
     params_alt_timeframe["timeframe"] = interval_minutes_to_internal_timeframe(interval)
     params_alt_timeframe.pop("interval", None)
     params_start_end = {
-        "symbol": str(symbol),
+        "symbol": str(normalized_symbol),
         "interval": interval,
         "start": int(since_ms),
         "end": int(until_ms),
     }
     params_start_end_seconds = {
-        "symbol": str(symbol),
+        "symbol": str(normalized_symbol),
         "interval": interval,
         "start": int(since_ms // 1000),
         "end": int(until_ms // 1000),
@@ -413,20 +436,27 @@ def fetch_candles(
         "symbolless_primary": params_symbolless_primary,
         "symbolless_seconds": params_symbolless_seconds,
     }
-    auth_candidates = [
-        # Canonical documented endpoint first.
-        {"path": f"/candles/{symbol}", "mode": "symbolless_primary", "auth": True},
-        {"path": f"/candles/{symbol}", "mode": "symbolless_seconds", "auth": True},
-        {"path": f"/market-data/candles/{symbol}", "mode": "symbolless_primary", "auth": True},
-        {"path": f"/market-data/candles/{symbol}", "mode": "symbolless_seconds", "auth": True},
-        {"path": f"/market-data/historical-candles/{symbol}", "mode": "symbolless_primary", "auth": True},
-        {"path": f"/market-data/historical-candles/{symbol}", "mode": "symbolless_seconds", "auth": True},
-        {"path": f"/market-data/{symbol}/candles", "mode": "symbolless_primary", "auth": True},
-        {"path": f"/market-data/{symbol}/candles", "mode": "symbolless_seconds", "auth": True},
-        {"path": f"/market-data/{symbol}/historical-candles", "mode": "symbolless_primary", "auth": True},
-        {"path": f"/market-data/{symbol}/historical-candles", "mode": "symbolless_seconds", "auth": True},
-        {"path": f"/historical-candles/{symbol}", "mode": "symbolless_primary", "auth": True},
-        {"path": f"/historical-candles/{symbol}", "mode": "symbolless_seconds", "auth": True},
+    auth_candidates: list[dict[str, Any]] = []
+    for symbol_variant in symbol_variants:
+        auth_candidates.extend(
+            [
+                # Canonical documented endpoint first.
+                {"path": f"/candles/{symbol_variant}", "mode": "symbolless_primary", "auth": True},
+                {"path": f"/candles/{symbol_variant}", "mode": "symbolless_seconds", "auth": True},
+                {"path": f"/market-data/candles/{symbol_variant}", "mode": "symbolless_primary", "auth": True},
+                {"path": f"/market-data/candles/{symbol_variant}", "mode": "symbolless_seconds", "auth": True},
+                {"path": f"/market-data/historical-candles/{symbol_variant}", "mode": "symbolless_primary", "auth": True},
+                {"path": f"/market-data/historical-candles/{symbol_variant}", "mode": "symbolless_seconds", "auth": True},
+                {"path": f"/market-data/{symbol_variant}/candles", "mode": "symbolless_primary", "auth": True},
+                {"path": f"/market-data/{symbol_variant}/candles", "mode": "symbolless_seconds", "auth": True},
+                {"path": f"/market-data/{symbol_variant}/historical-candles", "mode": "symbolless_primary", "auth": True},
+                {"path": f"/market-data/{symbol_variant}/historical-candles", "mode": "symbolless_seconds", "auth": True},
+                {"path": f"/historical-candles/{symbol_variant}", "mode": "symbolless_primary", "auth": True},
+                {"path": f"/historical-candles/{symbol_variant}", "mode": "symbolless_seconds", "auth": True},
+            ]
+        )
+    auth_candidates.extend(
+        [
         {"path": "/market-data/candles", "mode": "primary", "auth": True},
         {"path": "/market-data/candles", "mode": "seconds", "auth": True},
         {"path": "/market-data/candles", "mode": "alt_interval", "auth": True},
@@ -437,7 +467,8 @@ def fetch_candles(
         {"path": "/candles", "mode": "seconds", "auth": True},
         {"path": "/candles", "mode": "alt_interval", "auth": True},
     ]
-    public_candidates = [
+    )
+    public_candidates: list[dict[str, Any]] = [
         {"path": "/public/candles", "mode": "primary", "auth": False},
         {"path": "/public/candles", "mode": "seconds", "auth": False},
         {"path": "/public/candles", "mode": "iso", "auth": False},
@@ -450,9 +481,14 @@ def fetch_candles(
         {"path": "/public/market-data/candles", "mode": "primary", "auth": False},
         {"path": "/public/ohlcv", "mode": "primary", "auth": False},
         {"path": "/public/ohlcv", "mode": "seconds", "auth": False},
-        {"path": f"/public/market-data/candles/{symbol}", "mode": "symbolless_primary", "auth": False},
-        {"path": f"/public/market-data/candles/{symbol}", "mode": "symbolless_seconds", "auth": False},
     ]
+    for symbol_variant in symbol_variants:
+        public_candidates.extend(
+            [
+                {"path": f"/public/market-data/candles/{symbol_variant}", "mode": "symbolless_primary", "auth": False},
+                {"path": f"/public/market-data/candles/{symbol_variant}", "mode": "symbolless_seconds", "auth": False},
+            ]
+        )
     if auth_scope_cooldown_active:
         auth_candidates = []
     def _run_candidates(
@@ -495,7 +531,7 @@ def fetch_candles(
                     "path": path,
                     "mode": mode,
                     "auth": auth,
-                    "symbol": symbol if _candidate_targets_symbol(path, symbol) else None,
+                    "symbol": normalized_symbol if _candidate_targets_symbol(path, normalized_symbol) else None,
                 }
                 _record_candidate_success(path, mode, auth)
                 _CANDLE_TELEMETRY["success_calls"] = int(_CANDLE_TELEMETRY.get("success_calls", 0) or 0) + 1

@@ -29,6 +29,7 @@ def build_decision_context(snapshot: Mapping[str, Any] | None, cfg: dict | None 
     gate = payload.get("strategy_eval_gate", {})
     gate_allowed = bool(gate.get("allowed", True)) if isinstance(gate, Mapping) else True
     gate_reason = str(gate.get("blocked_reason") or "").strip() if isinstance(gate, Mapping) else ""
+    gate_snapshot_age_seconds = _to_float(gate.get("snapshot_age_seconds"), None) if isinstance(gate, Mapping) else None
 
     blocked_reason: str | None = None
     if not symbol:
@@ -53,6 +54,13 @@ def build_decision_context(snapshot: Mapping[str, Any] | None, cfg: dict | None 
         "strategy_eval_allowed": blocked_reason is None,
         "blocked_reason": blocked_reason,
         "market_snapshot_ts_epoch": _to_float(payload.get("snapshot_ts_epoch"), None),
+        "market_snapshot_age_seconds": gate_snapshot_age_seconds,
+        "candle_timeframe": payload.get("candle_timeframe"),
+        "candle_last_update_ts": payload.get("candle_last_update_ts"),
+        "candle_age_seconds": _to_float(payload.get("candle_age_seconds"), None),
+        "candle_stale_after_seconds": _to_float(payload.get("candle_stale_after_seconds"), None),
+        "candle_age_over_stale_ratio": _to_float(payload.get("candle_age_over_stale_ratio"), None),
+        "data_quality_score": _to_float(payload.get("data_quality_score"), None),
     }
     return DecisionContext(
         allowed=blocked_reason is None,

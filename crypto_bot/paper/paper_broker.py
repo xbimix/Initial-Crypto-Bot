@@ -23,6 +23,9 @@ BALANCE_FILE = resolve_state_file(DEFAULT_STATE_DIR, "paper_state.json")
 TRADES_FILE = resolve_state_file(DEFAULT_STATE_DIR, "trades.json")
 LEGACY_BALANCE_FILE = resolve_legacy_state_file(DEFAULT_STATE_DIR, "paper_state.json")
 LEGACY_TRADES_FILE = resolve_legacy_state_file(DEFAULT_STATE_DIR, "trades.json")
+EXECUTION_REPORT_SCHEMA_NAME = "execution_report"
+TRADE_RECORD_SCHEMA_NAME = "trade_record"
+EXECUTION_RECORD_SCHEMA_VERSION = 1
 
 
 def _to_float(value, default=0.0):
@@ -138,14 +141,79 @@ class PaperBroker:
             data = self.storage.read(TRADES_FILE, default=[])
             if not isinstance(data, list):
                 data = []
-            data.append(trade)
+            data.append(self._with_trade_schema(trade))
             self.storage.write(TRADES_FILE, data, use_lock=use_lock)
         except Exception as exc:
             logger.error(f"Failed to record trade: {exc}")
 
+    @staticmethod
+    def normalize_execution_report(
+        payload: dict | None,
+        *,
+        infer_legacy_schema: bool = False,
+    ) -> dict:
+        data = dict(payload) if isinstance(payload, dict) else {}
+        if "schema_name" not in data:
+            data["schema_name"] = EXECUTION_REPORT_SCHEMA_NAME
+            if infer_legacy_schema and isinstance(payload, dict):
+                data["_legacy_schema_inferred"] = True
+        if "schema_version" not in data:
+            data["schema_version"] = EXECUTION_RECORD_SCHEMA_VERSION
+            if infer_legacy_schema and isinstance(payload, dict):
+                data["_legacy_schema_inferred"] = True
+        return data
+
+    @staticmethod
+    def normalize_trade_record(
+        payload: dict | None,
+        *,
+        infer_legacy_schema: bool = False,
+    ) -> dict:
+        data = dict(payload) if isinstance(payload, dict) else {}
+        if "schema_name" not in data:
+            data["schema_name"] = TRADE_RECORD_SCHEMA_NAME
+            if infer_legacy_schema and isinstance(payload, dict):
+                data["_legacy_schema_inferred"] = True
+        if "schema_version" not in data:
+            data["schema_version"] = EXECUTION_RECORD_SCHEMA_VERSION
+            if infer_legacy_schema and isinstance(payload, dict):
+                data["_legacy_schema_inferred"] = True
+        return data
+
+    @staticmethod
+    def _with_execution_schema(payload: dict | None) -> dict:
+        return PaperBroker.normalize_execution_report(payload, infer_legacy_schema=False)
+
+    @staticmethod
+    def _with_trade_schema(payload: dict | None) -> dict:
+        return PaperBroker.normalize_trade_record(payload, infer_legacy_schema=False)
+
+    def read_trades(self) -> list[dict]:
+        try:
+            read_path = read_path_with_legacy_fallback(
+                TRADES_FILE,
+                LEGACY_TRADES_FILE,
+                context="paper_broker.read_trades",
+            )
+            rows = self.storage.read(read_path, default=[])
+        except Exception:
+            rows = []
+        if not isinstance(rows, list):
+            return []
+        normalized: list[dict] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            normalized.append(self.normalize_trade_record(row, infer_legacy_schema=True))
+        return normalized
+
     def _load_state(self):
         try:
-            read_path = read_path_with_legacy_fallback(BALANCE_FILE, LEGACY_BALANCE_FILE)
+            read_path = read_path_with_legacy_fallback(
+                BALANCE_FILE,
+                LEGACY_BALANCE_FILE,
+                context="paper_broker.load_state",
+            )
             data = self.storage.read(
                 read_path,
                 default={"balance": self.starting_balance, "positions": {}},
@@ -299,7 +367,7 @@ class PaperBroker:
             report = execution.to_dict()
             report["requested_notional_usd"] = max(price * size, 0.0)
             report["filled_notional_usd"] = max((execution.effective_fill_price or 0.0) * execution.filled_size, 0.0)
-            self.last_execution_report = report
+            self.last_execution_report = self._with_execution_schema(report)
 
             if (
                 execution.rejected
@@ -316,12 +384,12 @@ class PaperBroker:
 
             cost = (execution.effective_fill_price * execution.filled_size) + execution.fee_usd
             if cost > self.balance:
-                self.last_execution_report = {
+                self.last_execution_report = self._with_execution_schema({
                     **report,
                     "status": "rejected",
                     "rejected": True,
                     "reason": "insufficient_balance",
-                }
+                })
                 logger.warning(f"BUY rejected - insufficient balance for {symbol}")
                 return False
 
@@ -472,13 +540,13 @@ class PaperBroker:
 
             pos = self.positions.get(symbol)
             if not pos:
-                self.last_execution_report = {
+                self.last_execution_report = self._with_execution_schema({
                     "status": "rejected",
                     "side": "SELL",
                     "symbol": symbol,
                     "reason": "no_open_position",
                     "position_closed": False,
-                }
+                })
                 logger.warning(f"SELL rejected - no open position for {symbol}")
                 return False
 
@@ -486,13 +554,13 @@ class PaperBroker:
             entry_price = max(_to_float(pos.get("price"), 0.0), 0.0)
             entry_time = _to_float(pos.get("entry_time"), None)
             if size <= 0 or entry_price <= 0:
-                self.last_execution_report = {
+                self.last_execution_report = self._with_execution_schema({
                     "status": "rejected",
                     "side": "SELL",
                     "symbol": symbol,
                     "reason": "invalid_position_state",
                     "position_closed": False,
-                }
+                })
                 logger.warning(f"SELL rejected - invalid stored position for {symbol}")
                 return False
 
@@ -514,7 +582,7 @@ class PaperBroker:
                 or execution.effective_fill_price is None
                 or execution.filled_size <= 0
             ):
-                self.last_execution_report = report
+                self.last_execution_report = self._with_execution_schema(report)
                 logger.warning(
                     f"SELL rejected for {symbol} "
                     f"status={execution.status} reason={execution.reason or 'n/a'}"
@@ -621,7 +689,7 @@ class PaperBroker:
             self._record_trade(trade_row, use_lock=False)
             self._save_state(use_lock=False)
 
-            self.last_execution_report = {
+            self.last_execution_report = self._with_execution_schema({
                 **report,
                 "position_closed": bool(position_closed),
                 "remaining_size": remaining_size,
@@ -632,7 +700,7 @@ class PaperBroker:
                 "fee_usd": execution.fee_usd,
                 "hold_time_seconds": hold_time_seconds,
                 "exit_reason": reason,
-            }
+            })
 
         logger.info(
             f"Paper SELL {symbol} @ {execution.effective_fill_price:.8f} "

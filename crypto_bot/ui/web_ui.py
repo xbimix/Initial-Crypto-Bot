@@ -20,7 +20,11 @@ def dashboard():
 
 @app.route("/api/state")
 def state():
-    path = read_path_with_legacy_fallback(STATE_FILE, LEGACY_STATE_FILE)
+    path = read_path_with_legacy_fallback(
+        STATE_FILE,
+        LEGACY_STATE_FILE,
+        context="ui.web_ui.api_state",
+    )
     if not path.exists():
         return jsonify({})
     with open(path, "r", encoding="utf-8") as f:
@@ -29,7 +33,11 @@ def state():
 
 @app.route("/api/logs")
 def logs():
-    path = read_path_with_legacy_fallback(LOG_FILE, LEGACY_LOG_FILE)
+    path = read_path_with_legacy_fallback(
+        LOG_FILE,
+        LEGACY_LOG_FILE,
+        context="ui.web_ui.api_logs",
+    )
     if not path.exists():
         return jsonify([])
 

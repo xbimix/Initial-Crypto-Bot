@@ -160,3 +160,46 @@ def test_indicator_features_recompute_when_latest_closed_candle_changes(monkeypa
     b = market_data.fetch_market_snapshot("BTC-USD", cfg)
     assert a is not None and b is not None
     assert calls["n"] == 2
+
+
+def test_fetch_market_snapshot_falls_back_to_hl_range_for_flat_close_atr(monkeypatch):
+    monkeypatch.setattr(market_data, "get_order_book", lambda symbol, cfg=None: _mock_order_book())
+    monkeypatch.setattr(market_data, "get_last_trades", lambda symbol, limit: [])
+    monkeypatch.setattr(market_data, "sync_new_candles", lambda **kwargs: {"inserted": 0})
+    monkeypatch.setattr(
+        market_data,
+        "get_candles",
+        lambda symbol, timeframe, limit: [
+            {
+                "open_time": idx * 60_000,
+                "close": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "volume": 10.0,
+            }
+            for idx in range(160)
+        ],
+    )
+    monkeypatch.setattr(
+        market_data,
+        "get_candle_meta",
+        lambda symbol, timeframe: {
+            "stale": False,
+            "supported": True,
+            "latest_open_time": 9_540_000,
+            "age_seconds": 45.0,
+        },
+    )
+    cfg = {
+        "lookback": 200,
+        "market_data": {
+            "min_history_points": 8,
+            "decision_candle_timeframe": "1m",
+            "decision_candle_sync_enabled": False,
+        },
+    }
+    snapshot = market_data.fetch_market_snapshot("BTC-USD", cfg)
+    assert snapshot is not None
+    assert snapshot["history_source"] == "sqlite_candles"
+    assert snapshot["atr_raw"] > 0.0
+    assert snapshot["atr_pct"] == snapshot["atr_raw"]

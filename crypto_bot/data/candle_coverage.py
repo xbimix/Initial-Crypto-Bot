@@ -5,7 +5,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "state" / "market_data.db"
+from utils.state_paths import resolve_state_dir
+
+DEFAULT_DB_PATH = resolve_state_dir(Path(__file__).resolve().parent.parent / "state") / "market_data.db"
 
 _INTERVAL_MS = {
     "1m": 60_000,

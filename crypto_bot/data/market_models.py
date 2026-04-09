@@ -25,6 +25,7 @@ class StrategyEvalGate:
     snapshot_age_seconds: float | None = None
     quality_status: str | None = None
     quality_state: str | None = None
+    quality_score: float | None = None
     core_ready: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -34,6 +35,7 @@ class StrategyEvalGate:
             "snapshot_age_seconds": self.snapshot_age_seconds,
             "quality_status": self.quality_status,
             "quality_state": self.quality_state,
+            "quality_score": self.quality_score,
             "core_ready": self.core_ready,
         }
 

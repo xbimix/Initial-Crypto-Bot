@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from paper import paper_broker as pb
-from utils.state_io import read_json_file
+from utils.state_io import read_json_file, write_json_file
 
 
 def _configure_state_paths(tmp_path: Path, monkeypatch):
@@ -41,6 +41,8 @@ def test_paper_buy_rejects_on_hard_spread(monkeypatch, tmp_path: Path):
     assert ok is False
     assert broker.last_execution_report["status"] == "rejected"
     assert broker.last_execution_report["reason"] == "spread_too_wide"
+    assert broker.last_execution_report["schema_name"] == "execution_report"
+    assert broker.last_execution_report["schema_version"] == 1
 
 
 def test_paper_buy_partial_fill_records_diagnostics(monkeypatch, tmp_path: Path):
@@ -79,6 +81,8 @@ def test_paper_buy_partial_fill_records_diagnostics(monkeypatch, tmp_path: Path)
     assert isinstance(trades, list) and trades
     last_trade = trades[-1]
     assert last_trade["side"] == "BUY"
+    assert last_trade["schema_name"] == "trade_record"
+    assert last_trade["schema_version"] == 1
     assert "execution_status" in last_trade
     assert "slippage_bps" in last_trade
     assert "latency_ms" in last_trade
@@ -226,3 +230,18 @@ def test_paper_execution_can_timeout(monkeypatch, tmp_path: Path):
     )
     assert ok is False
     assert broker.last_execution_report.get("status") == "timeout"
+
+
+def test_paper_broker_read_trades_infers_legacy_schema(monkeypatch, tmp_path: Path):
+    state_dir = _configure_state_paths(tmp_path, monkeypatch)
+    legacy_rows = [
+        {"symbol": "BTC-USD", "side": "BUY", "price": 100.0, "size": 1.0},
+    ]
+    write_json_file(state_dir / "trades.json", legacy_rows)
+
+    broker = pb.PaperBroker(10000, cfg={})
+    rows = broker.read_trades()
+    assert len(rows) == 1
+    assert rows[0]["schema_name"] == "trade_record"
+    assert rows[0]["schema_version"] == 1
+    assert rows[0]["_legacy_schema_inferred"] is True

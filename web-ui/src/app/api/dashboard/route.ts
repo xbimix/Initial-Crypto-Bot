@@ -104,6 +104,7 @@ type StrategyState = {
   last_configured_regime?: Record<string, string>;
   last_detected_regime?: Record<string, string>;
   last_detected_regime_confidence?: Record<string, number>;
+  last_detected_regime_confidence_inferred?: Record<string, boolean>;
   last_detected_regime_confidence_label?: Record<string, string>;
   last_detected_regime_stability?: Record<string, number>;
   last_detected_regime_persistence?: Record<string, number>;
@@ -184,6 +185,7 @@ type SymbolControl = {
   detectedRegime: string | null;
   detectedRegimeConfidenceLabel: string;
   detectedRegimeConfidenceScore: number | null;
+  detectedRegimeConfidenceInferred?: boolean;
   detectedRegimeStabilityScore: number | null;
   detectedRegimePersistenceScore: number | null;
   detectedRegimeStabilityInferred?: boolean;
@@ -399,6 +401,7 @@ const PRICE_HISTORY_PATH = resolveStateFileCandidates("revolut_universe_price_hi
 const MARKET_SYNC_HEALTH_PATH = resolveStateFileCandidates("market_sync_health.json");
 const LOG_TAIL_BYTES = 256 * 1024;
 const MAX_SNAPSHOT_HISTORY_POINTS = 6000;
+const MIN_SNAPSHOT_ANALYTICS_POINTS = 30;
 
 async function readJson<T>(filePath: string | string[], fallback: T): Promise<T> {
   const candidates = Array.isArray(filePath) ? filePath : [filePath];
@@ -709,10 +712,11 @@ async function readLatestSnapshots(
     }
   }
 
-  const missingSymbols = symbols.filter((symbol) => (
-    !Array.isArray(snapshotHistory[symbol]) || snapshotHistory[symbol].length === 0
-  ));
-  const priceHistory = missingSymbols.length > 0
+  const symbolsNeedingSupplement = symbols.filter((symbol) => {
+    const points = Array.isArray(snapshotHistory[symbol]) ? snapshotHistory[symbol].length : 0;
+    return points < MIN_SNAPSHOT_ANALYTICS_POINTS;
+  });
+  const priceHistory = symbolsNeedingSupplement.length > 0
     ? await readJson<Record<string, Array<{ ts?: number; tsEpoch?: number; price?: number }>>>(
       PRICE_HISTORY_PATH,
       {},
@@ -723,30 +727,34 @@ async function readLatestSnapshots(
     if (!(symbol in snapshotHistory)) {
       snapshotHistory[symbol] = [];
     }
-    if (!canonicalSymbols.has(symbol)) {
-    for (const row of rows.slice(-MAX_SNAPSHOT_HISTORY_POINTS)) {
-      const tsEpoch = Number(row?.tsEpoch ?? row?.ts ?? 0);
-      const price = Number(row?.price ?? 0);
-      if (!Number.isFinite(tsEpoch) || tsEpoch <= 0 || !Number.isFinite(price) || price <= 0) {
-        continue;
+    const shouldSupplementFromPriceHistory = (
+      !canonicalSymbols.has(symbol)
+      || snapshotHistory[symbol].length < MIN_SNAPSHOT_ANALYTICS_POINTS
+    );
+    if (shouldSupplementFromPriceHistory) {
+      for (const row of rows.slice(-MAX_SNAPSHOT_HISTORY_POINTS)) {
+        const tsEpoch = Number(row?.tsEpoch ?? row?.ts ?? 0);
+        const price = Number(row?.price ?? 0);
+        if (!Number.isFinite(tsEpoch) || tsEpoch <= 0 || !Number.isFinite(price) || price <= 0) {
+          continue;
+        }
+        snapshotHistory[symbol].push({ tsEpoch, price });
+        snapshots[symbol] = mergeSnapshotMetrics(snapshots[symbol], {
+          price,
+          change24hPct: null,
+          vwap: null,
+          atrRaw: null,
+          momNorm: null,
+          points: null,
+          low24h: null,
+          high24h: null,
+          spreadBps: null,
+          quality: "ok",
+        });
+        if (lastSnapshotAt === null || tsEpoch > Number(parseLogTimestampToEpoch(lastSnapshotAt) ?? 0)) {
+          lastSnapshotAt = new Date(tsEpoch * 1000).toISOString().replace("T", " ").slice(0, 19);
+        }
       }
-      snapshotHistory[symbol].push({ tsEpoch, price });
-      snapshots[symbol] = mergeSnapshotMetrics(snapshots[symbol], {
-        price,
-        change24hPct: null,
-        vwap: null,
-        atrRaw: null,
-        momNorm: null,
-        points: null,
-        low24h: null,
-        high24h: null,
-        spreadBps: null,
-        quality: "ok",
-      });
-      if (lastSnapshotAt === null || tsEpoch > Number(parseLogTimestampToEpoch(lastSnapshotAt) ?? 0)) {
-        lastSnapshotAt = new Date(tsEpoch * 1000).toISOString().replace("T", " ").slice(0, 19);
-      }
-    }
     }
     snapshotHistory[symbol].sort((left, right) => left.tsEpoch - right.tsEpoch);
     const deduped: SnapshotPoint[] = [];
@@ -1582,7 +1590,10 @@ function normalizeSymbol(value: unknown) {
   if (typeof value !== "string") {
     return "";
   }
-  return value.trim().toUpperCase();
+  return value
+    .trim()
+    .toUpperCase()
+    .replace(/[/_]+/g, "-");
 }
 
 function normalizeSymbols(values: unknown) {
@@ -1778,6 +1789,69 @@ function parseNumberMap(values: unknown) {
   return output;
 }
 
+function confidenceLabelFromScore(score: number | null) {
+  if (score === null || !Number.isFinite(score)) {
+    return null;
+  }
+  if (score >= 70) {
+    return "HIGH";
+  }
+  if (score >= 45) {
+    return "MEDIUM";
+  }
+  return "LOW";
+}
+
+function confidenceScoreFromLabel(label: unknown) {
+  const normalized = String(label ?? "").trim().toUpperCase();
+  if (normalized === "HIGH") {
+    return 85;
+  }
+  if (normalized === "MEDIUM") {
+    return 62;
+  }
+  if (normalized === "LOW") {
+    return 35;
+  }
+  return null;
+}
+
+function resolveRegimeCspBackfill(args: {
+  confidenceScore: number | null;
+  runtimeStability: number | null;
+  runtimePersistence: number | null;
+  advisoryStability: number | null;
+  advisoryPersistence: number | null;
+  runtimeStabilityInferred: boolean;
+  runtimePersistenceInferred: boolean;
+  advisoryStabilityInferred: boolean;
+  advisoryPersistenceInferred: boolean;
+}) {
+  const confidenceScore = asFiniteNumber(args.confidenceScore);
+  let stabilityScore = asFiniteNumber(args.runtimeStability)
+    ?? asFiniteNumber(args.advisoryStability);
+  let persistenceScore = asFiniteNumber(args.runtimePersistence)
+    ?? asFiniteNumber(args.advisoryPersistence);
+  let stabilityInferred = Boolean(args.runtimeStabilityInferred || args.advisoryStabilityInferred);
+  let persistenceInferred = Boolean(args.runtimePersistenceInferred || args.advisoryPersistenceInferred);
+
+  if (stabilityScore === null && confidenceScore !== null) {
+    stabilityScore = confidenceScore;
+    stabilityInferred = true;
+  }
+  if (persistenceScore === null && confidenceScore !== null) {
+    persistenceScore = confidenceScore;
+    persistenceInferred = true;
+  }
+
+  return {
+    stabilityScore,
+    persistenceScore,
+    stabilityInferred,
+    persistenceInferred,
+  };
+}
+
 function parseScalperSymbolSet(config: ConfigState) {
   const scalperCfg = config.volatility_scalper;
   const enabled = scalperCfg?.enabled !== false;
@@ -1962,6 +2036,9 @@ export async function GET() {
   const runtimeConfiguredRegimeMap = parseTokenRegimeMap(strategy.last_configured_regime);
   const runtimeDetectedRegimeMap = parseTextMap(strategy.last_detected_regime);
   const runtimeDetectedRegimeConfidenceMap = parseNumberMap(strategy.last_detected_regime_confidence);
+  const runtimeDetectedRegimeConfidenceInferredMap = parseEnabledMap(
+    strategy.last_detected_regime_confidence_inferred,
+  );
   const runtimeDetectedRegimeConfidenceLabelMap = parseTextMap(strategy.last_detected_regime_confidence_label);
   const runtimeDetectedRegimeStabilityMap = parseNumberMap(strategy.last_detected_regime_stability);
   const runtimeDetectedRegimePersistenceMap = parseNumberMap(strategy.last_detected_regime_persistence);
@@ -2145,7 +2222,7 @@ export async function GET() {
   const symbolControls: SymbolControl[] = allSymbols.map((symbol) => {
     const snapshot = snapshots[symbol] ?? null;
     const regimeRaw = regimeMap[symbol] ?? deriveRegimeFromSnapshot(snapshot);
-    const score = scoreMap[symbol] ?? null;
+    const runtimeScore = scoreMap[symbol] ?? null;
     const volatilityRaw = volatilityMap[symbol] ?? snapshot?.atrRaw ?? null;
     const strategyMode = resolveStrategyMode(
       symbol,
@@ -2164,6 +2241,8 @@ export async function GET() {
       ?? "MEAN_REVERSION";
     const runtimeDetectedRegime = runtimeDetectedRegimeMap[symbol] ?? null;
     const runtimeDetectedRegimeConfidence = runtimeDetectedRegimeConfidenceMap[symbol] ?? null;
+    const runtimeDetectedRegimeConfidenceInferred =
+      runtimeDetectedRegimeConfidenceInferredMap[symbol] ?? false;
     const runtimeDetectedRegimeConfidenceLabel = runtimeDetectedRegimeConfidenceLabelMap[symbol] ?? null;
     const runtimeDetectedRegimeStability = runtimeDetectedRegimeStabilityMap[symbol] ?? null;
     const runtimeDetectedRegimePersistence = runtimeDetectedRegimePersistenceMap[symbol] ?? null;
@@ -2173,12 +2252,48 @@ export async function GET() {
     const runtimeDetectedRegimeKeyWindowsSupported = runtimeDetectedRegimeKeyWindowsSupportedMap[symbol] ?? false;
     const runtimeSuggestedRegimeV2 = runtimeSuggestedRegimeV2Map[symbol] ?? null;
     const detectedRegime = runtimeDetectedRegime ?? regimeAdvisory?.suggestedRegime ?? null;
-    const detectedRegimeConfidenceScore = runtimeDetectedRegimeConfidence ?? regimeAdvisory?.confidenceScore ?? null;
+    const advisoryConfidenceScore = asFiniteNumber(
+      regimeAdvisory?.confidenceScore ?? regimeAdvisory?.confidence_score ?? null,
+    );
+    const advisoryConfidenceLabelRaw = (
+      regimeAdvisory?.confidenceLabel
+      ?? regimeAdvisory?.confidence_label
+      ?? null
+    );
+    const detectedRegimeConfidenceScore = (
+      runtimeDetectedRegimeConfidence
+      ?? advisoryConfidenceScore
+      ?? confidenceScoreFromLabel(runtimeDetectedRegimeConfidenceLabel ?? advisoryConfidenceLabelRaw)
+    );
     const detectedRegimeConfidenceLabel = (
       runtimeDetectedRegimeConfidenceLabel
-      ?? regimeAdvisory?.confidenceLabel
+      ?? advisoryConfidenceLabelRaw
+      ?? confidenceLabelFromScore(detectedRegimeConfidenceScore)
       ?? "LOW"
     ).toUpperCase();
+    const detectedRegimeConfidenceInferred = runtimeDetectedRegimeConfidenceInferred
+      || (runtimeDetectedRegimeConfidence === null && detectedRegimeConfidenceScore !== null);
+    const advisoryStabilityScore = asFiniteNumber(
+      regimeAdvisory?.stability_score ?? regimeAdvisory?.stabilityScore ?? null,
+    );
+    const advisoryPersistenceScore = asFiniteNumber(
+      regimeAdvisory?.persistence_score ?? regimeAdvisory?.persistenceScore ?? null,
+    );
+    const cspBackfill = resolveRegimeCspBackfill({
+      confidenceScore: detectedRegimeConfidenceScore,
+      runtimeStability: runtimeDetectedRegimeStability,
+      runtimePersistence: runtimeDetectedRegimePersistence,
+      advisoryStability: advisoryStabilityScore,
+      advisoryPersistence: advisoryPersistenceScore,
+      runtimeStabilityInferred: runtimeDetectedRegimeStabilityInferred,
+      runtimePersistenceInferred: runtimeDetectedRegimePersistenceInferred,
+      advisoryStabilityInferred:
+        (regimeAdvisory?.stability_inferred === true)
+        || (regimeAdvisory?.stabilityInferred === true),
+      advisoryPersistenceInferred:
+        (regimeAdvisory?.persistence_inferred === true)
+        || (regimeAdvisory?.persistenceInferred === true),
+    });
     const effectiveStrategy = normalizeEffectiveStrategy(
       runtimeEffectiveStrategyMap[symbol]
       ?? deriveConfiguredEffectiveStrategy(configuredRegime, strategyMode),
@@ -2215,7 +2330,7 @@ export async function GET() {
       hasOpenPosition,
       openPositionsForSymbol: hasOpenPosition ? 1 : 0,
       snapshot,
-      score,
+      score: runtimeScore,
       regimeRaw,
       strategyMode,
       config,
@@ -2227,6 +2342,8 @@ export async function GET() {
       dailyBuyPaused,
       insideTradeWindowUtc,
     });
+    const buyOpportunityPct = computeBuyOpportunityPct(snapshot, config);
+    const displayStrategyScore = runtimeScore ?? buyOpportunityPct;
 
     return {
       symbol,
@@ -2234,21 +2351,15 @@ export async function GET() {
       detectedRegime,
       detectedRegimeConfidenceLabel,
       detectedRegimeConfidenceScore,
+      detectedRegimeConfidenceInferred,
       detectedRegimeStabilityScore:
-        runtimeDetectedRegimeStability ?? regimeAdvisory?.stability_score ?? regimeAdvisory?.stabilityScore ?? null,
+        cspBackfill.stabilityScore,
       detectedRegimePersistenceScore:
-        runtimeDetectedRegimePersistence
-        ?? regimeAdvisory?.persistence_score
-        ?? regimeAdvisory?.persistenceScore
-        ?? null,
+        cspBackfill.persistenceScore,
       detectedRegimeStabilityInferred:
-        runtimeDetectedRegimeStabilityInferred
-        || (regimeAdvisory?.stability_inferred === true)
-        || (regimeAdvisory?.stabilityInferred === true),
+        cspBackfill.stabilityInferred,
       detectedRegimePersistenceInferred:
-        runtimeDetectedRegimePersistenceInferred
-        || (regimeAdvisory?.persistence_inferred === true)
-        || (regimeAdvisory?.persistenceInferred === true),
+        cspBackfill.persistenceInferred,
       detectedRegimeDataQualityStatus:
         (runtimeDetectedRegimeDataQualityStatus ?? regimeAdvisory?.data_quality?.status ?? "UNKNOWN").toUpperCase(),
       detectedRegimeKeyWindowsSupported:
@@ -2287,11 +2398,8 @@ export async function GET() {
       regime: formatRegimeLabel(regimeRaw),
       volatilityPct:
         volatilityRaw === null ? null : Number(volatilityRaw) * 100,
-      strategyScorePct: score,
-      buyOpportunityPct: computeBuyOpportunityPct(
-        snapshot,
-        config,
-      ),
+      strategyScorePct: displayStrategyScore,
+      buyOpportunityPct,
       capitalEfficiencyScore: capitalEfficiency?.score ?? null,
       capitalWasteRank: capitalEfficiency?.rank ?? null,
       capitalWasteAllocationPct: capitalEfficiency?.allocationPct ?? null,
@@ -2866,6 +2974,8 @@ export async function GET() {
         control.detectedRegimeConfidenceScore === null
           ? null
           : round(control.detectedRegimeConfidenceScore, 1),
+      detectedRegimeConfidenceInferred:
+        control.detectedRegimeConfidenceInferred === true,
       detectedRegimeStabilityScore:
         control.detectedRegimeStabilityScore === null
           ? null

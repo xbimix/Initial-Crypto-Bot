@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import random
 import time
 
 import pytest
@@ -119,10 +120,11 @@ def reset_strategy_globals(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(se, "STATE_DIR", state_dir)
     monkeypatch.setattr(se, "STRATEGY_STATE_FILE", state_dir / "strategy_state.json")
     monkeypatch.setattr(se, "PAPER_STATE_FILE", state_dir / "paper_state.json")
-    monkeypatch.setattr(se, "_synced", True)
-    monkeypatch.setattr(se, "_last_paper_state_mtime", None)
-    monkeypatch.setattr(se, "_metrics_dirty", False)
-    monkeypatch.setattr(se, "_last_metrics_flush_at", 0.0)
+    se.set_runtime_scalars_for_compat(
+        synced=True,
+        metrics_dirty=False,
+        last_metrics_flush_at=0.0,
+    )
 
 
 def test_auto_and_mean_reversion_default_path_unchanged():
@@ -288,6 +290,133 @@ def test_manual_breakout_momentum_route_triggers_entry():
     assert decision["action"] == "BUY"
     assert decision["reason"] == "breakout_momentum_entry"
     assert decision["effective_strategy"] == "breakout_momentum"
+
+
+@pytest.mark.parametrize(
+    ("token_regime", "snapshot_overrides", "expected_reason"),
+    [
+        (
+            "MEAN_REVERSION",
+            {},
+            "bear_market_mean_reversion_buy",
+        ),
+        (
+            "TREND_PULLBACK",
+            {
+                "price": 101.4,
+                "momentum_norm": 0.4,
+                "trade_count": 30,
+                "high_24h": 110.0,
+                "low_24h": 90.0,
+                "atr": 1.0,
+                "vwap": 101.3,
+                "ema_50": 101.2,
+                "ema_200": 95.0,
+                "ema_50_slope": 0.08,
+                "recent_prices": [96.0, 97.8, 99.2, 100.4, 101.6, 100.8, 101.2, 101.4],
+            },
+            "trend_pullback_entry",
+        ),
+        (
+            "BREAKOUT_MOMENTUM",
+            {
+                "price": 109.9,
+                "momentum_norm": 0.85,
+                "trade_count": 45,
+                "high_24h": 110.0,
+                "low_24h": 100.0,
+                "atr": 1.0,
+                "vwap": 108.0,
+                "rsi": 78.0,
+                "ema_50": 107.5,
+                "ema_200": 104.0,
+                "recent_prices": [103.0, 104.5, 105.2, 106.3, 107.1, 108.2, 109.0, 109.9],
+            },
+            "breakout_momentum_entry",
+        ),
+    ],
+)
+def test_partial_quality_score_floor_allows_entry_by_route(
+    token_regime: str,
+    snapshot_overrides: dict,
+    expected_reason: str,
+):
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": token_regime}
+    cfg["market_regime"]["min_score_to_buy"] = 0
+    cfg["market_data"] = {
+        "strategy_allow_partial_participation": True,
+        "strategy_eval_min_quality_score": 0.50,
+    }
+
+    decision = se.generate_decision(
+        _snapshot(
+            data_quality_ok=False,
+            data_quality_status="PARTIAL",
+            data_quality_score=0.80,
+            data_quality_reason="candle_history_stale",
+            **snapshot_overrides,
+        ),
+        cfg,
+    )
+    assert decision["action"] == "BUY"
+    assert decision["reason"] == expected_reason
+
+
+def test_generate_decision_returns_hold_for_invalid_snapshot_contract():
+    cfg = _base_cfg()
+    decision = se.generate_decision({"symbol": "TEST-USD", "price": None}, cfg)
+    assert decision["action"] == "HOLD"
+    assert str(decision["reason"]).startswith("snapshot_contract_invalid:")
+
+
+def test_route_quality_load_failure_emits_structured_runtime_event(monkeypatch):
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["market_regime"]["min_score_to_buy"] = 0
+
+    captured: dict[str, dict] = {}
+    events: list[tuple[str, dict]] = []
+
+    def _fake_route(*, cfg, symbol, snapshot, default_strategy, shadow_state):
+        captured["snapshot"] = dict(snapshot)
+        return {
+            "configured_regime": "AUTO",
+            "detected_regime": "MEAN_REVERSION_FRIENDLY",
+            "effective_strategy": "mean_reversion",
+            "effective_route": "mean_reversion",
+            "route_eval_ts": time.time(),
+            "regime_eval_ts": time.time(),
+            "ready_for_non_mr_route": False,
+            "non_mr_ready_reason": "mean_reversion_default",
+        }
+
+    monkeypatch.setattr(se, "resolve_entry_route", _fake_route)
+    monkeypatch.setattr(
+        se,
+        "load_route_quality_report_cached",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("scorecard unavailable")),
+    )
+    monkeypatch.setattr(
+        se,
+        "append_runtime_event",
+        lambda event_name, **payload: events.append((event_name, payload)),
+    )
+
+    se.generate_decision(
+        _snapshot(
+            regime_advisory={
+                "suggestedRegime": "RANGE",
+                "confidenceScore": 70,
+                "dataQuality": {"status": "GOOD", "supportedKeyWindows": True},
+            }
+        ),
+        cfg,
+    )
+
+    snapshot = captured.get("snapshot") or {}
+    assert isinstance(snapshot.get("route_quality_error"), str)
+    assert any(name == "route_quality_load_failed" for name, _payload in events)
 
 
 def test_auto_low_confidence_falls_back_to_default():
@@ -1264,3 +1393,245 @@ def test_profile_does_not_override_explicit_router_thresholds():
     )
     assert decision["effective_route"] == "mean_reversion"
     assert decision["auto_fallback_reason"] == "low_confidence"
+
+
+def test_auto_router_reason_precedence_low_confidence_before_route_quality():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "auto_use_route_quality_gates": True,
+            "auto_min_confidence": 80,
+            "auto_min_stability": 50,
+            "auto_min_persistence": 50,
+        }
+    }
+    snapshot = _snapshot(
+        regime_advisory={
+            "suggestedRegime": "TREND_CONTINUATION",
+            "confidenceScore": 40,
+            "stabilityScore": 95,
+            "persistenceScore": 95,
+            "dataQuality": {"status": "GOOD", "supportedKeyWindows": True},
+        },
+        route_quality={
+            "promotion": {
+                "promoted_routes": {"trend_pullback": False},
+                "promotion_reasons": {"trend_pullback": "not_promoted"},
+            }
+        },
+        core_candle_readiness={"ready": True, "reason": "ok"},
+    )
+
+    route = se.resolve_entry_route(
+        cfg=cfg,
+        symbol="TEST-USD",
+        snapshot=snapshot,
+        default_strategy="mean_reversion",
+        shadow_state={},
+    )
+    assert route["fallback_gate"] == "low_confidence"
+    assert route["non_mr_ready_reason"] == "low_confidence"
+
+
+def test_auto_router_is_deterministic_for_same_input_payload():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "auto_use_route_quality_gates": False,
+        }
+    }
+    snapshot = _snapshot(
+        regime_advisory={
+            "suggestedRegime": "RANGE",
+            "confidenceScore": 70,
+            "stabilityScore": 70,
+            "persistenceScore": 70,
+            "dataQuality": {"status": "GOOD", "supportedKeyWindows": True},
+        },
+        core_candle_readiness={"ready": True, "reason": "ok"},
+    )
+
+    first = se.resolve_entry_route(
+        cfg=cfg,
+        symbol="TEST-USD",
+        snapshot=snapshot,
+        default_strategy="mean_reversion",
+        shadow_state={},
+    )
+    second = se.resolve_entry_route(
+        cfg=cfg,
+        symbol="TEST-USD",
+        snapshot=snapshot,
+        default_strategy="mean_reversion",
+        shadow_state={},
+    )
+
+    for key in ("effective_route", "effective_strategy", "fallback_gate", "non_mr_ready_reason", "route_readiness_state"):
+        assert first.get(key) == second.get(key)
+
+
+def test_auto_router_randomized_scores_preserve_reason_determinism():
+    rng = random.Random(42)
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "auto_use_route_quality_gates": False,
+        }
+    }
+    for _ in range(40):
+        confidence = rng.uniform(0.0, 100.0)
+        stability = rng.uniform(0.0, 100.0)
+        persistence = rng.uniform(0.0, 100.0)
+        snapshot = _snapshot(
+            regime_advisory={
+                "suggestedRegime": "TREND_CONTINUATION",
+                "confidenceScore": confidence,
+                "stabilityScore": stability,
+                "persistenceScore": persistence,
+                "dataQuality": {"status": "GOOD", "supportedKeyWindows": True},
+            },
+            core_candle_readiness={"ready": True, "reason": "ok"},
+        )
+        first = se.resolve_entry_route(
+            cfg=cfg,
+            symbol="TEST-USD",
+            snapshot=snapshot,
+            default_strategy="mean_reversion",
+            shadow_state={},
+        )
+        second = se.resolve_entry_route(
+            cfg=cfg,
+            symbol="TEST-USD",
+            snapshot=snapshot,
+            default_strategy="mean_reversion",
+            shadow_state={},
+        )
+        assert first.get("fallback_gate") == second.get("fallback_gate")
+        assert first.get("effective_route") == second.get("effective_route")
+
+
+def test_auto_router_reason_precedence_unsupported_windows_before_quality_and_core():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "auto_use_route_quality_gates": False,
+        }
+    }
+    snapshot = _snapshot(
+        regime_advisory={
+            "suggestedRegime": "TREND_CONTINUATION",
+            "confidenceScore": 95,
+            "stabilityScore": 95,
+            "persistenceScore": 95,
+            "dataQuality": {"status": "STALE", "supportedKeyWindows": False},
+        },
+        core_candle_readiness={"ready": False, "reason": "stale_core"},
+    )
+    route = se.resolve_entry_route(
+        cfg=cfg,
+        symbol="TEST-USD",
+        snapshot=snapshot,
+        default_strategy="mean_reversion",
+        shadow_state={},
+    )
+    assert route["fallback_gate"] == "unsupported_key_windows"
+    assert route["auto_fallback_reason"] == "unsupported_key_windows"
+
+
+def test_auto_router_reason_precedence_data_quality_before_core_readiness():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "auto_use_route_quality_gates": False,
+        }
+    }
+    snapshot = _snapshot(
+        regime_advisory={
+            "suggestedRegime": "TREND_CONTINUATION",
+            "confidenceScore": 95,
+            "stabilityScore": 95,
+            "persistenceScore": 95,
+            "dataQuality": {"status": "STALE", "supportedKeyWindows": True},
+        },
+        core_candle_readiness={"ready": False, "reason": "stale_core"},
+    )
+    route = se.resolve_entry_route(
+        cfg=cfg,
+        symbol="TEST-USD",
+        snapshot=snapshot,
+        default_strategy="mean_reversion",
+        shadow_state={},
+    )
+    assert route["fallback_gate"] == "data_quality_not_acceptable"
+    assert route["auto_fallback_reason"] == "data_quality_not_acceptable"
+
+
+def test_auto_router_randomized_gate_precedence_is_deterministic():
+    rng = random.Random(7)
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "auto_use_route_quality_gates": True,
+            "auto_min_confidence": 60,
+            "auto_min_stability": 60,
+            "auto_min_persistence": 60,
+        }
+    }
+
+    for _ in range(50):
+        low_conf = rng.choice([True, False])
+        low_stability = rng.choice([True, False])
+        low_persistence = rng.choice([True, False])
+        not_promoted = rng.choice([True, False])
+        confidence = 40 if low_conf else 95
+        stability = 50 if low_stability else 95
+        persistence = 50 if low_persistence else 95
+
+        snapshot = _snapshot(
+            regime_advisory={
+                "suggestedRegime": "TREND_CONTINUATION",
+                "confidenceScore": confidence,
+                "stabilityScore": stability,
+                "persistenceScore": persistence,
+                "dataQuality": {"status": "GOOD", "supportedKeyWindows": True},
+            },
+            core_candle_readiness={"ready": True, "reason": "ok"},
+            route_quality={
+                "promotion": {
+                    "promoted_routes": {"trend_pullback": not not_promoted},
+                    "promotion_reasons": {"trend_pullback": "gate"},
+                }
+            },
+        )
+        route = se.resolve_entry_route(
+            cfg=cfg,
+            symbol="TEST-USD",
+            snapshot=snapshot,
+            default_strategy="mean_reversion",
+            shadow_state={},
+        )
+
+        if low_conf:
+            expected_gate = "low_confidence"
+        elif low_stability:
+            expected_gate = "low_stability"
+        elif low_persistence:
+            expected_gate = "low_persistence"
+        elif not_promoted:
+            expected_gate = "route_not_promoted"
+        else:
+            expected_gate = None
+
+        assert route.get("fallback_gate") == expected_gate

@@ -1,7 +1,6 @@
 import re
 import time
 import json
-import hmac
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 import os
@@ -31,6 +30,7 @@ from utils.state_paths import (
     seed_primary_from_legacy,
 )
 from utils.state_storage import get_state_storage
+from utils.state_integrity_report import build_state_integrity_report
 from utils.state_validator import validate_state_files
 from utils.token_regimes import (
     TOKEN_REGIME_MEAN_REVERSION,
@@ -39,6 +39,12 @@ from utils.token_regimes import (
     normalize_token_regime,
     is_valid_token_regime,
 )
+from runtime.arming_contract import evaluate_runtime_arming_contract, normalize_execution_mode
+from runtime.startup_service import has_critical_startup_failure
+from control.middleware_auth import MutatingSafetyMiddleware
+from control import read_routes as control_read_routes
+from control import mutating_routes as control_mutating_routes
+from control import admin_routes as control_admin_routes
 
 logger = setup_logger("control")
 app = Flask(__name__)
@@ -57,16 +63,34 @@ try:
     CONTROL_PORT = int(os.getenv("REVBOT_CONTROL_PORT", "8001"))
 except ValueError:
     CONTROL_PORT = 8001
+CONTROL_SERVER_MODE = str(os.getenv("REVBOT_CONTROL_SERVER_MODE", "auto") or "auto").strip().lower()
+if CONTROL_SERVER_MODE not in {"auto", "flask", "waitress"}:
+    CONTROL_SERVER_MODE = "auto"
+
+
+def _bool_env(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 STRICT_STARTUP = os.getenv("REVBOT_CONTROL_STRICT_STARTUP", "").strip().lower() in {
     "1",
     "true",
     "yes",
     "on",
 }
-STRICT_MUTATING_AUTH = (
-    os.getenv("REVBOT_STRICT_MUTATING_AUTH", "").strip().lower() in {"1", "true", "yes", "on"}
-    or os.getenv("REVBOT_DEPLOYMENT_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
-)
+DEPLOYMENT_MODE = _bool_env("REVBOT_DEPLOYMENT_MODE", False)
+STRICT_MUTATING_AUTH = _bool_env("REVBOT_STRICT_MUTATING_AUTH", False)
+ALLOW_DEPLOYED_MUTATIONS = _bool_env("REVBOT_ALLOW_DEPLOYED_MUTATIONS", False)
+ALLOW_DEPLOYED_LIVE_ARMING = _bool_env("REVBOT_ALLOW_DEPLOYED_LIVE_ARMING", False)
+REQUIRE_PROD_CONTROL_SERVER_IN_DEPLOYED = _bool_env("REVBOT_REQUIRE_PROD_CONTROL_SERVER", True)
 SNAPSHOT_PATTERN = re.compile(
     r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+\s+\|\s+INFO\s+\|\s+SNAPSHOT\s+([A-Z0-9-]+)\s+\|\s+price=([0-9.]+)"
 )
@@ -148,54 +172,6 @@ def _json_error(message, *, status=400, code="bad_request", details=None):
     return jsonify(payload), status
 
 
-def _is_mutating_request() -> bool:
-    method = str(request.method or "").upper()
-    if method not in {"POST", "PUT", "PATCH", "DELETE"}:
-        return False
-    path = request.path or ""
-    return path in MUTATING_ENDPOINTS
-
-
-def _extract_client_ip() -> str:
-    if request.access_route:
-        route_ip = str(request.access_route[0] or "").strip()
-        if route_ip:
-            return route_ip
-    remote = str(request.remote_addr or "").strip()
-    return remote
-
-
-def _is_local_request() -> bool:
-    client_ip = _extract_client_ip().lower()
-    if not client_ip:
-        return False
-    if client_ip in LOCAL_LOOPBACKS:
-        return True
-    if client_ip.startswith("127."):
-        return True
-    return False
-
-
-def _extract_auth_token() -> str:
-    bearer = str(request.headers.get("Authorization", "") or "").strip()
-    if bearer.lower().startswith("bearer "):
-        return bearer[7:].strip()
-    direct = str(request.headers.get("X-Revbot-Token", "") or "").strip()
-    if direct:
-        return direct
-    return ""
-
-
-def _extract_actor() -> str:
-    actor = str(request.headers.get("X-Revbot-Actor", "") or "").strip()
-    if actor:
-        return actor
-    ip = _extract_client_ip()
-    if ip:
-        return f"ip:{ip}"
-    return "unknown"
-
-
 def _resolve_expected_auth_token() -> str:
     env_token = os.getenv("REVBOT_CONTROL_AUTH_TOKEN", "").strip()
     if env_token:
@@ -218,80 +194,80 @@ def _resolve_expected_auth_token() -> str:
     return ""
 
 
+def _resolve_execution_mode(cfg: dict | None = None) -> str:
+    config = cfg if isinstance(cfg, dict) else None
+    if config is None:
+        try:
+            loaded = load_config()
+            if isinstance(loaded, dict):
+                config = loaded
+        except Exception:
+            config = None
+    if isinstance(config, dict):
+        return normalize_execution_mode(config.get("execution_mode"))
+    return "paper"
+
+
+def _resolve_arming_contract(cfg: dict | None = None):
+    expected_token = _resolve_expected_auth_token()
+    return evaluate_runtime_arming_contract(
+        deployed_mode=bool(DEPLOYMENT_MODE),
+        execution_mode=_resolve_execution_mode(cfg),
+        token_configured=bool(expected_token),
+        strict_mutating_auth=bool(STRICT_MUTATING_AUTH),
+        deployed_mutations_enabled=bool(ALLOW_DEPLOYED_MUTATIONS),
+        deployed_live_arming_enabled=bool(ALLOW_DEPLOYED_LIVE_ARMING),
+    )
+
+
+_MUTATING_SAFETY = MutatingSafetyMiddleware(
+    get_mutating_endpoints=lambda: MUTATING_ENDPOINTS,
+    get_local_loopbacks=lambda: LOCAL_LOOPBACKS,
+    allow_non_local_requests=lambda: ALLOW_NON_LOCAL_REQUESTS,
+    get_payload_max_bytes=lambda: MUTATING_PAYLOAD_MAX_BYTES,
+    get_rate_limit_window_seconds=lambda: RATE_LIMIT_WINDOW_SECONDS,
+    get_rate_limit_max_requests=lambda: RATE_LIMIT_MAX_REQUESTS,
+    resolve_arming_contract=lambda: _resolve_arming_contract(),
+    resolve_expected_auth_token=_resolve_expected_auth_token,
+    json_error=_json_error,
+    rate_limit_buckets=_rate_limit_buckets,
+)
+
+
+def _is_mutating_request() -> bool:
+    return _MUTATING_SAFETY.is_mutating_request(request)
+
+
+def _extract_client_ip() -> str:
+    return _MUTATING_SAFETY.extract_client_ip(request)
+
+
+def _is_local_request() -> bool:
+    return _MUTATING_SAFETY.is_local_request(request)
+
+
+def _extract_auth_token() -> str:
+    return _MUTATING_SAFETY.extract_auth_token(request)
+
+
+def _extract_actor() -> str:
+    return _MUTATING_SAFETY.extract_actor(request)
+
+
+def _is_critical_startup_failure(startup_status: dict) -> bool:
+    return has_critical_startup_failure(startup_status)
+
+
 def _check_payload_size():
-    if not _is_mutating_request():
-        return None
-
-    content_length = request.content_length
-    if content_length is not None and content_length > MUTATING_PAYLOAD_MAX_BYTES:
-        return _json_error(
-            "Payload too large",
-            status=413,
-            code="payload_too_large",
-            details={"max_bytes": MUTATING_PAYLOAD_MAX_BYTES},
-        )
-
-    if content_length is None:
-        payload = request.get_data(cache=True, as_text=False)
-        if len(payload) > MUTATING_PAYLOAD_MAX_BYTES:
-            return _json_error(
-                "Payload too large",
-                status=413,
-                code="payload_too_large",
-                details={"max_bytes": MUTATING_PAYLOAD_MAX_BYTES},
-            )
-    return None
+    return _MUTATING_SAFETY.check_payload_size(request)
 
 
 def _check_rate_limit():
-    if not _is_mutating_request():
-        return None
-
-    client_ip = _extract_client_ip() or "unknown"
-    bucket_key = f"{client_ip}:{request.path}"
-    now = time.time()
-    window_start = now - RATE_LIMIT_WINDOW_SECONDS
-
-    bucket = _rate_limit_buckets[bucket_key]
-    while bucket and bucket[0] < window_start:
-        bucket.popleft()
-
-    if len(bucket) >= RATE_LIMIT_MAX_REQUESTS:
-        return _json_error(
-            "Too many requests",
-            status=429,
-            code="rate_limited",
-            details={
-                "limit": RATE_LIMIT_MAX_REQUESTS,
-                "window_seconds": RATE_LIMIT_WINDOW_SECONDS,
-            },
-        )
-
-    bucket.append(now)
-    return None
+    return _MUTATING_SAFETY.check_rate_limit(request)
 
 
 def _check_mutating_auth():
-    if not _is_mutating_request():
-        return None
-
-    expected = _resolve_expected_auth_token()
-    if not expected:
-        return _json_error(
-            "Mutating auth token is not configured",
-            status=503,
-            code="auth_not_configured",
-        )
-
-    provided = _extract_auth_token()
-    if not provided or not hmac.compare_digest(provided, expected):
-        return _json_error(
-            "Unauthorized",
-            status=401,
-            code="unauthorized",
-        )
-
-    return None
+    return _MUTATING_SAFETY.check_mutating_auth(request)
 
 
 def _write_audit_event(action: str, *, old=None, new=None, result=None, extra=None):
@@ -321,29 +297,7 @@ def _write_audit_event(action: str, *, old=None, new=None, result=None, extra=No
 
 @app.before_request
 def _enforce_mutating_safety():
-    if not _is_mutating_request():
-        return None
-
-    g.revbot_actor = _extract_actor()
-    if not ALLOW_NON_LOCAL_REQUESTS and not _is_local_request():
-        return _json_error(
-            "Non-local requests are not allowed",
-            status=403,
-            code="non_local_forbidden",
-        )
-
-    payload_check = _check_payload_size()
-    if payload_check is not None:
-        return payload_check
-
-    auth_check = _check_mutating_auth()
-    if auth_check is not None:
-        return auth_check
-
-    rate_check = _check_rate_limit()
-    if rate_check is not None:
-        return rate_check
-    return None
+    return _MUTATING_SAFETY.enforce(request, g)
 
 
 def _probe_directory_writable(directory: Path):
@@ -415,17 +369,38 @@ def _run_startup_checks():
     if not timestamp_check.get("ok", False):
         ok = False
 
-    expected_token = _resolve_expected_auth_token()
-    auth_ok = bool(expected_token)
+    contract = _resolve_arming_contract()
+    mutating_required = bool(contract.deployed_mode)
     checks.append(
         {
-            "name": "mutating_auth_configured",
-            "ok": auth_ok if STRICT_MUTATING_AUTH else True,
-            "configured": auth_ok,
-            "strict_required": bool(STRICT_MUTATING_AUTH),
+            "name": "arming_contract_mutating",
+            "ok": bool(contract.mutating_allowed) if mutating_required else True,
+            "critical": mutating_required,
+            "required": mutating_required,
+            "deployed_mode": bool(contract.deployed_mode),
+            "token_configured": bool(contract.token_configured),
+            "strict_mutating_auth": bool(contract.strict_mutating_auth),
+            "deployed_mutations_enabled": bool(contract.deployed_mutations_enabled),
+            "failures": list(contract.failures),
         }
     )
-    if STRICT_MUTATING_AUTH and not auth_ok:
+    if mutating_required and not contract.mutating_allowed:
+        ok = False
+
+    live_arming_required = bool(contract.deployed_mode and contract.execution_mode != "paper")
+    checks.append(
+        {
+            "name": "arming_contract_live_arming",
+            "ok": bool(contract.live_arming_allowed) if live_arming_required else True,
+            "critical": live_arming_required,
+            "required": live_arming_required,
+            "execution_mode": contract.execution_mode,
+            "deployed_mode": bool(contract.deployed_mode),
+            "deployed_live_arming_enabled": bool(contract.deployed_live_arming_enabled),
+            "failures": list(contract.live_arming_failures),
+        }
+    )
+    if live_arming_required and not contract.live_arming_allowed:
         ok = False
 
     checks.append(
@@ -436,8 +411,28 @@ def _run_startup_checks():
         }
     )
 
+    state_report = build_state_integrity_report(
+        default_state_dir=DEFAULT_STATE_DIR,
+        active_state_dir=STATE_DIR,
+        required_filenames=tuple(path.name for path in REQUIRED_STATE_JSON_FILES),
+    )
+    checks.append(
+        {
+            "name": "state_integrity_report",
+            "ok": bool(state_report.ok),
+            "collision_count": int(state_report.collision_count),
+            "used_legacy_count": int(state_report.used_legacy_count),
+        }
+    )
+    if not state_report.ok:
+        ok = False
+
     for path in REQUIRED_STATE_JSON_FILES:
-        read_path = read_path_with_legacy_fallback(path, LEGACY_STATE_JSON_FILES[path])
+        read_path = read_path_with_legacy_fallback(
+            path,
+            LEGACY_STATE_JSON_FILES[path],
+            context=f"control.startup_check.{path.name}",
+        )
         exists = read_path.exists()
         checks.append({"name": f"{path.name}_present", "ok": exists})
         if not exists:
@@ -474,6 +469,7 @@ def _run_startup_checks():
         "ok": ok,
         "checkedAt": _now_utc_iso(),
         "checks": checks,
+        "state_integrity_report": state_report.as_dict(),
     }
 
 
@@ -746,6 +742,22 @@ def _apply_control_action(action, reason=None):
     if action_key not in {"START", "STOP", "KILL"}:
         return None, f"Unknown action: {action}"
 
+    if action_key == "START":
+        current_cfg = load_config()
+        if not isinstance(current_cfg, dict):
+            current_cfg = {}
+        contract = _resolve_arming_contract(current_cfg)
+        if not contract.live_arming_allowed:
+            return (
+                None,
+                {
+                    "message": "Live arming contract blocked",
+                    "status": 409,
+                    "code": "live_arming_contract_blocked",
+                    "details": {"failures": list(contract.live_arming_failures)},
+                },
+            )
+
     def _mutate(cfg):
         if not isinstance(cfg, dict):
             cfg = {}
@@ -783,93 +795,40 @@ def _apply_control_action(action, reason=None):
 
 @app.route("/status", methods=["GET"])
 def status():
-    cfg = load_config()
-
-    symbols = _normalize_symbols(cfg.get("symbols", []))
-    symbol_enabled = _parse_enabled_map(cfg.get("symbol_enabled", {}))
-    symbol_buy_enabled = _parse_enabled_map(cfg.get("symbol_buy_enabled", {}))
-    symbol_sell_enabled = _parse_enabled_map(cfg.get("symbol_sell_enabled", {}))
-    token_regimes = _parse_token_regime_map(cfg.get("token_regimes", {}))
-
-    buy_enabled_symbols = [
-        symbol
-        for symbol in symbols
-        if _is_enabled(symbol_buy_enabled if symbol in symbol_buy_enabled else symbol_enabled, symbol)
-    ]
-    sell_enabled_symbols = [
-        symbol
-        for symbol in symbols
-        if _is_enabled(symbol_sell_enabled if symbol in symbol_sell_enabled else symbol_enabled, symbol)
-    ]
-
-    risk = cfg.get("risk", {})
-    if not isinstance(risk, dict):
-        risk = {}
-    trade_window = risk.get("trade_window_utc", {})
-    if not isinstance(trade_window, dict):
-        trade_window = {}
-    symbol_cooldown = risk.get("symbol_cooldown_seconds", {})
-    if not isinstance(symbol_cooldown, dict):
-        symbol_cooldown = {}
-
-    return jsonify(
-        {
-            "enabled": bool(cfg.get("enabled", False)),
-            "trading_enabled": bool(cfg.get("trading_enabled", False)),
-            "emergency_stop": bool(cfg.get("emergency_stop", False)),
-            "execution_mode": cfg.get("execution_mode"),
-            "symbols": symbols,
-            "token_regimes": token_regimes,
-            "buy_enabled_symbols": buy_enabled_symbols,
-            "sell_enabled_symbols": sell_enabled_symbols,
-            "loop_sleep": cfg.get("loop_sleep"),
-            "cooldown_seconds": risk.get("cooldown_seconds"),
-            "max_concurrent_trades": risk.get("max_concurrent_trades"),
-            "max_concurrent_trades_per_token": risk.get(
-                "max_concurrent_trades_per_token"
-            ),
-            "max_trade_amount_usd": risk.get("max_trade_amount_usd"),
-            "trade_amount_usd": risk.get("trade_amount_usd"),
-            "max_portfolio_exposure_pct": risk.get("max_portfolio_exposure_pct"),
-            "max_exposure_per_token_pct": risk.get("max_exposure_per_token_pct"),
-            "daily_loss_limit_usd": risk.get("daily_loss_limit_usd"),
-            "daily_loss_auto_pause": risk.get("daily_loss_auto_pause"),
-            "daily_loss_close_all": risk.get("daily_loss_close_all"),
-            "signal_confirmation_cycles": risk.get("signal_confirmation_cycles"),
-            "trade_window_utc": trade_window,
-            "symbol_cooldown_seconds": symbol_cooldown,
-        }
+    payload = control_read_routes.status_payload(
+        load_config=load_config,
+        normalize_symbols=_normalize_symbols,
+        parse_enabled_map=_parse_enabled_map,
+        parse_token_regime_map=_parse_token_regime_map,
+        is_enabled=_is_enabled,
     )
+    return jsonify(payload)
 
 
 @app.route("/health", methods=["GET"])
 def health():
-    return jsonify(
-        {
-            "status": "ok",
-            "service": "control",
-            "time": _now_utc_iso(),
-        }
-    )
+    return jsonify(control_read_routes.health_payload(now_utc_iso=_now_utc_iso))
 
 
 @app.route("/revolut-account", methods=["GET"])
 def revolut_account():
     force = str(request.args.get("force", "0")).strip().lower() in {"1", "true", "yes", "on"}
-    if force:
-        snapshot = sync_account_snapshot()
-    else:
-        snapshot = read_account_snapshot(default={})
-        if not snapshot:
-            snapshot = sync_account_snapshot()
+    snapshot = control_read_routes.revolut_account_payload(
+        force=force,
+        sync_account_snapshot=sync_account_snapshot,
+        read_account_snapshot=read_account_snapshot,
+    )
     return jsonify(snapshot)
 
 
 @app.route("/revolut-universe", methods=["GET"])
 def revolut_universe():
-    cfg = load_config()
     force = str(request.args.get("force", "0")).strip().lower() in {"1", "true", "yes", "on"}
-    snapshot = get_universe_snapshot(cfg, force_refresh=force)
+    snapshot = control_read_routes.revolut_universe_payload(
+        force=force,
+        load_config=load_config,
+        get_universe_snapshot=get_universe_snapshot,
+    )
     return jsonify(snapshot)
 
 
@@ -886,34 +845,17 @@ def market_data_candles():
     limit = max(1, min(limit, 50_000))
 
     try:
-        rows = market_data_service.get_candles(symbol=symbol, timeframe=timeframe, limit=limit)
-        meta = market_data_service.get_candle_meta(symbol=symbol, timeframe=timeframe)
+        payload = control_read_routes.market_data_candles_payload(
+            symbol=symbol,
+            timeframe=timeframe,
+            limit=limit,
+            get_candles=market_data_service.get_candles,
+            get_candle_meta=market_data_service.get_candle_meta,
+        )
     except Exception as exc:
         logger.exception(f"market-data candles failed for {symbol} {timeframe}: {exc}")
         return _json_error("failed to load candles", status=500, code="market_data_error")
-
-    points = []
-    for row in rows:
-        try:
-            ts_epoch = int(row.get("open_time")) / 1000.0
-            close = float(row.get("close"))
-        except (TypeError, ValueError):
-            continue
-        if ts_epoch <= 0 or close <= 0:
-            continue
-        points.append({"tsEpoch": ts_epoch, "price": close})
-
-    return jsonify(
-        {
-            "status": "ok",
-            "symbol": symbol,
-            "timeframe": timeframe,
-            "limit": limit,
-            "rows": rows,
-            "points": points,
-            "meta": meta,
-        }
-    )
+    return jsonify(payload)
 
 
 @app.route("/market-data/candles-batch", methods=["GET"])
@@ -929,47 +871,15 @@ def market_data_candles_batch():
         limit = 4000
     limit = max(1, min(limit, 50_000))
 
-    payload = {}
-    for symbol in symbols[:80]:
-        try:
-            rows = market_data_service.get_candles(symbol=symbol, timeframe=timeframe, limit=limit)
-            meta = market_data_service.get_candle_meta(symbol=symbol, timeframe=timeframe)
-        except Exception as exc:
-            logger.exception(f"market-data candle batch failed for {symbol} {timeframe}: {exc}")
-            payload[symbol] = {
-                "status": "error",
-                "points": [],
-                "meta": {"supported": False, "stale": True, "reason": "backend_exception"},
-            }
-            continue
-
-        points = []
-        for row in rows:
-            try:
-                ts_epoch = int(row.get("open_time")) / 1000.0
-                close = float(row.get("close"))
-            except (TypeError, ValueError):
-                continue
-            if ts_epoch <= 0 or close <= 0:
-                continue
-            points.append({"tsEpoch": ts_epoch, "price": close})
-
-        latest = points[-1] if points else None
-        payload[symbol] = {
-            "status": "ok",
-            "points": points,
-            "latest": latest,
-            "meta": meta,
-        }
-
-    return jsonify(
-        {
-            "status": "ok",
-            "timeframe": timeframe,
-            "limit": limit,
-            "symbols": payload,
-        }
+    payload = control_read_routes.market_data_candles_batch_payload(
+        symbols=symbols,
+        timeframe=timeframe,
+        limit=limit,
+        get_candles=market_data_service.get_candles,
+        get_candle_meta=market_data_service.get_candle_meta,
+        logger=logger,
     )
+    return jsonify(payload)
 
 
 @app.route("/market-data/orderbook-top5", methods=["GET"])
@@ -978,40 +888,38 @@ def market_data_orderbook_top5():
     if not symbol:
         return _json_error("symbol is required", code="invalid_symbol")
     try:
-        payload = market_data_service.get_orderbook_top5(symbol=symbol)
+        payload = control_read_routes.orderbook_top5_payload(
+            symbol=symbol,
+            get_orderbook_top5=market_data_service.get_orderbook_top5,
+        )
     except Exception as exc:
         logger.exception(f"market-data orderbook failed for {symbol}: {exc}")
         return _json_error("failed to load orderbook", status=500, code="market_data_error")
-
-    return jsonify({"status": "ok", "symbol": symbol, "orderbook": payload})
+    return jsonify(payload)
 
 
 @app.route("/route-quality", methods=["GET"])
 def route_quality():
-    cfg = load_config()
     try:
-        payload = load_route_quality_report_cached(
+        payload = control_read_routes.route_quality_payload(
+            load_config=load_config,
+            load_route_quality_report_cached=load_route_quality_report_cached,
             state_dir=STATE_DIR,
-            cfg=cfg if isinstance(cfg, dict) else {},
         )
     except Exception as exc:
         logger.exception(f"route quality report failed: {exc}")
         return _json_error("failed to build route quality report", status=500, code="route_quality_error")
-    return jsonify({"status": "ok", "route_quality": payload})
+    return jsonify(payload)
 
 
 @app.route("/ready", methods=["GET"])
 def ready():
-    status_payload = _refresh_startup_status()
-    if status_payload.get("ok"):
-        payload = dict(status_payload)
-        payload["status"] = "ok"
+    payload, status_code = control_read_routes.ready_payload(
+        refresh_startup_status=_refresh_startup_status
+    )
+    if status_code == 200:
         return jsonify(payload)
-    payload = dict(status_payload)
-    payload["status"] = "error"
-    payload["error"] = "startup_checks_failed"
-    payload["code"] = "not_ready"
-    return jsonify(payload), 503
+    return jsonify(payload), status_code
 
 
 @app.errorhandler(Exception)
@@ -1037,23 +945,16 @@ def update_config_route():
     updates = request.get_json(silent=True) or {}
     if not isinstance(updates, dict):
         return _json_error("Request body must be an object")
-
-    before_cfg = load_config()
-    old_values = {
-        key: before_cfg.get(key)
-        for key in updates.keys()
-    } if isinstance(before_cfg, dict) else {}
-
-    def _mutate(cfg):
-        cfg.update(updates)
-        return cfg
-
-    cfg = update_config(_mutate)
-    logger.info(f"Config updated: {updates}")
+    cfg, old_values, new_values = control_mutating_routes.apply_config_update(
+        updates=updates,
+        load_config=load_config,
+        update_config=update_config,
+        logger=logger,
+    )
     _write_audit_event(
         "config_update",
         old=old_values,
-        new=updates,
+        new=new_values,
         result={"status": "ok"},
     )
     return jsonify({"status": "ok", "config": cfg})
@@ -1062,16 +963,21 @@ def update_config_route():
 @app.route("/control", methods=["POST"])
 def control():
     data = request.get_json(silent=True) or {}
-    action = data.get("action", "")
-    reason = data.get("reason")
-
-    payload, error = _apply_control_action(action, reason=reason)
-    if error:
-        return _json_error(error)
+    payload, error = control_mutating_routes.apply_control_request(
+        body=data,
+        apply_control_action=_apply_control_action,
+    )
+    if error is not None:
+        return _json_error(
+            error.get("message") or "control action blocked",
+            status=int(error.get("status", 400) or 400),
+            code=str(error.get("code", "bad_request")),
+            details=error.get("details"),
+        )
 
     _write_audit_event(
         "control_action",
-        new={"action": str(action).upper(), "reason": reason},
+        new={"action": str(data.get("action", "")).upper(), "reason": data.get("reason")},
         result=payload,
     )
     return jsonify(payload)
@@ -1080,11 +986,18 @@ def control():
 @app.route("/kill", methods=["POST"])
 def kill():
     data = request.get_json(silent=True) or {}
-    reason = data.get("reason") if isinstance(data, dict) else None
-
-    payload, error = _apply_control_action("KILL", reason=reason)
-    if error:
-        return _json_error(error)
+    reason, payload, error = control_admin_routes.apply_kill_request(
+        body=data,
+        apply_control_action_response=control_mutating_routes.apply_control_action_response,
+        apply_control_action=_apply_control_action,
+    )
+    if error is not None:
+        return _json_error(
+            error.get("message") or "kill action blocked",
+            status=int(error.get("status", 400) or 400),
+            code=str(error.get("code", "bad_request")),
+            details=error.get("details"),
+        )
 
     _write_audit_event(
         "kill_action",
@@ -2192,6 +2105,13 @@ def run():
         logger.warning(f"Control daily snapshot failed: {exc}")
 
     startup_status = _refresh_startup_status()
+    state_integrity_report = startup_status.get("state_integrity_report")
+    if isinstance(state_integrity_report, dict):
+        append_runtime_event(
+            "startup_state_integrity_report",
+            service="control",
+            report=state_integrity_report,
+        )
     append_runtime_event(
         "process_start",
         service="control",
@@ -2200,11 +2120,53 @@ def run():
     )
     if not startup_status.get("ok", False):
         logger.error(f"Control startup checks failed: {startup_status}")
-        if STRICT_STARTUP:
+        if STRICT_STARTUP or _is_critical_startup_failure(startup_status):
             raise RuntimeError("Control startup checks failed")
 
-    logger.info(f"Control server starting on {CONTROL_HOST}:{CONTROL_PORT}")
+    server_mode = CONTROL_SERVER_MODE
+    if (
+        DEPLOYMENT_MODE
+        and REQUIRE_PROD_CONTROL_SERVER_IN_DEPLOYED
+        and server_mode == "flask"
+    ):
+        raise RuntimeError(
+            "Deployed mode requires production control server host "
+            "(set REVBOT_CONTROL_SERVER_MODE=waitress or auto with waitress installed)"
+        )
+
+    logger.info(
+        f"Control server starting on {CONTROL_HOST}:{CONTROL_PORT} "
+        f"(mode={server_mode})"
+    )
     try:
+        if server_mode in {"auto", "waitress"}:
+            try:
+                from waitress import serve as waitress_serve
+            except Exception as exc:
+                if DEPLOYMENT_MODE and REQUIRE_PROD_CONTROL_SERVER_IN_DEPLOYED:
+                    raise RuntimeError(
+                        "Waitress is required in deployed mode when REVBOT_REQUIRE_PROD_CONTROL_SERVER=true"
+                    ) from exc
+                if server_mode == "waitress":
+                    logger.warning(f"Waitress unavailable, falling back to Flask dev server: {exc}")
+                else:
+                    logger.info("Waitress not available; using Flask development server")
+            else:
+                try:
+                    waitress_threads = max(
+                        1,
+                        int(os.getenv("REVBOT_CONTROL_WAITRESS_THREADS", "8")),
+                    )
+                except ValueError:
+                    waitress_threads = 8
+                waitress_serve(
+                    app,
+                    host=CONTROL_HOST,
+                    port=CONTROL_PORT,
+                    threads=waitress_threads,
+                )
+                return
+
         app.run(host=CONTROL_HOST, port=CONTROL_PORT, debug=False)
     finally:
         append_runtime_event(

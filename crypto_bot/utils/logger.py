@@ -5,7 +5,9 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Iterable
 
-LOG_DIR = Path(__file__).resolve().parent.parent / "state"
+from utils.state_paths import resolve_state_dir
+
+LOG_DIR = resolve_state_dir(Path(__file__).resolve().parent.parent / "state")
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LOG_FILE = LOG_DIR / "bot.log"
 

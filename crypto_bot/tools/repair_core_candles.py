@@ -4,12 +4,17 @@ import argparse
 import json
 import time
 from collections import defaultdict
+import sys
 from pathlib import Path
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from data.revolut_candle_store import RevolutCandleStore
 from data.revolut_incremental_sync import sync_new_candles
 from data.revolut_market_db import connect, resolve_db_path
 from utils.state_io import read_json_file
+from utils.state_paths import resolve_state_dir
 
 
 CORE_TIMEFRAMES = ("1h", "4h", "1d")
@@ -140,9 +145,13 @@ def purge_and_rebuild(
     }
 
 
+def _default_state_dir() -> Path:
+    return resolve_state_dir(Path(__file__).resolve().parents[1] / "state")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Detect/repair contaminated core candles (1h/4h/1d).")
-    parser.add_argument("--state-dir", default=str(Path(__file__).resolve().parents[1] / "state"))
+    parser.add_argument("--state-dir", default=str(_default_state_dir()))
     parser.add_argument("--db-path", default=None)
     parser.add_argument("--duplicate-threshold", type=int, default=3)
     parser.add_argument("--dry-run", action="store_true")

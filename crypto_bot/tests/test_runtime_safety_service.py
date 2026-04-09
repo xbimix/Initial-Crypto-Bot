@@ -103,6 +103,120 @@ def test_no_false_pause_when_threshold_not_reached():
     assert result.blocked_reason is None
 
 
+def test_freshness_guard_blocks_buy_after_consecutive_degraded_cycles():
+    service = RuntimeSafetyService(
+        cfg={
+            "risk": {},
+            "market_data": {
+                "freshness_slo": {
+                    "entry_block_on_degraded": True,
+                    "entry_block_after_degraded_cycles": 2,
+                }
+            },
+        },
+        risk_manager=_FakeRisk({"buy_paused": False, "limit_usd": 0.0, "realized_usd": 0.0}),
+        logger=_FakeLogger(),
+    )
+
+    first = service.record_freshness_slo({"status": "DEGRADED"})
+    assert first.allowed is True
+    second = service.record_freshness_slo({"status": "DEGRADED"})
+    assert second.allowed is False
+    assert second.blocked_reason == "freshness_slo_degraded"
+
+    blocked = service.check_buy_allowed("BTC-USD", now_epoch=200.0)
+    assert blocked.allowed is False
+    assert blocked.blocked_reason == "freshness_slo_degraded"
+
+
+def test_freshness_guard_carries_structured_block_reason():
+    service = RuntimeSafetyService(
+        cfg={
+            "risk": {},
+            "market_data": {
+                "freshness_slo": {
+                    "entry_block_on_degraded": True,
+                    "entry_block_after_degraded_cycles": 1,
+                }
+            },
+        },
+        risk_manager=_FakeRisk({"buy_paused": False, "limit_usd": 0.0, "realized_usd": 0.0}),
+        logger=_FakeLogger(),
+    )
+    result = service.record_freshness_slo(
+        {
+            "status": "DEGRADED",
+            "entry_block_reason": "decision_timeframe_starved",
+        }
+    )
+    assert result.allowed is False
+    assert result.counters.get("freshness_entry_block_reason") == "decision_timeframe_starved"
+    blocked = service.check_buy_allowed("BTC-USD", now_epoch=250.0)
+    assert blocked.counters.get("freshness_entry_block_reason") == "decision_timeframe_starved"
+
+
+def test_freshness_guard_clears_after_status_recovers():
+    service = RuntimeSafetyService(
+        cfg={
+            "risk": {},
+            "market_data": {
+                "freshness_slo": {
+                    "entry_block_on_degraded": True,
+                    "entry_block_after_degraded_cycles": 2,
+                }
+            },
+        },
+        risk_manager=_FakeRisk({"buy_paused": False, "limit_usd": 0.0, "realized_usd": 0.0}),
+        logger=_FakeLogger(),
+    )
+    service.record_freshness_slo({"status": "DEGRADED"})
+    service.record_freshness_slo({"status": "DEGRADED"})
+    assert service.check_buy_allowed("ETH-USD", now_epoch=300.0).allowed is False
+
+    recovered = service.record_freshness_slo({"status": "OK"})
+    assert recovered.allowed is True
+    allowed = service.check_buy_allowed("ETH-USD", now_epoch=301.0)
+    assert allowed.allowed is True
+    assert allowed.blocked_reason is None
+
+
+def test_freshness_guard_blocks_entries_but_allows_risk_reducing_exits():
+    daily_loss = {
+        "buy_paused": True,
+        "close_all": True,
+        "day": "2026-04-05",
+        "realized_usd": -250.0,
+        "limit_usd": 100.0,
+    }
+    service = RuntimeSafetyService(
+        cfg={
+            "risk": {},
+            "market_data": {
+                "freshness_slo": {
+                    "entry_block_on_degraded": True,
+                    "entry_block_after_degraded_cycles": 1,
+                }
+            },
+        },
+        risk_manager=_FakeRisk(daily_loss),
+        logger=_FakeLogger(),
+    )
+    service.record_freshness_slo({"status": "DEGRADED"})
+    blocked = service.check_buy_allowed("BTC-USD", now_epoch=10.0)
+    assert blocked.allowed is False
+    assert blocked.blocked_reason == "freshness_slo_degraded"
+
+    closed: list[tuple[str, float, str]] = []
+    result = service.enforce_daily_loss_controls(
+        open_symbols=["BTC-USD"],
+        get_position=lambda symbol: {"size": 1.0} if symbol == "BTC-USD" else None,
+        execute_sell=lambda symbol, price, reason: closed.append((symbol, price, reason)) or True,
+        snapshot_fetcher=lambda _symbol, _cfg: {"price": 100.0},
+    )
+    assert result.counters["closed_positions"] == 1
+    assert closed
+
+
 def test_executor_daily_loss_controls_backward_compatible_bool_behavior():
     executor = Executor.__new__(Executor)
     executor.cfg = {"risk": {}}
@@ -135,4 +249,3 @@ def test_executor_daily_loss_controls_backward_compatible_bool_behavior():
 
     assert executor.enforce_daily_loss_controls() is False
     assert len(calls) == 1
-

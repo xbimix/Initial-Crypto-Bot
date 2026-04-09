@@ -25,6 +25,9 @@ class RuntimeSafetyState:
     daily_loss_close_all_day: str | None = None
     consecutive_execution_failures: int = 0
     execution_fail_pause_until: float = 0.0
+    freshness_degraded_streak: int = 0
+    freshness_guard_active: bool = False
+    freshness_block_reason: str | None = None
 
 
 class RuntimeSafetyService:
@@ -45,12 +48,22 @@ class RuntimeSafetyService:
         self._daily_loss_close_all_day = state.daily_loss_close_all_day
         self._consecutive_execution_failures = max(int(state.consecutive_execution_failures), 0)
         self._execution_fail_pause_until = max(float(state.execution_fail_pause_until), 0.0)
+        self._freshness_degraded_streak = max(int(state.freshness_degraded_streak), 0)
+        self._freshness_guard_active = bool(state.freshness_guard_active)
+        self._freshness_block_reason = (
+            str(state.freshness_block_reason).strip()
+            if state.freshness_block_reason is not None
+            else None
+        )
 
     def export_state(self) -> RuntimeSafetyState:
         return RuntimeSafetyState(
             daily_loss_close_all_day=self._daily_loss_close_all_day,
             consecutive_execution_failures=self._consecutive_execution_failures,
             execution_fail_pause_until=self._execution_fail_pause_until,
+            freshness_degraded_streak=self._freshness_degraded_streak,
+            freshness_guard_active=self._freshness_guard_active,
+            freshness_block_reason=self._freshness_block_reason,
         )
 
     def update_config(self, cfg: dict):
@@ -74,6 +87,23 @@ class RuntimeSafetyService:
     def failure_limits(self) -> tuple[int, int]:
         return self._failure_limits()
 
+    def _freshness_guard_limits(self) -> tuple[bool, int]:
+        market_data_cfg = self.cfg.get("market_data", {})
+        if not isinstance(market_data_cfg, dict):
+            return True, 3
+        slo_cfg = market_data_cfg.get("freshness_slo", {})
+        if not isinstance(slo_cfg, dict):
+            slo_cfg = {}
+
+        enabled_raw = slo_cfg.get("entry_block_on_degraded", True)
+        if isinstance(enabled_raw, bool):
+            enabled = enabled_raw
+        else:
+            enabled = str(enabled_raw).strip().lower() not in {"0", "false", "no", "off"}
+        threshold_raw = self._safe_float(slo_cfg.get("entry_block_after_degraded_cycles"), 3)
+        threshold = max(int(threshold_raw or 3), 1)
+        return enabled, threshold
+
     def _emit(self, name: str, result: RuntimeSafetyResult):
         if not callable(self._event_hook):
             return
@@ -86,16 +116,22 @@ class RuntimeSafetyService:
         now = float(now_epoch) if now_epoch is not None else time.time()
         daily_loss_state = self.risk.daily_loss_state()
         max_failures, pause_seconds = self._failure_limits()
+        freshness_guard_enabled, freshness_block_after = self._freshness_guard_limits()
 
         counters: dict[str, float | int | str | None] = {
             "consecutive_execution_failures": self._consecutive_execution_failures,
             "daily_loss_realized_usd": self._safe_float(daily_loss_state.get("realized_usd"), 0.0) or 0.0,
             "daily_loss_day": daily_loss_state.get("day"),
+            "freshness_degraded_streak": self._freshness_degraded_streak,
+            "freshness_guard_active": bool(self._freshness_guard_active),
+            "freshness_entry_block_reason": self._freshness_block_reason,
         }
         thresholds: dict[str, float | int | str | None] = {
             "max_consecutive_execution_failures": max_failures,
             "execution_failure_pause_seconds": pause_seconds,
             "daily_loss_limit_usd": self._safe_float(daily_loss_state.get("limit_usd"), 0.0) or 0.0,
+            "freshness_entry_block_enabled": freshness_guard_enabled,
+            "freshness_block_after_cycles": freshness_block_after,
         }
 
         remaining = int(self._execution_fail_pause_until - now)
@@ -113,6 +149,22 @@ class RuntimeSafetyService:
                 f"BUY blocked for {symbol} (execution failures pause active for {remaining}s)"
             )
             self._emit("buy_blocked_execution_pause", result)
+            return result
+
+        if bool(self._freshness_guard_active):
+            result = RuntimeSafetyResult(
+                allowed=False,
+                blocked_reason="freshness_slo_degraded",
+                pause_until=self._execution_fail_pause_until,
+                state_changed=False,
+                counters=counters,
+                thresholds=thresholds,
+            )
+            self.logger.warning(
+                f"BUY blocked for {symbol} (freshness SLO degraded streak={self._freshness_degraded_streak} "
+                f"reason={self._freshness_block_reason or 'unspecified'})"
+            )
+            self._emit("buy_blocked_freshness_slo", result)
             return result
 
         if bool(daily_loss_state.get("buy_paused", False)):
@@ -160,6 +212,55 @@ class RuntimeSafetyService:
         )
         if state_changed:
             self._emit("execution_failure_state_reset", result)
+        return result
+
+    def record_freshness_slo(self, slo: dict | None) -> RuntimeSafetyResult:
+        freshness_guard_enabled, freshness_block_after = self._freshness_guard_limits()
+        if not isinstance(slo, dict):
+            slo = {}
+        status = str(slo.get("status") or "UNKNOWN").strip().upper() or "UNKNOWN"
+        degraded = status == "DEGRADED"
+        entry_block_reason = str(slo.get("entry_block_reason") or "").strip() or None
+
+        previous_active = bool(self._freshness_guard_active)
+        previous_streak = int(self._freshness_degraded_streak)
+        if degraded:
+            self._freshness_degraded_streak += 1
+        else:
+            self._freshness_degraded_streak = 0
+
+        self._freshness_guard_active = bool(
+            freshness_guard_enabled and self._freshness_degraded_streak >= freshness_block_after
+        )
+        self._freshness_block_reason = entry_block_reason if self._freshness_guard_active else None
+        state_changed = (
+            previous_active != self._freshness_guard_active
+            or previous_streak != self._freshness_degraded_streak
+        )
+        blocked_reason = "freshness_slo_degraded" if self._freshness_guard_active else None
+        result = RuntimeSafetyResult(
+            allowed=not self._freshness_guard_active,
+            blocked_reason=blocked_reason,
+            pause_until=self._execution_fail_pause_until,
+            state_changed=state_changed,
+            counters={
+                "freshness_status": status,
+                "freshness_degraded_streak": self._freshness_degraded_streak,
+                "freshness_guard_active": bool(self._freshness_guard_active),
+                "freshness_entry_block_reason": self._freshness_block_reason,
+            },
+            thresholds={
+                "freshness_entry_block_enabled": freshness_guard_enabled,
+                "freshness_block_after_cycles": freshness_block_after,
+            },
+        )
+        if previous_active != self._freshness_guard_active:
+            event_name = (
+                "freshness_entry_guard_activated"
+                if self._freshness_guard_active
+                else "freshness_entry_guard_cleared"
+            )
+            self._emit(event_name, result)
         return result
 
     def record_execution_failure(

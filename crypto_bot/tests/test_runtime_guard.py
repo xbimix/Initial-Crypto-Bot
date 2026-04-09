@@ -53,3 +53,21 @@ def test_cleanup_log_rotations_removes_excess_files(tmp_path: Path):
     assert not (tmp_path / "bot.log.6").exists()
     assert not (tmp_path / "bot.log.7").exists()
     assert (tmp_path / "bot.log.5").exists()
+
+
+def test_cleanup_large_jsonl_files_trims_to_tail_boundary(tmp_path: Path):
+    rows = [f'{{"i":{idx}}}' for idx in range(200)]
+    path = tmp_path / "decision_audit.jsonl"
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+
+    result = runtime_guard.cleanup_large_jsonl_files(
+        tmp_path,
+        file_names=("decision_audit.jsonl",),
+        max_file_mb=0.001,  # force trimming
+        keep_ratio=0.5,
+    )
+    assert result["trimmed_count"] == 1
+    content = path.read_text(encoding="utf-8")
+    assert content.startswith("{")
+    assert content.endswith("\n")
+    assert len(content.splitlines()) < len(rows)

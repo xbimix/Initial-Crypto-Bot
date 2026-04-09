@@ -6,8 +6,14 @@ import re
 import statistics
 import time
 from collections import defaultdict
+import sys
 from pathlib import Path
 from typing import Any
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from utils.state_paths import resolve_state_dir
 
 
 SNAPSHOT_LINE_RE = re.compile(
@@ -667,9 +673,13 @@ def _recommendations(report: dict[str, Any]) -> list[str]:
     return recs
 
 
+def _default_state_dir() -> Path:
+    return resolve_state_dir(Path(__file__).resolve().parents[1] / "state")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="RevBot live safety tuning report.")
-    parser.add_argument("--state-dir", default=str(Path(__file__).resolve().parents[1] / "state"))
+    parser.add_argument("--state-dir", default=str(_default_state_dir()))
     parser.add_argument("--hours", type=float, default=12.0)
     args = parser.parse_args()
 

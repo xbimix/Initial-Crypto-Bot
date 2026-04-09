@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from strategy.data_quality_gate import evaluate_entry_data_quality
+
 
 def evaluate_mean_reversion_entry(
     *,
@@ -28,19 +30,19 @@ def evaluate_mean_reversion_entry(
     range_pos: float | None,
     last_momentum_state: dict[str, float],
     decision: Callable[[str, str, float, float, str], dict[str, Any]],
+    cfg: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    # Frozen Mean-Reversion entry behavior; do not alter.
-    data_quality_ok = snapshot.get("data_quality_ok")
-    if data_quality_ok is not True:
-        reason = snapshot.get("data_quality_reason")
-        if not isinstance(reason, str) or not reason.strip():
-            reason = "data_quality_missing" if data_quality_ok is None else "data_quality_failed"
+    data_quality_allowed, blocked_reason = evaluate_entry_data_quality(
+        snapshot=snapshot,
+        cfg=cfg,
+    )
+    if not data_quality_allowed:
         return decision(
             symbol,
             "HOLD",
             price,
             momentum,
-            reason,
+            str(blocked_reason or "data_quality_failed"),
         )
 
     if (

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 
 from data import candle_coverage
@@ -44,3 +45,11 @@ def test_summarize_core_timeframe_coverage(tmp_path: Path):
     assert summary["status_counts"].get("ok", 0) == 1
     assert summary["fresh_counts_by_timeframe"]["1h"] == 1
     assert summary["total_rows"] == 1
+
+
+def test_default_db_path_resolves_into_runtime_state_dir(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("BOT_DATA_DIR", str(tmp_path / "runtime_root"))
+    monkeypatch.delenv("REVBOT_STATE_DIR", raising=False)
+    reloaded = importlib.reload(candle_coverage)
+    assert "runtime_root" in str(reloaded.DEFAULT_DB_PATH)
+    assert reloaded.DEFAULT_DB_PATH.name == "market_data.db"

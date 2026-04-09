@@ -35,9 +35,28 @@ def test_normalize_config_warn_mode_populates_defaults():
     assert normalized["market_data"]["source_map"]["candles"]["authoritative"] == "official_signed"
     assert normalized["market_data"]["source_map"]["candles"]["allow_public_fallback"] is False
     assert normalized["market_data"]["source_map"]["orderbook"]["allow_public_fallback"] is True
+    assert normalized["market_data"]["decision_candle_timeframe"] == "1m"
+    assert normalized["market_data"]["decision_candle_stale_intervals"] == 3
+    assert normalized["market_data"]["decision_candle_min_stale_seconds"] == 300
+    assert normalized["market_data"]["strategy_eval_min_quality_score"] == 0.0
+    assert normalized["market_data"]["strategy_allow_partial_participation"] is False
     assert normalized["market_data"]["freshness_slo"]["min_fresh_1h"] == 1
     assert normalized["market_data"]["freshness_slo"]["min_fresh_4h"] == 1
     assert normalized["market_data"]["freshness_slo"]["min_fresh_24h"] == 0
+    assert normalized["market_data"]["freshness_slo"]["decision_timeframe_enforce"] is True
+    assert normalized["market_data"]["freshness_slo"]["min_fresh_decision_timeframe"] == 1
+    assert normalized["market_data"]["sync_reserved_requests_decision_timeframe"] == 3
+    assert normalized["market_data"]["sync_max_background_share"] == 0.5
+    assert normalized["market_data"]["sync_symbol_scope"] == "scan"
+    assert normalized["market_data"]["sync_stale_catchup_enabled"] is True
+    assert normalized["market_data"]["sync_stale_catchup_age_intervals"] == 6
+    assert normalized["market_data"]["sync_stale_catchup_reserved_requests"] == 2
+    assert normalized["market_data"]["sync_stale_catchup_max_symbols"] == 8
+    assert normalized["market_data"]["sync_persist_watermark_enabled"] is True
+    assert normalized["market_data"]["sync_watermark_ttl_seconds"] == 21600
+    assert normalized["market_data"]["sync_watermark_persist_interval_seconds"] == 30
+    assert normalized["market_data"]["sync_watermark_max_entries"] == 5000
+    assert "1m" in normalized["market_data"]["sync_timeframes"]
 
 
 def test_normalize_config_source_map_invalid_values_are_normalized():
@@ -71,6 +90,21 @@ def test_normalize_config_source_map_invalid_values_are_normalized():
     assert normalized["market_data"]["source_map"]["orderbook"]["allow_public_fallback"] is False
     assert normalized["market_data"]["freshness_slo"]["min_fresh_1h"] == 0
     assert normalized["market_data"]["freshness_slo"]["max_sync_errors"] == 2
+
+
+def test_normalize_config_appends_decision_timeframe_into_sync_timeframes():
+    raw = {
+        "enabled": True,
+        "symbols": ["btc-usd"],
+        "market_data": {
+            "decision_candle_timeframe": "1m",
+            "sync_timeframes": ["1h", "4h"],
+        },
+    }
+    normalized, warnings, changed = normalize_config(raw, strict=False)
+    assert changed is True
+    assert warnings
+    assert normalized["market_data"]["sync_timeframes"] == ["1h", "4h", "1m"]
 
 
 def test_normalize_config_stale_losing_review_thresholds_are_clamped():
@@ -255,6 +289,29 @@ def test_normalize_config_invalid_tuning_profile_defaults_to_conservative():
     assert normalized["strategy_defaults"]["tuning_profile"] == "conservative"
 
 
+def test_normalize_config_router_thresholds_are_normalized_and_clamped():
+    raw = {
+        "enabled": True,
+        "symbols": ["btc-usd"],
+        "strategy_defaults": {
+            "router": {
+                "auto_min_stability": -10,
+                "auto_trend_min_confidence": 120,
+                "auto_trend_max_route_share_pct": 180,
+                "auto_use_route_quality_gates": "yes",
+            }
+        },
+    }
+    normalized, warnings, changed = normalize_config(raw, strict=False)
+    assert changed is True
+    assert warnings
+    router = normalized["strategy_defaults"]["router"]
+    assert router["auto_min_stability"] == 0.0
+    assert router["auto_trend_min_confidence"] == 100.0
+    assert router["auto_trend_max_route_share_pct"] == 100.0
+    assert router["auto_use_route_quality_gates"] is True
+
+
 def test_normalize_config_adds_execution_realism_and_stop_sizing_defaults():
     raw = {
         "enabled": True,
@@ -274,3 +331,7 @@ def test_normalize_config_adds_execution_realism_and_stop_sizing_defaults():
     assert normalized["risk"]["liquidity_hard_spread_bps"] == 220.0
     assert normalized["risk"]["sizing_mode"] == "auto"
     assert normalized["risk"]["min_trade_notional_usd"] == 10.0
+    assert normalized["market_data"]["freshness_slo"]["entry_block_on_degraded"] is True
+    assert normalized["market_data"]["freshness_slo"]["entry_block_after_degraded_cycles"] == 3
+    assert normalized["market_data"]["freshness_slo"]["decision_timeframe_enforce"] is True
+    assert normalized["market_data"]["sync_reserved_requests_decision_timeframe"] == 3

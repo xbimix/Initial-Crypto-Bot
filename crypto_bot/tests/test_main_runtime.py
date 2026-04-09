@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import main as bot_main
@@ -19,6 +20,7 @@ def test_startup_checks_ok(tmp_path: Path, monkeypatch):
     _seed_state_files(state_dir)
 
     monkeypatch.setattr(bot_main, "STATE_DIR", state_dir)
+    monkeypatch.setattr(bot_main, "DEFAULT_STATE_DIR", state_dir)
     monkeypatch.setattr(bot_main, "load_config", lambda: {"enabled": False})
 
     status = bot_main._run_startup_checks()
@@ -27,6 +29,7 @@ def test_startup_checks_ok(tmp_path: Path, monkeypatch):
     assert "state_dir_exists" in names
     assert "state_dir_writable" in names
     assert "config_loadable" in names
+    assert "state_integrity_report" in names
 
 
 def test_startup_checks_fail_when_config_unloadable(tmp_path: Path, monkeypatch):
@@ -35,6 +38,7 @@ def test_startup_checks_fail_when_config_unloadable(tmp_path: Path, monkeypatch)
     _seed_state_files(state_dir)
 
     monkeypatch.setattr(bot_main, "STATE_DIR", state_dir)
+    monkeypatch.setattr(bot_main, "DEFAULT_STATE_DIR", state_dir)
 
     def _fail():
         raise RuntimeError("config boom")
@@ -46,6 +50,63 @@ def test_startup_checks_fail_when_config_unloadable(tmp_path: Path, monkeypatch)
     failed = [item for item in status["checks"] if item["name"] == "config_loadable"]
     assert failed
     assert failed[0]["ok"] is False
+
+
+def test_startup_checks_fail_when_deployed_arming_contract_missing(tmp_path: Path, monkeypatch):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    _seed_state_files(state_dir)
+
+    monkeypatch.setattr(bot_main, "STATE_DIR", state_dir)
+    monkeypatch.setattr(bot_main, "DEFAULT_STATE_DIR", state_dir)
+    monkeypatch.setattr(bot_main, "DEPLOYMENT_MODE", True)
+    monkeypatch.setattr(bot_main, "STRICT_MUTATING_AUTH", False)
+    monkeypatch.setattr(bot_main, "ALLOW_DEPLOYED_MUTATIONS", False)
+    monkeypatch.setattr(bot_main, "ALLOW_DEPLOYED_LIVE_ARMING", False)
+    monkeypatch.setattr(
+        bot_main,
+        "load_config",
+        lambda: {
+            "enabled": False,
+            "trading_enabled": False,
+            "execution_mode": "live",
+        },
+    )
+
+    status = bot_main._run_startup_checks()
+    assert status["ok"] is False
+    checks = {item["name"]: item for item in status["checks"]}
+    assert checks["arming_contract_mutating"]["ok"] is False
+    assert checks["arming_contract_live_arming"]["ok"] is False
+    assert bot_main._has_critical_startup_failure(status) is True
+
+
+def test_startup_checks_pass_when_deployed_arming_contract_configured(tmp_path: Path, monkeypatch):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    _seed_state_files(state_dir)
+
+    monkeypatch.setattr(bot_main, "STATE_DIR", state_dir)
+    monkeypatch.setattr(bot_main, "DEFAULT_STATE_DIR", state_dir)
+    monkeypatch.setattr(bot_main, "DEPLOYMENT_MODE", True)
+    monkeypatch.setattr(bot_main, "STRICT_MUTATING_AUTH", True)
+    monkeypatch.setattr(bot_main, "ALLOW_DEPLOYED_MUTATIONS", True)
+    monkeypatch.setattr(bot_main, "ALLOW_DEPLOYED_LIVE_ARMING", True)
+    monkeypatch.setenv("REVBOT_CONTROL_AUTH_TOKEN", "test-token")
+    monkeypatch.setattr(
+        bot_main,
+        "load_config",
+        lambda: {
+            "enabled": False,
+            "trading_enabled": False,
+            "execution_mode": "live",
+        },
+    )
+
+    status = bot_main._run_startup_checks()
+    checks = {item["name"]: item for item in status["checks"]}
+    assert checks["arming_contract_mutating"]["ok"] is True
+    assert checks["arming_contract_live_arming"]["ok"] is True
 
 
 def test_build_symbol_poll_intervals_prioritizes_open_and_top_symbols(tmp_path: Path, monkeypatch):
@@ -119,6 +180,78 @@ def test_select_symbols_for_cycle_honors_due_and_max_per_cycle():
     assert selected == ["AAA-USD", "CCC-USD"]
     assert last_polled_at["AAA-USD"] == now
     assert last_polled_at["CCC-USD"] == now
+
+
+def test_sync_symbols_for_tick_uses_scan_scope_by_default():
+    cfg = {"market_data": {}}
+    selected = bot_main._sync_symbols_for_tick(
+        cfg=cfg,
+        scan_symbols=["AAA-USD", "BBB-USD"],
+        cycle_symbols=["AAA-USD"],
+        open_symbols=["CCC-USD"],
+    )
+    assert selected == ["AAA-USD", "BBB-USD"]
+
+
+def test_sync_symbols_for_tick_can_use_cycle_scope():
+    cfg = {"market_data": {"sync_symbol_scope": "cycle"}}
+    selected = bot_main._sync_symbols_for_tick(
+        cfg=cfg,
+        scan_symbols=["AAA-USD", "BBB-USD"],
+        cycle_symbols=["AAA-USD"],
+        open_symbols=["CCC-USD"],
+    )
+    assert selected == ["AAA-USD"]
+
+
+def test_sync_symbols_for_tick_can_append_stale_catchup_symbols():
+    cfg = {
+        "market_data": {
+            "sync_symbol_scope": "cycle",
+            "sync_stale_catchup_enabled": True,
+            "sync_stale_catchup_max_symbols": 1,
+        }
+    }
+    selected = bot_main._sync_symbols_for_tick(
+        cfg=cfg,
+        scan_symbols=["AAA-USD", "BBB-USD"],
+        cycle_symbols=["AAA-USD"],
+        open_symbols=["CCC-USD"],
+        stale_symbols=["BBB-USD", "CCC-USD"],
+    )
+    assert selected == ["AAA-USD", "BBB-USD"]
+
+
+def test_build_ingestion_freshness_ledger_reports_stale_rows(monkeypatch):
+    class _Store:
+        def list_sync_states(self, *, symbols=None, timeframes=None):
+            return [
+                {
+                    "symbol": "AAA-USD",
+                    "timeframe": "1m",
+                    "latest_ms": 1_000_000,
+                    "last_sync_ms": 1_000_000,
+                    "status": "ok",
+                    "note": "",
+                },
+            ]
+
+    monkeypatch.setattr(bot_main, "RevolutCandleStore", _Store)
+    ledger = bot_main._build_ingestion_freshness_ledger(
+        cfg={
+            "market_data": {
+                "sync_timeframes": ["1m"],
+                "decision_candle_timeframe": "1m",
+                "sync_cadence_seconds": {"1m": 20},
+            }
+        },
+        symbols=["AAA-USD", "BBB-USD"],
+        now_epoch=2_000.0,
+    )
+    assert ledger["rows_total"] == 2
+    assert ledger["stale_rows"] == 2
+    assert "AAA-USD" in ledger["decision_timeframe_stale_symbols"]
+    assert "BBB-USD" in ledger["decision_timeframe_stale_symbols"]
 
 
 def test_symbols_for_scan_prefers_active_tiers_and_keeps_open_symbols():
@@ -380,13 +513,83 @@ def test_append_decision_audit_writes_jsonl(tmp_path: Path, monkeypatch):
 
     bot_main._append_decision_audit(
         symbol="BTC-USD",
-        market={"price": 100.0, "data_quality_status": "GOOD"},
-        decision={"action": "HOLD", "effective_route": "MEAN_REVERSION"},
+        market={
+            "price": 100.0,
+            "data_quality_status": "GOOD",
+            "snapshot_version": 4,
+            "snapshot_ts_epoch": 1700000000.0,
+            "candle_timeframe": "1m",
+            "candle_last_update_ts": 1700000000000,
+            "candle_age_seconds": 510.0,
+            "candle_stale_after_seconds": 420.0,
+            "candle_age_over_stale_ratio": 1.214285,
+            "strategy_eval_gate": {
+                "allowed": False,
+                "blocked_reason": "market_data_quality:stale",
+                "snapshot_age_seconds": 9.5,
+            },
+        },
+        decision={"action": "HOLD", "effective_route": "MEAN_REVERSION", "reason": "market_data_quality:stale"},
         executed=False,
         blocked_reason=None,
+        decision_context_audit={
+            "strategy_eval_allowed": False,
+            "blocked_reason": "market_data_quality:stale",
+            "market_snapshot_age_seconds": 9.5,
+        },
     )
     text = (state_dir / "decision_audit.jsonl").read_text(encoding="utf-8").strip()
+    assert "\"schema_name\": \"decision_audit\"" in text
     assert "\"symbol\": \"BTC-USD\"" in text
+    row = json.loads(text)
+    assert row["market_snapshot_version"] == 4
+    assert row["candle_age_seconds"] == 510.0
+    assert row["candle_stale_after_seconds"] == 420.0
+    assert row["strategy_eval_gate_allowed"] is False
+    assert row["strategy_eval_snapshot_age_seconds"] == 9.5
+    assert row["decision_context_allowed"] is False
+    assert row["gate_trigger_condition"] == "candle_age_seconds > candle_stale_after_seconds"
+    assert row["gate_trigger_threshold"] == 420.0
+    assert row["gate_trigger_actual"] == 510.0
+    assert row["gate_trigger_correct"] is True
+
+
+def test_read_decision_audit_rows_infers_legacy_schema(tmp_path: Path, monkeypatch):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    audit_path = state_dir / "decision_audit.jsonl"
+    monkeypatch.setattr(bot_main, "DECISION_AUDIT_PATH", audit_path)
+
+    audit_path.write_text('{"symbol":"BTC-USD","action":"HOLD"}\n', encoding="utf-8")
+    rows = bot_main.read_decision_audit_rows()
+    assert len(rows) == 1
+    assert rows[0]["schema_name"] == "decision_audit"
+    assert rows[0]["schema_version"] == 1
+    assert rows[0]["_legacy_schema_inferred"] is True
+
+
+def test_resolve_decision_gate_diagnostics_for_insufficient_data():
+    result = bot_main._resolve_decision_gate_diagnostics(
+        decision_reason="insufficient_data",
+        market={"atr_raw": 0.0},
+        cfg={},
+    )
+    assert result["condition"] == "atr_raw > 0"
+    assert result["threshold"] == 0.0
+    assert result["actual"] == 0.0
+    assert result["correct"] is True
+
+
+def test_resolve_decision_gate_diagnostics_for_stale_market():
+    result = bot_main._resolve_decision_gate_diagnostics(
+        decision_reason="market_data_quality:stale",
+        market={"candle_age_seconds": 600.0, "candle_stale_after_seconds": 420.0},
+        cfg={},
+    )
+    assert result["condition"] == "candle_age_seconds > candle_stale_after_seconds"
+    assert result["threshold"] == 420.0
+    assert result["actual"] == 600.0
+    assert result["correct"] is True
 
 
 def test_persist_market_sync_health_writes_snapshot_and_history(tmp_path: Path, monkeypatch):
@@ -473,3 +676,48 @@ def test_run_housekeeping_trims_history_and_audit(tmp_path: Path, monkeypatch):
     result = bot_main._run_housekeeping(cfg)
     assert result["removed_sync_history_lines"] >= 1
     assert result["removed_decision_audit_lines"] >= 1
+    assert "jsonl_size_pruned_files" in result
+
+
+def test_build_sync_slo_degrades_when_decision_timeframe_freshness_breaches():
+    cfg = {
+        "market_data": {
+            "decision_candle_timeframe": "1m",
+            "decision_candle_stale_intervals": 6,
+            "decision_candle_min_stale_seconds": 420,
+            "freshness_slo": {
+                "min_fresh_1h": 1,
+                "min_fresh_4h": 1,
+                "min_fresh_24h": 0,
+                "min_fresh_decision_timeframe": 1,
+                "decision_timeframe_enforce": True,
+                "decision_timeframe_max_oldest_due_seconds": 420,
+                "max_sync_errors": 0,
+                "max_degraded_jobs": 0,
+                "min_sync_requests": 1,
+            },
+        }
+    }
+    sync_summary = {
+        "errors": 0,
+        "degraded": 0,
+        "requests": 2,
+        "new_inserted": 5,
+        "scheduler": {
+            "due_jobs_by_timeframe": {"1m": 5},
+            "selected_jobs_by_timeframe": {"1m": 0},
+            "oldest_due_age_seconds_by_timeframe": {"1m": 700.0},
+        },
+    }
+    coverage_summary = {
+        "fresh_counts_by_timeframe": {"1h": 2, "4h": 2, "1d": 1, "1m": 0},
+        "stale_symbol_timeframes": 10,
+    }
+    slo = bot_main._build_sync_slo(sync_summary, coverage_summary, cfg)
+    assert slo["status"] == "DEGRADED"
+    assert slo["decision_freshness_ok"] is False
+    assert slo["entry_block_reason"] in {
+        "decision_fresh_count_below_threshold",
+        "decision_oldest_due_age_exceeded",
+        "decision_timeframe_starved",
+    }

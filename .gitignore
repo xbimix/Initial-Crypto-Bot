@@ -7,6 +7,7 @@ revolut-keys/
 __pycache__/
 *.pyc
 .pytest_cache/
+.venv/
 
 # Local workspace artifacts
 .codex/
@@ -33,3 +34,7 @@ web-ui/state/
 *.sqlite
 *.sqlite3
 *.db
+
+# Generated artifact staging (runtime-only, not source-of-truth docs)
+artifacts/runtime/
+artifacts/tmp/

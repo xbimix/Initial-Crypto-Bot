@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from strategy.data_quality_gate import evaluate_entry_data_quality
+
 
 def _as_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
@@ -67,12 +69,12 @@ def evaluate_breakout_momentum_entry(
     range_pos: float | None,
     cfg: dict[str, Any],
 ) -> tuple[str, str]:
-    data_quality_ok = snapshot.get("data_quality_ok")
-    if data_quality_ok is not True:
-        reason = snapshot.get("data_quality_reason")
-        if not isinstance(reason, str) or not reason.strip():
-            reason = "data_quality_missing" if data_quality_ok is None else "data_quality_failed"
-        return "HOLD", str(reason)
+    data_quality_allowed, blocked_reason = evaluate_entry_data_quality(
+        snapshot=snapshot,
+        cfg=cfg,
+    )
+    if not data_quality_allowed:
+        return "HOLD", str(blocked_reason or "data_quality_failed")
 
     if regime in blocked_regimes:
         return "HOLD", f"regime_{regime}"

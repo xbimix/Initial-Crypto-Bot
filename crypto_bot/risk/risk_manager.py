@@ -61,7 +61,11 @@ class RiskManager:
 
     def _sync_with_broker_state(self):
         seed_primary_from_legacy(PAPER_STATE_FILE, LEGACY_PAPER_STATE_FILE)
-        read_path = read_path_with_legacy_fallback(PAPER_STATE_FILE, LEGACY_PAPER_STATE_FILE)
+        read_path = read_path_with_legacy_fallback(
+            PAPER_STATE_FILE,
+            LEGACY_PAPER_STATE_FILE,
+            context="risk_manager.sync_paper_state",
+        )
         if not read_path.exists():
             self.open_positions = {}
             return
@@ -323,7 +327,11 @@ class RiskManager:
         trades_mtime = None
         trades_size = None
         seed_primary_from_legacy(TRADES_FILE, LEGACY_TRADES_FILE)
-        trades_path = read_path_with_legacy_fallback(TRADES_FILE, LEGACY_TRADES_FILE)
+        trades_path = read_path_with_legacy_fallback(
+            TRADES_FILE,
+            LEGACY_TRADES_FILE,
+            context="risk_manager.daily_loss_state",
+        )
         if trades_path.exists():
             try:
                 trades_mtime = os.path.getmtime(trades_path)

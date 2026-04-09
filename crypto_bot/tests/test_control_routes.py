@@ -108,6 +108,7 @@ def test_universe_track_route_add_and_remove(monkeypatch):
         return state
 
     monkeypatch.setattr(control_server, "update_config", fake_update_config)
+    monkeypatch.setattr(control_server, "_has_open_position", lambda _symbol: False)
     client = control_server.app.test_client()
 
     add = client.post(

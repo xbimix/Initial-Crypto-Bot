@@ -12,13 +12,48 @@ from api.revolut_trades import get_last_trades
 FUTURE_TRADE_TOLERANCE_SECONDS = 5.0
 
 
+def _epoch_to_seconds(value: float) -> float | None:
+    if value <= 0:
+        return None
+    # Revolut payloads can carry either Unix epoch milliseconds or seconds.
+    if value >= 1_000_000_000_000:
+        return float(value / 1000.0)
+    if value >= 1_000_000_000:
+        return float(value)
+    return None
+
+
 def _parse_ts(value: Any) -> float | None:
     if isinstance(value, dict):
-        value = value.get("tdt") or value.get("pdt") or value.get("timestamp")
-    if not value:
+        for key in (
+            "tdt",
+            "pdt",
+            "timestamp",
+            "time",
+            "ts",
+            "start",
+            "created_date",
+            "updated_date",
+        ):
+            candidate = value.get(key)
+            if candidate is not None:
+                value = candidate
+                break
+        else:
+            return None
+    if value is None:
         return None
+    if isinstance(value, (int, float)):
+        return _epoch_to_seconds(float(value))
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+        raw = str(value).strip()
+        if not raw:
+            return None
+        try:
+            return _epoch_to_seconds(float(raw))
+        except (TypeError, ValueError):
+            pass
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
     except Exception:
         return None
 
@@ -34,6 +69,7 @@ def normalize_symbol(symbol: str) -> str:
     raw = str(symbol or "").strip().upper()
     if not raw:
         return ""
+    raw = raw.replace("/", "-").replace("_", "-")
     if "-" in raw:
         base, quote = raw.split("-", 1)
         return f"{base.strip().upper()}-{quote.strip().upper()}"
@@ -46,6 +82,15 @@ def _split_symbol(symbol: str) -> tuple[str, str]:
 
 
 def _matches_symbol_row(row: dict[str, Any], base: str, quote: str) -> bool:
+    pair = normalize_symbol(
+        row.get("symbol")
+        or row.get("pair")
+        or row.get("instrument")
+        or row.get("market")
+        or ""
+    )
+    if pair and "-" in pair:
+        return pair == f"{base}-{quote}"
     aid = str(row.get("aid", "")).upper()
     price_ccy = str(row.get("pc", "")).upper()
     qty_ccy = str(row.get("qc", "")).upper()
@@ -127,6 +172,10 @@ def fetch_order_book_update(
     fn = fetcher or get_order_book
     payload = fn(source_symbol, cfg=cfg)
     data = payload.get("data", {}) if isinstance(payload, dict) else {}
+    if not isinstance(data, dict) and isinstance(payload, dict):
+        data = payload
+    if not isinstance(data, dict):
+        data = {}
     raw_asks = data.get("asks")
     raw_bids = data.get("bids")
     if not isinstance(raw_asks, list) or not isinstance(raw_bids, list):
@@ -191,11 +240,18 @@ def fetch_trade_updates(
     received_at = time.time()
     fn = fetcher or get_last_trades
     payload = fn(symbol=source_symbol, limit=int(limit))
-    if not isinstance(payload, list):
+    rows = payload
+    if isinstance(payload, dict):
+        for key in ("data", "trades", "items", "result"):
+            candidate = payload.get(key)
+            if isinstance(candidate, list):
+                rows = candidate
+                break
+    if not isinstance(rows, list):
         return []
 
     out: list[TradeUpdate] = []
-    for row in payload:
+    for row in rows:
         if not isinstance(row, dict) or not _matches_symbol_row(row, base, quote):
             continue
         ts = _parse_ts(row)

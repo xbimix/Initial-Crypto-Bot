@@ -1,6 +1,15 @@
 import time
 
 
+def _normalize_symbol_key(raw_key):
+    if not isinstance(raw_key, str):
+        return None
+    symbol = raw_key.strip().upper()
+    if (not symbol) or ("-" not in symbol):
+        return None
+    return symbol
+
+
 def _sanitize_symbol_map(raw_map, *, key_name, logger):
     if not isinstance(raw_map, dict):
         if raw_map is not None:
@@ -107,6 +116,16 @@ def sync_with_broker_state(
         if not isinstance(positions, dict):
             logger.warning("Strategy sync: paper positions malformed; expected object")
             positions = {}
+        normalized_positions = {}
+        for raw_symbol, row in positions.items():
+            symbol = _normalize_symbol_key(raw_symbol)
+            if symbol is None:
+                logger.warning(f"Strategy sync: skipping malformed broker symbol key '{raw_symbol}'")
+                continue
+            if symbol in normalized_positions and raw_symbol != symbol:
+                logger.warning(f"Strategy sync: duplicate broker symbol key normalized to {symbol}; keeping latest row")
+            normalized_positions[symbol] = row
+        positions = normalized_positions
         broker_symbols = set(positions)
         state_changed = False
 

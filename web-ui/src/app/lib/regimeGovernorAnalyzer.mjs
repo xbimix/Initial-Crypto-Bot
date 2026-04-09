@@ -365,6 +365,12 @@ function buildInsufficientResult({
     },
     stabilityScore: 0,
     stability_score: 0,
+    persistenceScore: 0,
+    persistence_score: 0,
+    stabilityInferred: true,
+    stability_inferred: true,
+    persistenceInferred: true,
+    persistence_inferred: true,
     confidenceScore: 0,
     confidenceLabel: "LOW",
     data_quality: dataQuality,
@@ -710,6 +716,7 @@ function analyzeRegimeGovernor({
       100,
     ).toFixed(3),
   );
+  const inferredScores = totalWeight <= 0;
   const analysisAnchorAt = new Date(anchorNow * 1000).toISOString();
 
   return {
@@ -731,10 +738,10 @@ function analyzeRegimeGovernor({
     stability_score: stabilityScore,
     persistenceScore,
     persistence_score: persistenceScore,
-    stabilityInferred: false,
-    stability_inferred: false,
-    persistenceInferred: false,
-    persistence_inferred: false,
+    stabilityInferred: inferredScores,
+    stability_inferred: inferredScores,
+    persistenceInferred: inferredScores,
+    persistence_inferred: inferredScores,
     explanation: buildExplanation({
       suggestedRegime,
       structureBias,

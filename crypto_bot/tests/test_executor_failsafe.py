@@ -126,3 +126,34 @@ def test_executor_pauses_after_repeated_execution_failures():
 
     assert executor.handle_decision(decision, market=market) is False
     assert paper.buy_calls == buy_calls_before
+
+
+def test_executor_blocks_buy_when_freshness_guard_active():
+    executor, paper = _build_executor(
+        {
+            "risk": {
+                "block_bad_market_quality": False,
+            },
+            "market_data": {
+                "freshness_slo": {
+                    "entry_block_on_degraded": True,
+                    "entry_block_after_degraded_cycles": 1,
+                }
+            },
+            "trading_enabled": True,
+        }
+    )
+    executor.record_freshness_slo({"status": "DEGRADED"})
+    decision = {"symbol": "BTC-USD", "action": "BUY", "price": 100.0, "reason": "test"}
+    market = {"symbol": "BTC-USD", "price": 100.0, "data_quality_status": "GOOD"}
+
+    assert executor.handle_decision(decision, market=market) is False
+    assert paper.buy_calls == 0
+    assert executor.last_execution_report.get("reason") == "freshness_slo_degraded"
+
+
+def test_executor_read_execution_report_infers_legacy_schema():
+    payload = Executor.read_execution_report({"status": "rejected", "reason": "timeout"})
+    assert payload["schema_name"] == "execution_report"
+    assert payload["schema_version"] == 1
+    assert payload["_legacy_schema_inferred"] is True

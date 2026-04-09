@@ -3,8 +3,14 @@ from __future__ import annotations
 import argparse
 import json
 import time
+import sys
 from pathlib import Path
 from typing import Any
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from utils.state_paths import resolve_state_dir
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -57,11 +63,7 @@ def _median(values: list[float]) -> float | None:
 
 
 def _default_state_dir() -> Path:
-    repo_root = Path(__file__).resolve().parents[2]
-    runtime_state = repo_root / ".runtime" / "state"
-    if runtime_state.exists():
-        return runtime_state
-    return Path(__file__).resolve().parents[1] / "state"
+    return resolve_state_dir(Path(__file__).resolve().parents[1] / "state")
 
 
 def _latest_rollout_ts(docs_dir: Path) -> float | None:

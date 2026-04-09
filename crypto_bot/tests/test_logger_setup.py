@@ -51,6 +51,25 @@ logging.shutdown()
     )
 
 
+def _run_logger_dir_probe(bot_data_dir: Path):
+    script = f"""
+import os
+import sys
+from pathlib import Path
+
+os.environ["BOT_DATA_DIR"] = r"{str(bot_data_dir.as_posix())}"
+sys.path.insert(0, r"{str((Path(__file__).resolve().parents[1]).as_posix())}")
+from utils import logger as rev_logger
+print(str(rev_logger.LOG_DIR))
+"""
+    return subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
 def test_category_log_files_enabled(tmp_path: Path):
     result = _run_logger_probe(tmp_path / "enabled", category_files=True)
     assert result.returncode == 0, result.stderr
@@ -95,3 +114,12 @@ def test_category_log_files_can_be_disabled(tmp_path: Path):
     assert not (tmp_path / "disabled" / "bot.trade.log").exists()
     assert not (tmp_path / "disabled" / "bot.audit.log").exists()
     assert not (tmp_path / "disabled" / "bot.errors.log").exists()
+
+
+def test_logger_default_dir_uses_runtime_state_root(tmp_path: Path):
+    runtime_root = tmp_path / "runtime_data"
+    result = _run_logger_dir_probe(runtime_root)
+    assert result.returncode == 0, result.stderr
+    resolved = result.stdout.strip()
+    assert "runtime_data" in resolved
+    assert resolved.endswith("state")

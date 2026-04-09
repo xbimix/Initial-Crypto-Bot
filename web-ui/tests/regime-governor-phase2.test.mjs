@@ -55,6 +55,8 @@ run("regime analyzer outputs advisory shape with confidence fields", () => {
   assert.ok(Number.isFinite(result.componentScores?.mixed_score));
   assert.ok(Number.isFinite(result.stability_score));
   assert.ok(result.stability_score >= 0 && result.stability_score <= 100);
+  assert.ok(Number.isFinite(result.persistence_score));
+  assert.ok(result.persistence_score >= 0 && result.persistence_score <= 100);
   assert.equal(result.detectionSource, "advisory_multitimeframe");
   assert.ok(Number.isFinite(result.analysisAnchorEpoch));
   assert.ok(typeof result.timeframeSummary?.["1h"] === "object");
@@ -77,6 +79,10 @@ run("regime analyzer degrades gracefully with thin history", () => {
 
   assert.equal(result.suggestedRegime, "MIXED_OR_UNCLEAR");
   assert.ok(Number.isFinite(result.confidenceScore));
+  assert.ok(Number.isFinite(result.stabilityScore));
+  assert.ok(Number.isFinite(result.persistenceScore));
+  assert.equal(result.stabilityInferred, true);
+  assert.equal(result.persistenceInferred, true);
   assert.ok(result.timeframeSummary["1h"].insufficientData === true);
   assert.ok(typeof result.timeframeSummary["1h"].insufficientReasonCode === "string");
 });
@@ -85,22 +91,31 @@ run("dashboard and token routes expose detected regime advisory fields", async (
   const dashboardRoutePath = resolve("src/app/api/dashboard/route.ts");
   const tokenRoutePath = resolve("src/app/api/token/[symbol]/route.ts");
   const tokenPagePath = resolve("src/app/token/[symbol]/page.tsx");
+  const dashboardComponentPath = resolve("src/app/components/RevbotDashboard.tsx");
 
-  const [dashboardSource, tokenRouteSource, tokenPageSource] = await Promise.all([
+  const [dashboardSource, tokenRouteSource, tokenPageSource, dashboardComponentSource] = await Promise.all([
     readFile(dashboardRoutePath, "utf8"),
     readFile(tokenRoutePath, "utf8"),
     readFile(tokenPagePath, "utf8"),
+    readFile(dashboardComponentPath, "utf8"),
   ]);
 
   assert.match(dashboardSource, /analyzeRegimeGovernor/);
   assert.match(dashboardSource, /detectedRegime/);
   assert.match(dashboardSource, /detectedRegimeConfidenceLabel/);
   assert.match(dashboardSource, /detectedRegimeConfidenceScore/);
+  assert.match(dashboardSource, /detectedRegimeConfidenceInferred/);
   assert.match(dashboardSource, /detectionSource/);
   assert.match(dashboardSource, /detectionTimestampEpoch/);
   assert.match(tokenRouteSource, /regimeAdvisory/);
   assert.match(tokenRouteSource, /detectedRegimeExplanation/);
+  assert.match(tokenRouteSource, /detectedRegimePersistenceScore/);
+  assert.match(tokenRouteSource, /persistence_score/);
+  assert.match(tokenRouteSource, /resolveRegimeCspBackfill/);
+  assert.match(dashboardSource, /resolveRegimeCspBackfill/);
   assert.match(tokenRouteSource, /detectionSource/);
   assert.match(tokenPageSource, /Regime Analysis/);
   assert.match(tokenPageSource, /detectedRegimeConfidenceLabel/);
+  assert.match(dashboardComponentSource, /regimeInputFlag/);
+  assert.doesNotMatch(dashboardComponentSource, /Inputs C:N/);
 });

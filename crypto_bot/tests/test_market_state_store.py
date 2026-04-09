@@ -99,6 +99,88 @@ def test_strategy_eval_gate_allows_fresh_good_snapshot():
     assert gate.blocked_reason is None
 
 
+def test_strategy_eval_gate_blocks_low_quality_score():
+    snapshot = {
+        "symbol": "BTC-USD",
+        "data_quality_status": "GOOD",
+        "data_quality_state": "TRADABLE",
+        "data_quality_score": 0.42,
+        "snapshot_ts_epoch": time.time(),
+        "core_candle_readiness": {"ready": True},
+    }
+    gate = market_data._build_strategy_eval_gate(
+        snapshot,
+        {
+            "market_data": {
+                "strict_strategy_eval_gate_enabled": True,
+                "strategy_eval_max_snapshot_age_seconds": 60,
+                "strategy_eval_min_quality_score": 0.50,
+            }
+        },
+    )
+    assert gate.allowed is False
+    assert gate.blocked_reason == "market_data_quality_score:0.420<0.500"
+
+
+def test_strategy_data_quality_ok_allows_partial_with_score_floor_when_enabled():
+    allowed, mode = market_data._resolve_strategy_data_quality_ok(
+        data_quality_ok=False,
+        data_quality_status="PARTIAL",
+        data_quality_score=0.55,
+        cfg={
+            "market_data": {
+                "strategy_allow_partial_participation": True,
+                "strategy_eval_min_quality_score": 0.50,
+            }
+        },
+    )
+    assert allowed is True
+    assert mode == "partial_quality_score_floor"
+
+
+def test_strategy_data_quality_ok_blocks_partial_when_disabled_or_below_floor():
+    disabled_allowed, disabled_mode = market_data._resolve_strategy_data_quality_ok(
+        data_quality_ok=False,
+        data_quality_status="PARTIAL",
+        data_quality_score=0.90,
+        cfg={
+            "market_data": {
+                "strategy_allow_partial_participation": False,
+                "strategy_eval_min_quality_score": 0.50,
+            }
+        },
+    )
+    low_score_allowed, low_score_mode = market_data._resolve_strategy_data_quality_ok(
+        data_quality_ok=False,
+        data_quality_status="PARTIAL",
+        data_quality_score=0.30,
+        cfg={
+            "market_data": {
+                "strategy_allow_partial_participation": True,
+                "strategy_eval_min_quality_score": 0.50,
+            }
+        },
+    )
+    zero_floor_allowed, zero_floor_mode = market_data._resolve_strategy_data_quality_ok(
+        data_quality_ok=False,
+        data_quality_status="PARTIAL",
+        data_quality_score=0.90,
+        cfg={
+            "market_data": {
+                "strategy_allow_partial_participation": True,
+                "strategy_eval_min_quality_score": 0.0,
+            }
+        },
+    )
+
+    assert disabled_allowed is False
+    assert disabled_mode is None
+    assert low_score_allowed is False
+    assert low_score_mode is None
+    assert zero_floor_allowed is False
+    assert zero_floor_mode is None
+
+
 def test_fetch_market_snapshot_reuses_cached_candle_history_and_indicators(monkeypatch):
     market_data._STATE_STORE.clear()
     market_data._INDICATOR_CACHE.clear()
@@ -133,7 +215,11 @@ def test_fetch_market_snapshot_reuses_cached_candle_history_and_indicators(monke
     monkeypatch.setattr(
         market_data,
         "get_candle_meta",
-        lambda symbol, timeframe: {"stale": False, "supported": True, "latest_open_time": 8_400_000},
+        lambda symbol, timeframe, stale_after_seconds=None: {
+            "stale": False,
+            "supported": True,
+            "latest_open_time": 8_400_000,
+        },
     )
     monkeypatch.setattr(market_data, "calculate_rsi", _rsi)
 
@@ -147,3 +233,6 @@ def test_fetch_market_snapshot_reuses_cached_candle_history_and_indicators(monke
     assert rsi_calls["n"] == 1
     assert first["snapshot_version"] == 1
     assert second["snapshot_version"] == 2
+    assert isinstance(first.get("data_quality_score"), float)
+    assert isinstance(first.get("data_quality_components"), dict)
+    assert first.get("strategy_eval_gate", {}).get("quality_score") == first.get("data_quality_score")

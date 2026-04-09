@@ -1,14 +1,38 @@
 from __future__ import annotations
 
 import copy
+import os
 import time
+from collections import OrderedDict
+from threading import RLock
 
 from api.revolut_order_book import get_order_book
 from data.revolut_market_db import insert_orderbook_snapshot
 
 
-orderbook_cache: dict[str, dict] = {}
+def _int_env(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return int(float(raw))
+    except (TypeError, ValueError):
+        return default
+
+
+ORDERBOOK_CACHE_MAX_SYMBOLS = max(_int_env("REVBOT_ORDERBOOK_CACHE_MAX_SYMBOLS", 300), 10)
+ORDERBOOK_CACHE_STALE_SECONDS = max(_int_env("REVBOT_ORDERBOOK_CACHE_STALE_SECONDS", 10), 1)
+
+orderbook_cache: "OrderedDict[str, dict]" = OrderedDict()
 _last_snapshot_persist_ts: dict[str, int] = {}
+_metrics = {
+    "hits": 0,
+    "misses": 0,
+    "stale_hits": 0,
+    "evictions": 0,
+    "updates": 0,
+}
+_cache_lock = RLock()
 
 
 def _parse_level(level: dict) -> tuple[float, float] | None:
@@ -70,7 +94,15 @@ def update_orderbook_cache(
     db_path=None,
 ) -> dict:
     snapshot = fetch_orderbook_top5(symbol)
-    orderbook_cache[symbol] = snapshot
+    with _cache_lock:
+        key = str(symbol).strip().upper()
+        snapshot["cache_updated_at_ms"] = int(time.time() * 1000)
+        orderbook_cache[key] = snapshot
+        orderbook_cache.move_to_end(key)
+        _metrics["updates"] = int(_metrics.get("updates", 0) or 0) + 1
+        while len(orderbook_cache) > int(ORDERBOOK_CACHE_MAX_SYMBOLS):
+            orderbook_cache.popitem(last=False)
+            _metrics["evictions"] = int(_metrics.get("evictions", 0) or 0) + 1
 
     if persist:
         last_saved = _last_snapshot_persist_ts.get(symbol, 0)
@@ -82,7 +114,39 @@ def update_orderbook_cache(
     return snapshot
 
 
-def get_orderbook_cache(symbol: str) -> dict | None:
-    snapshot = orderbook_cache.get(symbol)
-    return copy.deepcopy(snapshot) if snapshot is not None else None
+def get_orderbook_cache(symbol: str, *, stale_after_seconds: int | None = None) -> dict | None:
+    now_ms = int(time.time() * 1000)
+    stale_after = max(
+        int(stale_after_seconds) if stale_after_seconds is not None else int(ORDERBOOK_CACHE_STALE_SECONDS),
+        1,
+    )
+    key = str(symbol).strip().upper()
+    with _cache_lock:
+        snapshot = orderbook_cache.get(key)
+        if snapshot is None:
+            _metrics["misses"] = int(_metrics.get("misses", 0) or 0) + 1
+            return None
+        orderbook_cache.move_to_end(key)
+        payload = copy.deepcopy(snapshot)
+        age_seconds = max(0.0, (now_ms - int(payload.get("ts", now_ms))) / 1000.0)
+        is_stale = age_seconds > float(stale_after)
+        payload["cache_age_seconds"] = age_seconds
+        payload["stale"] = bool(is_stale)
+        _metrics["hits"] = int(_metrics.get("hits", 0) or 0) + 1
+        if is_stale:
+            _metrics["stale_hits"] = int(_metrics.get("stale_hits", 0) or 0) + 1
+        return payload
 
+
+def get_orderbook_cache_metrics() -> dict:
+    with _cache_lock:
+        return {
+            "size": int(len(orderbook_cache)),
+            "max_symbols": int(ORDERBOOK_CACHE_MAX_SYMBOLS),
+            "stale_after_seconds": int(ORDERBOOK_CACHE_STALE_SECONDS),
+            "hits": int(_metrics.get("hits", 0) or 0),
+            "misses": int(_metrics.get("misses", 0) or 0),
+            "stale_hits": int(_metrics.get("stale_hits", 0) or 0),
+            "evictions": int(_metrics.get("evictions", 0) or 0),
+            "updates": int(_metrics.get("updates", 0) or 0),
+        }

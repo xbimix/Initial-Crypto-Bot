@@ -125,6 +125,81 @@ def test_fetch_candles_tries_symbol_path_variant(monkeypatch):
     assert any("/market-data/candles/BTC-USD" in path for path, _auth, _params in calls)
 
 
+def test_fetch_candles_prefers_openapi_canonical_symbol_endpoint(monkeypatch):
+    calls: list[tuple[str, bool, dict | None]] = []
+    monkeypatch.setattr(revolut_candle_fetcher, "_WORKING_CANDLE_REQUEST", None)
+
+    def fake_get(path, params=None, auth=False):
+        calls.append((path, auth, params))
+        if path == "/candles/BTC-USD":
+            return {
+                "data": [
+                    {
+                        "start": 1_000,
+                        "open": "1",
+                        "high": "2",
+                        "low": "0.5",
+                        "close": "1.5",
+                        "volume": "3",
+                    }
+                ]
+            }
+        raise RuntimeError("not found")
+
+    monkeypatch.setattr(revolut_candle_fetcher, "_get", fake_get)
+    rows = revolut_candle_fetcher.fetch_candles(
+        symbol="BTC-USD",
+        interval_minutes=60,
+        since_ms=1_000,
+        until_ms=60_000,
+    )
+    assert rows
+    assert calls
+    first_path, first_auth, first_params = calls[0]
+    assert first_path == "/candles/BTC-USD"
+    assert first_auth is True
+    assert isinstance(first_params, dict)
+    assert {"interval", "since", "until"}.issubset(set(first_params.keys()))
+    assert "symbol" not in first_params
+
+
+def test_fetch_candles_normalizes_slash_symbol_to_canonical_path(monkeypatch):
+    calls: list[tuple[str, bool, dict | None]] = []
+    monkeypatch.setattr(revolut_candle_fetcher, "_WORKING_CANDLE_REQUEST", None)
+
+    def fake_get(path, params=None, auth=False):
+        calls.append((path, auth, params))
+        if path == "/candles/BTC-USD":
+            return {
+                "data": [
+                    {
+                        "start": 1_000,
+                        "open": "1",
+                        "high": "2",
+                        "low": "0.5",
+                        "close": "1.5",
+                        "volume": "3",
+                    }
+                ]
+            }
+        raise RuntimeError("not found")
+
+    monkeypatch.setattr(revolut_candle_fetcher, "_get", fake_get)
+    rows = revolut_candle_fetcher.fetch_candles(
+        symbol="btc/usd",
+        interval_minutes=60,
+        since_ms=1_000,
+        until_ms=60_000,
+    )
+    assert rows
+    assert calls
+    first_path, _first_auth, first_params = calls[0]
+    assert first_path == "/candles/BTC-USD"
+    assert isinstance(first_params, dict)
+    assert {"interval", "since", "until"}.issubset(set(first_params.keys()))
+    assert "symbol" not in first_params
+
+
 def test_fetch_candles_skips_public_candidates_by_default(monkeypatch):
     calls: list[str] = []
 
@@ -897,6 +972,60 @@ def test_market_data_service_meta_and_latest_closed(tmp_path: Path):
     assert latest_closed["open_time"] == 60_000
 
 
+def test_orderbook_cache_reports_lru_eviction_and_stale_metrics(monkeypatch):
+    revolut_orderbook_cache.orderbook_cache.clear()
+    revolut_orderbook_cache._last_snapshot_persist_ts.clear()
+    revolut_orderbook_cache._metrics.clear()
+    revolut_orderbook_cache._metrics.update(
+        {
+            "hits": 0,
+            "misses": 0,
+            "stale_hits": 0,
+            "evictions": 0,
+            "updates": 0,
+        }
+    )
+    monkeypatch.setattr(revolut_orderbook_cache, "ORDERBOOK_CACHE_MAX_SYMBOLS", 2)
+    monkeypatch.setattr(revolut_orderbook_cache, "ORDERBOOK_CACHE_STALE_SECONDS", 10)
+
+    now = {"epoch": 1_000.0}
+    monkeypatch.setattr(revolut_orderbook_cache.time, "time", lambda: now["epoch"])
+
+    def _fetch(symbol):
+        base = {"BTC-USD": 100.0, "ETH-USD": 200.0, "SOL-USD": 300.0}[symbol]
+        return {
+            "ts": int(now["epoch"] * 1000),
+            "bids": [(base - 1.0, 2.0)],
+            "asks": [(base + 1.0, 2.0)],
+            "best_bid": base - 1.0,
+            "best_ask": base + 1.0,
+            "spread": 2.0,
+            "bid_volume_top5": 2.0,
+            "ask_volume_top5": 2.0,
+            "imbalance": 0.0,
+            "source": "revolut",
+        }
+
+    monkeypatch.setattr(revolut_orderbook_cache, "fetch_orderbook_top5", _fetch)
+    revolut_orderbook_cache.update_orderbook_cache("BTC-USD")
+    revolut_orderbook_cache.update_orderbook_cache("ETH-USD")
+    revolut_orderbook_cache.update_orderbook_cache("SOL-USD")
+    # BTC should be evicted due to max-size=2.
+    assert revolut_orderbook_cache.get_orderbook_cache("BTC-USD") is None
+
+    now["epoch"] = 1_015.0
+    cached = revolut_orderbook_cache.get_orderbook_cache("ETH-USD", stale_after_seconds=10)
+    assert cached is not None
+    assert cached["stale"] is True
+
+    metrics = revolut_orderbook_cache.get_orderbook_cache_metrics()
+    assert metrics["size"] == 2
+    assert metrics["evictions"] >= 1
+    assert metrics["misses"] >= 1
+    assert metrics["hits"] >= 1
+    assert metrics["stale_hits"] >= 1
+
+
 def test_market_data_service_unsupported_timeframe_meta(tmp_path: Path):
     db_path = _db_path(tmp_path)
     service = market_data_service.MarketDataService(db_path=db_path)
@@ -923,7 +1052,7 @@ def test_market_data_service_module_meta_forwards_stale_after_seconds(monkeypatc
     captured: dict[str, object] = {}
 
     class _FakeService:
-        def get_candle_meta(self, symbol: str, timeframe: str, *, stale_after_seconds: int = 120):
+        def get_candle_meta(self, symbol: str, timeframe: str, *, stale_after_seconds: int | None = None):
             captured["symbol"] = symbol
             captured["timeframe"] = timeframe
             captured["stale_after_seconds"] = stale_after_seconds
@@ -938,6 +1067,76 @@ def test_market_data_service_module_meta_forwards_stale_after_seconds(monkeypatc
         "timeframe": "1h",
         "stale_after_seconds": 7_200,
     }
+
+
+def test_market_data_service_meta_uses_adaptive_staleness_when_not_provided(tmp_path: Path, monkeypatch):
+    db_path = _db_path(tmp_path)
+    symbol = "BTC-USD"
+    timeframe = "1h"
+    now_ms = 10_000_000_000
+    revolut_market_db.upsert_candles(
+        symbol=symbol,
+        timeframe=timeframe,
+        candles=[
+            {
+                "ts": now_ms - (2 * 3_600_000),
+                "open": 1.0,
+                "high": 1.1,
+                "low": 0.9,
+                "close": 1.0,
+                "volume": 1.0,
+                "close_time": now_ms - (1 * 3_600_000),
+            }
+        ],
+        db_path=db_path,
+    )
+    service = market_data_service.MarketDataService(db_path=db_path)
+    monkeypatch.setattr(market_data_service.time, "time", lambda: now_ms / 1000.0)
+    monkeypatch.setattr(
+        service.store,
+        "get_last_updated_at",
+        lambda *_args, **_kwargs: now_ms - (2 * 3_600_000),
+    )
+
+    adaptive_meta = service.get_candle_meta(symbol, timeframe)
+    strict_meta = service.get_candle_meta(symbol, timeframe, stale_after_seconds=120)
+
+    assert adaptive_meta["supported"] is True
+    assert adaptive_meta["stale"] is False
+    assert strict_meta["stale"] is True
+
+
+def test_market_data_service_meta_prefers_candle_time_over_write_time(tmp_path: Path, monkeypatch):
+    db_path = _db_path(tmp_path)
+    symbol = "BTC-USD"
+    timeframe = "1m"
+    now_ms = 20_000_000_000
+    old_open = now_ms - (10 * 60_000)
+    revolut_market_db.upsert_candles(
+        symbol=symbol,
+        timeframe=timeframe,
+        candles=[
+            {
+                "ts": old_open,
+                "open": 100.0,
+                "high": 101.0,
+                "low": 99.0,
+                "close": 100.5,
+                "volume": 3.0,
+                "close_time": old_open + 59_999,
+            }
+        ],
+        db_path=db_path,
+    )
+    service = market_data_service.MarketDataService(db_path=db_path)
+    monkeypatch.setattr(market_data_service.time, "time", lambda: now_ms / 1000.0)
+    # Simulate a fresh write timestamp even though market candle is old.
+    monkeypatch.setattr(service.store, "get_last_updated_at", lambda *_args, **_kwargs: now_ms)
+
+    meta = service.get_candle_meta(symbol, timeframe, stale_after_seconds=300)
+    assert meta["freshness_reference"] == "latest_candle_close_estimate"
+    assert meta["age_seconds"] is not None and float(meta["age_seconds"]) >= 540.0
+    assert meta["stale"] is True
 
 
 def test_candle_trim_to_lookback_limit(tmp_path: Path):

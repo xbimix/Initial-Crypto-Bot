@@ -4,7 +4,13 @@ import argparse
 import json
 import statistics
 import time
+import sys
 from pathlib import Path
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from utils.state_paths import resolve_state_dir
 
 
 def _load_rows(path: Path) -> list[dict]:
@@ -31,9 +37,13 @@ def _num(value, default=0.0) -> float:
         return float(default)
 
 
+def _default_state_dir() -> Path:
+    return resolve_state_dir(Path(__file__).resolve().parents[1] / "state")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Generate RevBot sync health validation report.")
-    parser.add_argument("--state-dir", default=str(Path(__file__).resolve().parents[1] / "state"))
+    parser.add_argument("--state-dir", default=str(_default_state_dir()))
     parser.add_argument("--hours", type=float, default=24.0)
     args = parser.parse_args()
 

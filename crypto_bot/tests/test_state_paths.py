@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from utils.state_paths import (
@@ -32,6 +33,20 @@ def test_read_path_with_legacy_fallback_prefers_legacy_when_primary_missing(tmp_
     legacy.parent.mkdir(parents=True, exist_ok=True)
     legacy.write_text("{}", encoding="utf-8")
     assert read_path_with_legacy_fallback(primary, legacy) == legacy
+
+
+def test_read_path_with_legacy_fallback_emits_warning_once(tmp_path: Path, caplog):
+    primary = tmp_path / "runtime" / "state" / "paper_state.json"
+    legacy = tmp_path / "legacy" / "state" / "paper_state.json"
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    legacy.write_text("{}", encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING, logger="state_paths"):
+        read_path_with_legacy_fallback(primary, legacy, context="unit_test")
+        read_path_with_legacy_fallback(primary, legacy, context="unit_test")
+
+    warnings = [record.message for record in caplog.records if "Legacy state fallback in use" in record.message]
+    assert len(warnings) == 1
 
 
 def test_seed_primary_from_legacy_copies_once(tmp_path: Path):

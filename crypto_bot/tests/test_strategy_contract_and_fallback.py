@@ -93,10 +93,11 @@ def reset_strategy_globals(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(se, "STATE_DIR", state_dir)
     monkeypatch.setattr(se, "STRATEGY_STATE_FILE", state_dir / "strategy_state.json")
     monkeypatch.setattr(se, "PAPER_STATE_FILE", state_dir / "paper_state.json")
-    monkeypatch.setattr(se, "_synced", True)
-    monkeypatch.setattr(se, "_last_paper_state_mtime", None)
-    monkeypatch.setattr(se, "_metrics_dirty", False)
-    monkeypatch.setattr(se, "_last_metrics_flush_at", 0.0)
+    se.set_runtime_scalars_for_compat(
+        synced=True,
+        metrics_dirty=False,
+        last_metrics_flush_at=0.0,
+    )
 
 
 def test_unified_regime_skips_legacy_when_v2_is_available(monkeypatch):

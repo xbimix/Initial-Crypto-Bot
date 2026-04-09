@@ -48,7 +48,13 @@ def _build_indicator_features(
         for i in range(1, len(prices))
         if prices[i - 1] > 0
     ]
-    atr_raw = statistics.median(deltas) if deltas else 0.0
+    non_zero_deltas = [value for value in deltas if value > 0.0]
+    if non_zero_deltas:
+        # Use non-zero returns to avoid zeroing ATR on quantized symbols where
+        # many consecutive closes are equal despite occasional real movement.
+        atr_raw = statistics.median(non_zero_deltas)
+    else:
+        atr_raw = 0.0
     atr = max(float(atr_raw), float(atr_floor))
     vwap = _weighted_average(prices, weights)
     median_price = statistics.median(prices)

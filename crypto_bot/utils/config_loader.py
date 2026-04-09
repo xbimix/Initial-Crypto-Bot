@@ -71,7 +71,11 @@ def _raise_for_critical_warnings(warnings: list[str]):
 
 
 def load_config():
-    read_path = read_path_with_legacy_fallback(CONFIG_PATH, LEGACY_CONFIG_PATH)
+    read_path = read_path_with_legacy_fallback(
+        CONFIG_PATH,
+        LEGACY_CONFIG_PATH,
+        context="config_loader.load_config",
+    )
     if not read_path.exists():
         raise FileNotFoundError("config.json not found")
 

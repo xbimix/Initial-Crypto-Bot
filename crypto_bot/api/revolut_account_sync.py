@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
+from typing import TypedDict
 
 from api.revolut_balances import get_balances
 from api.revolut_order_book import get_order_book
@@ -14,6 +16,46 @@ logger = setup_logger("revolut_account_sync")
 STATE_DIR = resolve_state_dir(Path(__file__).resolve().parent.parent / "state")
 ACCOUNT_SNAPSHOT_PATH = STATE_DIR / "revolut_account_snapshot.json"
 USD_LIKE_ASSETS = {"USD", "USDT", "USDC", "DAI", "EURC"}
+_MID_PRICE_CACHE: dict[str, tuple[float, float]] = {}
+
+
+class _QuoteCacheStats(TypedDict):
+    hits: int
+    misses: int
+    expired: int
+    evicted_stale: int
+    evicted_overflow: int
+    writes: int
+    cleanup_runs: int
+
+
+_QUOTE_CACHE_STATS: _QuoteCacheStats = {
+    "hits": 0,
+    "misses": 0,
+    "expired": 0,
+    "evicted_stale": 0,
+    "evicted_overflow": 0,
+    "writes": 0,
+    "cleanup_runs": 0,
+}
+
+
+def _cache_ttl_seconds() -> float:
+    raw = os.getenv("REVBOT_ACCOUNT_QUOTE_CACHE_TTL_SECONDS", "180").strip()
+    try:
+        parsed = float(raw)
+    except (TypeError, ValueError):
+        parsed = 180.0
+    return max(parsed, 1.0)
+
+
+def _cache_entry_limit() -> int:
+    raw = os.getenv("REVBOT_ACCOUNT_QUOTE_CACHE_MAX_ENTRIES", "256").strip()
+    try:
+        parsed = int(raw)
+    except (TypeError, ValueError):
+        parsed = 256
+    return max(parsed, 16)
 
 
 def _to_float(value, default: float = 0.0) -> float:
@@ -48,9 +90,57 @@ def _extract_balance_rows(payload: dict) -> list[dict]:
     return []
 
 
+def _cleanup_quote_cache(*, now_epoch: float, ttl_seconds: float) -> None:
+    _QUOTE_CACHE_STATS["cleanup_runs"] += 1
+    stale_keys = [
+        key for key, (_price, cached_at) in _MID_PRICE_CACHE.items()
+        if (now_epoch - float(cached_at)) > ttl_seconds
+    ]
+    for key in stale_keys:
+        _MID_PRICE_CACHE.pop(key, None)
+    if stale_keys:
+        _QUOTE_CACHE_STATS["evicted_stale"] += len(stale_keys)
+        _QUOTE_CACHE_STATS["expired"] += len(stale_keys)
+
+    limit = _cache_entry_limit()
+    overflow = max(0, len(_MID_PRICE_CACHE) - limit)
+    if overflow <= 0:
+        return
+    oldest = sorted(_MID_PRICE_CACHE.items(), key=lambda item: float(item[1][1]))
+    for key, _row in oldest[:overflow]:
+        _MID_PRICE_CACHE.pop(key, None)
+    _QUOTE_CACHE_STATS["evicted_overflow"] += overflow
+
+
+def quote_cache_telemetry() -> dict:
+    return {
+        "cache_size": len(_MID_PRICE_CACHE),
+        "cache_ttl_seconds": _cache_ttl_seconds(),
+        "cache_max_entries": _cache_entry_limit(),
+        **_QUOTE_CACHE_STATS,
+    }
+
+
 def _estimate_symbol_mid_price(symbol: str) -> float | None:
+    symbol_key = str(symbol or "").strip().upper()
+    if not symbol_key:
+        return None
+
+    now = time.time()
+    ttl_seconds = _cache_ttl_seconds()
+    _cleanup_quote_cache(now_epoch=now, ttl_seconds=ttl_seconds)
+    cached = _MID_PRICE_CACHE.get(symbol_key)
+    if cached is not None:
+        price, cached_at = cached
+        if (now - cached_at) <= ttl_seconds:
+            _QUOTE_CACHE_STATS["hits"] += 1
+            return float(price)
+        _MID_PRICE_CACHE.pop(symbol_key, None)
+        _QUOTE_CACHE_STATS["expired"] += 1
+
+    _QUOTE_CACHE_STATS["misses"] += 1
     try:
-        payload = get_order_book(symbol)
+        payload = get_order_book(symbol_key)
     except Exception:
         return None
 
@@ -82,7 +172,12 @@ def _estimate_symbol_mid_price(symbol: str) -> float | None:
         return None
     if best_bid > best_ask:
         return None
-    return (best_ask + best_bid) / 2.0
+    mid = (best_ask + best_bid) / 2.0
+    if mid > 0:
+        _MID_PRICE_CACHE[symbol_key] = (float(mid), now)
+        _QUOTE_CACHE_STATS["writes"] += 1
+        _cleanup_quote_cache(now_epoch=now, ttl_seconds=ttl_seconds)
+    return mid
 
 
 def _estimate_quote_value(asset: str, total: float) -> tuple[float | None, str | None]:
@@ -144,6 +239,7 @@ def _build_snapshot_from_payload(payload: dict) -> dict:
         "asset_count": len(parsed),
         "estimated_total_quote_value": round(total_estimated_quote_value, 6),
         "estimated_quote_value_complete": bool(estimated_quote_value_available),
+        "quote_cache": quote_cache_telemetry(),
         "source": "revolut_x",
     }
 
@@ -174,6 +270,7 @@ def sync_account_snapshot() -> dict:
             "last_success_sync_time": (
                 previous.get("last_sync_time") if isinstance(previous, dict) else None
             ),
+            "quote_cache": quote_cache_telemetry(),
             "source": "revolut_x",
         }
 

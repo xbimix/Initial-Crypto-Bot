@@ -4,8 +4,14 @@ import argparse
 import json
 import time
 from collections import defaultdict
+import sys
 from pathlib import Path
 from typing import Any
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from utils.state_paths import resolve_state_dir
 
 
 def _load_json(path: Path, default: Any) -> Any:
@@ -443,9 +449,13 @@ def _build_threshold_suggestions(
     }
 
 
+def _default_state_dir() -> Path:
+    return resolve_state_dir(Path(__file__).resolve().parents[1] / "state")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Weekly threshold suggestion report for RevBot route tuning.")
-    parser.add_argument("--state-dir", default=str(Path(__file__).resolve().parents[1] / "state"))
+    parser.add_argument("--state-dir", default=str(_default_state_dir()))
     parser.add_argument("--window-days", type=float, default=7.0)
     parser.add_argument("--min-closed-parts", type=int, default=6)
     args = parser.parse_args()

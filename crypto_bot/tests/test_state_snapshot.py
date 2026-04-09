@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
 
@@ -51,3 +52,12 @@ def test_ensure_daily_snapshot_only_runs_once_per_day(tmp_path: Path):
 
     assert first is not None
     assert second is None
+
+
+def test_state_snapshot_default_state_dir_uses_runtime_root(monkeypatch, tmp_path: Path):
+    monkeypatch.setenv("BOT_DATA_DIR", str(tmp_path / "runtime_root"))
+    monkeypatch.delenv("REVBOT_STATE_DIR", raising=False)
+    reloaded = importlib.reload(state_snapshot)
+    resolved = reloaded._state_dir_from_here()
+    assert "runtime_root" in str(resolved)
+    assert resolved.name == "state"

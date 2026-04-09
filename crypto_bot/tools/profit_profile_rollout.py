@@ -13,6 +13,7 @@ if __package__ in {None, ""}:
 
 from utils.config_schema import normalize_config
 from utils.state_io import read_json_file, write_json_file
+from utils.state_paths import resolve_state_dir
 
 
 @dataclass(frozen=True)
@@ -308,11 +309,7 @@ PROFILE_UPDATES: dict[str, list[ConfigUpdate]] = {
 
 
 def _default_state_dir() -> Path:
-    repo_root = Path(__file__).resolve().parents[2]
-    runtime_state = repo_root / ".runtime" / "state"
-    if runtime_state.exists():
-        return runtime_state
-    return Path(__file__).resolve().parents[1] / "state"
+    return resolve_state_dir(Path(__file__).resolve().parents[1] / "state")
 
 
 def _set_path(payload: dict[str, Any], dotted_path: str, value: Any):

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import time
+from contextlib import contextmanager
+from dataclasses import dataclass
+from functools import wraps
 
 from strategy.decision_payloads import build_decision_payload
 from strategy.diagnostics import (
@@ -53,6 +56,120 @@ PROFILE_STALE_EXIT_DEFAULTS = {
 }
 
 
+@dataclass(frozen=True)
+class DecisionSnapshotContract:
+    symbol: str
+    price: float
+    momentum: float
+    trades: int
+    high_24h: float
+    low_24h: float
+    atr: float | None
+    vwap: float | None
+
+
+def _build_snapshot_contract(snapshot: dict, parse_numeric) -> tuple[DecisionSnapshotContract | None, str | None]:
+    if not isinstance(snapshot, dict):
+        return None, "payload_not_object"
+
+    symbol_raw = snapshot.get("symbol")
+    if not isinstance(symbol_raw, str):
+        return None, "symbol_missing"
+    symbol = symbol_raw.strip().upper()
+    if not symbol:
+        return None, "symbol_missing"
+
+    price = parse_numeric(snapshot.get("price"), fallback=None)
+    if price is None or float(price) <= 0:
+        return None, "price_invalid"
+
+    momentum = parse_numeric(snapshot.get("momentum_norm"), fallback=None)
+    if momentum is None:
+        return None, "momentum_missing"
+
+    trades_raw = parse_numeric(snapshot.get("trade_count"), fallback=None)
+    if trades_raw is None:
+        return None, "trade_count_missing"
+    if float(trades_raw) < 0:
+        return None, "trade_count_invalid"
+    trades = int(float(trades_raw))
+
+    high_24h = parse_numeric(snapshot.get("high_24h"), fallback=None)
+    if high_24h is None:
+        return None, "high_24h_missing"
+    low_24h = parse_numeric(snapshot.get("low_24h"), fallback=None)
+    if low_24h is None:
+        return None, "low_24h_missing"
+
+    atr = parse_numeric(snapshot.get("atr"), fallback=None)
+    vwap = parse_numeric(snapshot.get("vwap"), fallback=None)
+
+    return (
+        DecisionSnapshotContract(
+            symbol=symbol,
+            price=float(price),
+            momentum=float(momentum),
+            trades=trades,
+            high_24h=float(high_24h),
+            low_24h=float(low_24h),
+            atr=float(atr) if atr is not None else None,
+            vwap=float(vwap) if vwap is not None else None,
+        ),
+        None,
+    )
+
+
+@contextmanager
+def _runtime_state_scope(runtime_state):
+    """Temporarily bind module-level runtime state for compatibility hot paths."""
+    global rt
+    if runtime_state is None:
+        yield
+        return
+    previous = rt
+    rt = runtime_state
+    try:
+        yield
+    finally:
+        rt = previous
+
+
+def _bind_runtime_state_for_call(func):
+    @wraps(func)
+    def _wrapped(*args, **kwargs):
+        runtime_state = kwargs.get("runtime_state")
+        with _runtime_state_scope(runtime_state):
+            return func(*args, **kwargs)
+
+    return _wrapped
+
+
+def _runtime_synced(runtime_state) -> bool:
+    if hasattr(runtime_state, "synced"):
+        return bool(getattr(runtime_state, "synced"))
+    return bool(getattr(runtime_state, "_synced", False))
+
+
+def _runtime_last_paper_state_mtime(runtime_state):
+    if hasattr(runtime_state, "last_paper_state_mtime"):
+        return getattr(runtime_state, "last_paper_state_mtime")
+    return getattr(runtime_state, "_last_paper_state_mtime", None)
+
+
+def _runtime_set_synced(runtime_state, value: bool) -> None:
+    if hasattr(runtime_state, "synced"):
+        setattr(runtime_state, "synced", bool(value))
+    else:
+        setattr(runtime_state, "_synced", bool(value))
+
+
+def _runtime_set_last_paper_state_mtime(runtime_state, value) -> None:
+    if hasattr(runtime_state, "last_paper_state_mtime"):
+        setattr(runtime_state, "last_paper_state_mtime", value)
+    else:
+        setattr(runtime_state, "_last_paper_state_mtime", value)
+
+
 def _sync_with_broker_state(ctx):
     ctx._sync_with_broker_state_impl(
         paper_state_file=ctx.PAPER_STATE_FILE,
@@ -86,39 +203,53 @@ def _paper_state_mtime(ctx):
     return ctx._paper_state_mtime_impl(ctx.PAPER_STATE_FILE)
 
 
-def _sync_with_broker_state_if_needed(ctx, force: bool = False):
+def _sync_with_broker_state_if_needed(ctx, force: bool = False, runtime_state=None):
+    runtime = runtime_state if runtime_state is not None else rt
     current_mtime = _paper_state_mtime(ctx)
     if (
         not force
-        and rt._synced
+        and _runtime_synced(runtime)
         and current_mtime is not None
-        and rt._last_paper_state_mtime is not None
-        and current_mtime == rt._last_paper_state_mtime
+        and _runtime_last_paper_state_mtime(runtime) is not None
+        and current_mtime == _runtime_last_paper_state_mtime(runtime)
     ):
         return
 
     _sync_with_broker_state(ctx)
-    rt._synced = True
-    rt._last_paper_state_mtime = current_mtime
+    _runtime_set_synced(runtime, True)
+    _runtime_set_last_paper_state_mtime(runtime, current_mtime)
 
 
-def evaluate_symbol(snapshot: dict, cfg: dict, *, ctx) -> dict:
-    _sync_with_broker_state_if_needed(ctx)
-    return generate_decision(snapshot, cfg, ctx=ctx)
+@_bind_runtime_state_for_call
+def evaluate_symbol(snapshot: dict, cfg: dict, *, ctx, runtime_state=None) -> dict:
+    _sync_with_broker_state_if_needed(ctx, runtime_state=runtime_state)
+    return generate_decision(snapshot, cfg, ctx=ctx, runtime_state=runtime_state)
 
 
-def generate_decision(snapshot: dict, cfg: dict, *, ctx) -> dict:
-    symbol = snapshot["symbol"]
-    price = snapshot["price"]
+@_bind_runtime_state_for_call
+def generate_decision(snapshot: dict, cfg: dict, *, ctx, runtime_state=None) -> dict:
+    contract, contract_error = _build_snapshot_contract(snapshot, ctx._parse_numeric)
+    if contract is None:
+        safe_snapshot = snapshot if isinstance(snapshot, dict) else {}
+        symbol = str(safe_snapshot.get("symbol") or "UNKNOWN").strip().upper() or "UNKNOWN"
+        price = ctx._parse_numeric(safe_snapshot.get("price"), fallback=0.0) or 0.0
+        momentum = ctx._parse_numeric(safe_snapshot.get("momentum_norm"), fallback=0.0) or 0.0
+        return ctx._decision(
+            symbol,
+            "HOLD",
+            float(price),
+            float(momentum),
+            f"snapshot_contract_invalid:{contract_error or 'unknown'}",
+        )
 
-    momentum = snapshot["momentum_norm"]
-    trades = snapshot["trade_count"]
-
-    high_24h = snapshot["high_24h"]
-    low_24h = snapshot["low_24h"]
-
-    atr = snapshot["atr"]
-    vwap = snapshot.get("vwap")
+    symbol = contract.symbol
+    price = contract.price
+    momentum = contract.momentum
+    trades = contract.trades
+    high_24h = contract.high_24h
+    low_24h = contract.low_24h
+    atr = contract.atr
+    vwap = contract.vwap
     z_score = None
     if vwap is not None and atr is not None and atr > 0:
         z_score = (price - vwap) / atr
@@ -195,9 +326,21 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx) -> dict:
             )
             if isinstance(route_quality, dict):
                 route_snapshot["route_quality"] = route_quality
-        except Exception:
-            # Route quality gates are conservative extras; ignore transient scorecard issues.
-            pass
+        except Exception as exc:
+            error_detail = f"{type(exc).__name__}:{exc}"
+            route_snapshot["route_quality_error"] = error_detail
+            route_snapshot["route_quality_error_ts"] = route_eval_ts
+            ctx.logger.warning(f"Route quality load failed for {symbol}: {error_detail}")
+            runtime_event_hook = getattr(ctx, "append_runtime_event", None)
+            if callable(runtime_event_hook):
+                try:
+                    runtime_event_hook(
+                        "route_quality_load_failed",
+                        symbol=symbol,
+                        error=error_detail,
+                    )
+                except Exception as emit_exc:
+                    ctx.logger.warning(f"Route quality failure event emit failed for {symbol}: {emit_exc}")
 
     entry_route = ctx.resolve_entry_route(
         cfg=cfg,
@@ -561,6 +704,7 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx) -> dict:
         score=score,
         range_pos=range_pos,
         decision=ctx._decision,
+        cfg=cfg,
     )
     return entry_contracts._attach_entry_contract_candidate(
         decision=decision,
@@ -1006,6 +1150,7 @@ def _evaluate_buy(
     score,
     range_pos,
     decision,
+    cfg=None,
 ):
     return evaluate_mean_reversion_entry(
         snapshot=snapshot,
@@ -1031,4 +1176,5 @@ def _evaluate_buy(
         range_pos=range_pos,
         last_momentum_state=rt._last_momentum,
         decision=decision,
+        cfg=cfg if isinstance(cfg, dict) else None,
     )

@@ -102,3 +102,34 @@ def test_resolve_db_path_keeps_runtime_db_when_newer(monkeypatch, tmp_path: Path
     revolut_market_db.resolve_db_path()
     assert _max_open_time(runtime_db) == runtime_before
 
+
+def test_list_sync_states_filters_by_symbols_and_timeframes(tmp_path: Path):
+    db = tmp_path / "market_data.db"
+    revolut_market_db.upsert_sync_state(
+        symbol="BTC-USD",
+        timeframe="1m",
+        earliest_ms=1,
+        latest_ms=2,
+        last_sync_ms=3,
+        status="ok",
+        note="",
+        db_path=db,
+    )
+    revolut_market_db.upsert_sync_state(
+        symbol="ETH-USD",
+        timeframe="5m",
+        earliest_ms=4,
+        latest_ms=5,
+        last_sync_ms=6,
+        status="ok",
+        note="",
+        db_path=db,
+    )
+    rows = revolut_market_db.list_sync_states(
+        symbols=["ETH-USD"],
+        timeframes=["5m"],
+        db_path=db,
+    )
+    assert len(rows) == 1
+    assert rows[0]["symbol"] == "ETH-USD"
+    assert rows[0]["timeframe"] == "5m"

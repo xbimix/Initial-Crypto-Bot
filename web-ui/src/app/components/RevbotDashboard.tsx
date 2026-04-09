@@ -83,6 +83,7 @@ type DashboardPayload = {
     suggestedRegimeV2?: string | null;
     detectedRegimeConfidenceLabel: string;
     detectedRegimeConfidenceScore: number | null;
+    detectedRegimeConfidenceInferred?: boolean;
     detectedRegimeStabilityScore: number | null;
     detectedRegimePersistenceScore?: number | null;
     detectedRegimeStabilityInferred?: boolean;
@@ -771,6 +772,13 @@ function confidenceScoreFromLabel(label: string | null) {
     return 1;
   }
   return 0;
+}
+
+function regimeInputFlag(value: number | null | undefined, inferred: boolean | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "M";
+  }
+  return inferred ? "I" : "N";
 }
 
 function dataQualityRank(status: string | null | undefined) {
@@ -2561,11 +2569,20 @@ export default function RevbotDashboard() {
                             </span>
                           </div>
                           <div className="mt-1 text-[9px] uppercase tracking-[0.12em] text-slate-500">
-                            Inputs C:N
+                            Inputs C:{regimeInputFlag(
+                              control.detectedRegimeConfidenceScore,
+                              control.detectedRegimeConfidenceInferred,
+                            )}
                             {" "}
-                            S:{control.detectedRegimeStabilityInferred ? "I" : "N"}
+                            S:{regimeInputFlag(
+                              control.detectedRegimeStabilityScore,
+                              control.detectedRegimeStabilityInferred,
+                            )}
                             {" "}
-                            P:{control.detectedRegimePersistenceInferred ? "I" : "N"}
+                            P:{regimeInputFlag(
+                              control.detectedRegimePersistenceScore,
+                              control.detectedRegimePersistenceInferred,
+                            )}
                           </div>
                         </td>
                         <td className="px-2 py-2.5">

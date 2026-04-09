@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
+from utils.state_paths import resolve_state_dir
+
 SNAPSHOT_FILES = (
     "config.json",
     "paper_state.json",
@@ -16,7 +18,8 @@ SNAPSHOT_FILES = (
 
 
 def _state_dir_from_here() -> Path:
-    return Path(__file__).resolve().parent.parent / "state"
+    default_state_dir = Path(__file__).resolve().parent.parent / "state"
+    return resolve_state_dir(default_state_dir)
 
 
 def _utc_now() -> datetime:

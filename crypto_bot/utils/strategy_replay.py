@@ -86,10 +86,11 @@ def _reset_strategy_globals(se: Any, state_dir: Path):
 
     se.STRATEGY_STATE_FILE = strategy_state_path
     se.PAPER_STATE_FILE = paper_state_path
-    se._synced = True
-    se._last_paper_state_mtime = None
-    se._metrics_dirty = False
-    se._last_metrics_flush_at = 0.0
+    se.set_runtime_scalars_for_compat(
+        synced=True,
+        metrics_dirty=False,
+        last_metrics_flush_at=0.0,
+    )
 
     # Replay must be deterministic per-case; clear route-quality cache too.
     try:
