@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import time
 from collections import Counter
 from pathlib import Path
@@ -23,6 +24,11 @@ DEFAULT_CADENCE_SECONDS = {
 }
 DEFAULT_RESERVED_REQUESTS_DECISION_TIMEFRAME = 3
 DEFAULT_MAX_BACKGROUND_SHARE = 0.5
+DEFAULT_SYNC_AUTO_SCALE_REQUESTS_ENABLED = False
+DEFAULT_SYNC_AUTO_SCALE_REQUESTS_MAX_PER_TICK = 12
+DEFAULT_SYNC_TARGET_DECISION_FRESHNESS_SECONDS = 90.0
+DEFAULT_SYNC_MIN_BACKGROUND_JOBS_PER_TICK = 1
+DEFAULT_SYNC_ASSUMED_TICK_SECONDS = 12.0
 DEFAULT_STALE_CATCHUP_ENABLED = True
 DEFAULT_STALE_CATCHUP_AGE_INTERVALS = 6
 DEFAULT_STALE_CATCHUP_RESERVED_REQUESTS = 2
@@ -35,9 +41,11 @@ DEFAULT_STATE_DIR = Path(__file__).resolve().parent.parent / "state"
 SCHEDULER_WATERMARK_PATH = resolve_state_file(DEFAULT_STATE_DIR, "scheduler_sync_watermark.json")
 
 _last_sync_at: dict[tuple[str, str], float] = {}
+_sync_job_stats: dict[tuple[str, str], dict[str, Any]] = {}
 _watermark_loaded = False
 _last_watermark_persist_epoch = 0.0
 _background_timeframe_rr_index = 0
+_last_tick_epoch: float | None = None
 
 
 def _to_int(value: Any, fallback: int) -> int:
@@ -120,6 +128,77 @@ def _cadence_map(cfg: dict[str, Any]) -> dict[str, int]:
 
 def _max_requests(cfg: dict[str, Any]) -> int:
     return max(1, _to_int(_market_data_cfg(cfg).get("max_sync_requests_per_tick", 8), 8))
+
+
+def _auto_scale_requests_enabled(cfg: dict[str, Any]) -> bool:
+    return _to_bool(
+        _market_data_cfg(cfg).get(
+            "sync_auto_scale_requests_enabled",
+            DEFAULT_SYNC_AUTO_SCALE_REQUESTS_ENABLED,
+        ),
+        DEFAULT_SYNC_AUTO_SCALE_REQUESTS_ENABLED,
+    )
+
+
+def _auto_scale_requests_max_per_tick(cfg: dict[str, Any], base_cap: int) -> int:
+    return max(
+        int(base_cap),
+        _safe_int(
+            _market_data_cfg(cfg).get(
+                "sync_auto_scale_requests_max_per_tick",
+                DEFAULT_SYNC_AUTO_SCALE_REQUESTS_MAX_PER_TICK,
+            ),
+            DEFAULT_SYNC_AUTO_SCALE_REQUESTS_MAX_PER_TICK,
+            min_value=1,
+        ),
+    )
+
+
+def _target_decision_freshness_seconds(cfg: dict[str, Any]) -> float:
+    return max(
+        15.0,
+        _to_float(
+            _market_data_cfg(cfg).get(
+                "sync_target_decision_freshness_seconds",
+                DEFAULT_SYNC_TARGET_DECISION_FRESHNESS_SECONDS,
+            ),
+            DEFAULT_SYNC_TARGET_DECISION_FRESHNESS_SECONDS,
+        ),
+    )
+
+
+def _min_background_jobs_per_tick(cfg: dict[str, Any]) -> int:
+    return _safe_int(
+        _market_data_cfg(cfg).get(
+            "sync_min_background_jobs_per_tick",
+            DEFAULT_SYNC_MIN_BACKGROUND_JOBS_PER_TICK,
+        ),
+        DEFAULT_SYNC_MIN_BACKGROUND_JOBS_PER_TICK,
+        min_value=0,
+    )
+
+
+def _assumed_tick_seconds(cfg: dict[str, Any]) -> float:
+    return max(
+        0.5,
+        _to_float(
+            _market_data_cfg(cfg).get("sync_assumed_tick_seconds", DEFAULT_SYNC_ASSUMED_TICK_SECONDS),
+            DEFAULT_SYNC_ASSUMED_TICK_SECONDS,
+        ),
+    )
+
+
+def _resolve_tick_interval_seconds(cfg: dict[str, Any], *, now_epoch: float) -> float:
+    global _last_tick_epoch
+    fallback = _assumed_tick_seconds(cfg)
+    last = _last_tick_epoch
+    _last_tick_epoch = float(now_epoch)
+    if last is None:
+        return float(fallback)
+    interval = float(now_epoch) - float(last)
+    if interval <= 0:
+        return float(fallback)
+    return max(0.5, interval)
 
 
 def _decision_timeframe(cfg: dict[str, Any]) -> str:
@@ -386,12 +465,43 @@ def run_incremental_sync_tick(
         return {"enabled": False, "requests": 0, "inserted": 0, "errors": 0, "jobs": []}
 
     now = float(now_epoch if now_epoch is not None else time.time())
+    tick_interval_seconds = _resolve_tick_interval_seconds(cfg, now_epoch=now)
     watermark_restored = _load_watermark_if_needed(cfg, now_epoch=now)
     timeframes = _timeframes(cfg)
     cadence = _cadence_map(cfg)
-    request_cap = _max_requests(cfg)
+    request_cap_base = _max_requests(cfg)
     decision_timeframe = _decision_timeframe(cfg)
+    auto_scale_enabled = _auto_scale_requests_enabled(cfg)
+    target_decision_freshness_seconds = _target_decision_freshness_seconds(cfg)
+    has_background_timeframes = any(
+        str(tf or "").strip().lower() != decision_timeframe for tf in timeframes
+    )
+    min_background_jobs = _min_background_jobs_per_tick(cfg) if has_background_timeframes else 0
+    auto_scale_max_cap = _auto_scale_requests_max_per_tick(cfg, request_cap_base)
+    decision_jobs_required = 0
+    if auto_scale_enabled and symbols:
+        decision_jobs_required = max(
+            1,
+            int(
+                math.ceil(
+                    (len({str(s or "").strip().upper() for s in symbols if str(s or "").strip()}) * tick_interval_seconds)
+                    / target_decision_freshness_seconds
+                )
+            ),
+        )
+    desired_request_cap = request_cap_base
+    if auto_scale_enabled and decision_jobs_required > 0:
+        desired_request_cap = max(
+            int(request_cap_base),
+            int(decision_jobs_required + min_background_jobs),
+        )
+    request_cap = min(int(auto_scale_max_cap), int(desired_request_cap))
     reserved_decision_requests = _reserved_requests_decision_timeframe(cfg, request_cap)
+    if auto_scale_enabled and decision_jobs_required > 0:
+        auto_reserved = min(int(request_cap), int(decision_jobs_required))
+        if min_background_jobs > 0 and request_cap > min_background_jobs:
+            auto_reserved = min(auto_reserved, int(request_cap - min_background_jobs))
+        reserved_decision_requests = max(int(reserved_decision_requests), int(auto_reserved))
     stale_catchup_enabled = _stale_catchup_enabled(cfg)
     stale_catchup_age_intervals = _stale_catchup_age_intervals(cfg)
     stale_catchup_reserved_requests = _stale_catchup_reserved_requests(cfg, request_cap)
@@ -479,13 +589,44 @@ def run_incremental_sync_tick(
     stale_catchup_selected_jobs = 0
     decision_due_jobs = [row for row in due_jobs if row.get("timeframe") == decision_timeframe]
     decision_due_count = len(decision_due_jobs)
+    background_due_timeframes = [
+        str(tf or "").strip().lower()
+        for tf, count in due_by_timeframe.items()
+        if str(tf or "").strip().lower() != decision_timeframe and int(count or 0) > 0
+    ]
+    background_due_count = sum(int(due_by_timeframe.get(tf, 0) or 0) for tf in background_due_timeframes)
+    background_degraded = False
+    for tf in background_due_timeframes:
+        oldest_due_age = float(oldest_due_age_by_timeframe.get(tf, 0.0) or 0.0)
+        cadence_seconds = max(1, int(cadence.get(tf, 60)))
+        if oldest_due_age > float(cadence_seconds * 3):
+            background_degraded = True
+            break
+    required_background_jobs = 0
+    if background_due_count > 0 and request_cap > 1:
+        required_background_jobs = min(
+            max(int(min_background_jobs), 0),
+            max(int(request_cap) - 1, 0),
+        )
+        if background_degraded:
+            required_background_jobs = max(required_background_jobs, 1)
+        required_background_jobs = min(required_background_jobs, int(background_due_count))
+
+    max_decision_slots = max(int(request_cap) - int(required_background_jobs), 0)
+    if decision_due_count > 0:
+        max_decision_slots = max(max_decision_slots, 1)
+        max_decision_slots = min(max_decision_slots, int(request_cap))
+
     reserved_target = min(max(reserved_decision_requests, 0), decision_due_count, request_cap)
+    if max_decision_slots >= 0:
+        reserved_target = min(reserved_target, max_decision_slots)
     for row in decision_due_jobs[:reserved_target]:
         key = (str(row.get("symbol")), str(row.get("timeframe")))
         selected_jobs.append(row)
         selected_keys.add(key)
         selected_by_timeframe[str(row.get("timeframe"))] += 1
 
+    stale_catchup_decision_slots_remaining = max(int(max_decision_slots) - int(reserved_target), 0)
     if stale_catchup_enabled and stale_catchup_reserved_requests > 0 and stale_catchup_max_symbols > 0:
         stale_candidates: list[dict[str, Any]] = []
         seen_candidate_symbols: set[str] = set()
@@ -515,6 +656,8 @@ def run_incremental_sync_tick(
             if len(selected_jobs) >= request_cap:
                 break
             if stale_catchup_selected_jobs >= stale_catchup_reserved_requests:
+                break
+            if stale_catchup_selected_jobs >= stale_catchup_decision_slots_remaining:
                 break
             symbol = str(row.get("symbol") or "").strip().upper()
             if not symbol:
@@ -548,10 +691,30 @@ def run_incremental_sync_tick(
     max_background_jobs = (
         _max_jobs_for_share(request_cap, background_share) if decision_due_count > 0 else request_cap
     )
+    max_background_jobs = min(max(int(max_background_jobs), int(required_background_jobs)), int(request_cap))
     while len(selected_jobs) < request_cap and remaining_jobs:
         picked_idx: int | None = None
         preferred_background_tf: str | None = None
+        force_background_pick = (
+            bool(background_timeframe_order)
+            and int(selected_background_jobs) < int(required_background_jobs)
+        )
+        if force_background_pick:
+            preferred_background_tf = background_timeframe_order[
+                _background_timeframe_rr_index % len(background_timeframe_order)
+            ]
+            for idx, row in enumerate(remaining_jobs):
+                tf = str(row.get("timeframe") or "").strip().lower()
+                if tf != preferred_background_tf:
+                    continue
+                tf_cap_jobs = timeframe_share_caps.get(tf)
+                if tf_cap_jobs is not None and selected_by_timeframe.get(tf, 0) >= int(tf_cap_jobs):
+                    continue
+                picked_idx = idx
+                break
         if (
+            picked_idx is None
+            and
             decision_due_count > 0
             and selected_background_jobs < max_background_jobs
             and background_timeframe_order
@@ -573,6 +736,8 @@ def run_incremental_sync_tick(
         if picked_idx is None:
             for idx, row in enumerate(remaining_jobs):
                 tf = str(row.get("timeframe") or "").strip().lower()
+                if force_background_pick and tf == decision_timeframe:
+                    continue
                 tf_cap_jobs = timeframe_share_caps.get(tf)
                 if tf_cap_jobs is not None and selected_by_timeframe.get(tf, 0) >= int(tf_cap_jobs):
                     continue
@@ -602,6 +767,21 @@ def run_incremental_sync_tick(
 
     decision_selected_count = int(selected_by_timeframe.get(decision_timeframe, 0))
     decision_reservation_met = decision_selected_count >= reserved_target
+    decision_required_for_guard = max(int(reserved_target), 0)
+    if decision_due_count > 0 and auto_scale_enabled and decision_jobs_required > 0:
+        decision_required_for_guard = max(
+            int(decision_required_for_guard),
+            int(min(decision_due_count, decision_jobs_required)),
+        )
+    decision_oldest_due_age = float(oldest_due_age_by_timeframe.get(decision_timeframe, 0.0) or 0.0)
+    ingestion_guard_reasons: list[str] = []
+    if decision_due_count > 0 and decision_selected_count <= 0:
+        ingestion_guard_reasons.append("decision_timeframe_starved")
+    if decision_required_for_guard > 0 and decision_selected_count < decision_required_for_guard:
+        ingestion_guard_reasons.append("decision_timeframe_under_served")
+    if decision_due_count > 0 and decision_oldest_due_age > (target_decision_freshness_seconds * 1.5):
+        ingestion_guard_reasons.append("decision_oldest_due_exceeds_target")
+    ingestion_guard_status = "DEGRADED" if ingestion_guard_reasons else "OK"
 
     for row in selected_jobs:
         symbol = str(row.get("symbol"))
@@ -635,6 +815,10 @@ def run_incremental_sync_tick(
                     cfg=cfg,
                 )
             result_status = str(result.get("status", "ok")).strip().lower()
+            metric_key = (symbol, timeframe)
+            stat = _sync_job_stats.get(metric_key, {})
+            stat["attempts"] = int(stat.get("attempts", 0) or 0) + 1
+            stat["last_attempt_at_epoch"] = float(now)
             requests += int(result.get("requests", 0) or 0)
             inserted += int(result.get("inserted", 0) or 0)
             new_inserted += int(result.get("new_inserted", 0) or 0)
@@ -645,6 +829,23 @@ def run_incremental_sync_tick(
             skipped_partial += int(result.get("skipped_partial", 0) or 0)
             if result_status in {"degraded", "unsupported"}:
                 degraded += 1
+            else:
+                previous_success_at = stat.get("last_success_at_epoch")
+                stat["successes"] = int(stat.get("successes", 0) or 0) + 1
+                stat["last_success_at_epoch"] = float(now)
+                if previous_success_at is not None:
+                    interval = max(0.0, float(now) - float(previous_success_at))
+                    prev_ema = stat.get("ema_success_interval_seconds")
+                    stat["ema_success_interval_seconds"] = (
+                        float(interval)
+                        if prev_ema is None
+                        else ((float(prev_ema) * 0.8) + (float(interval) * 0.2))
+                    )
+            stat["last_status"] = result_status or "ok"
+            latest_open_time = result.get("latest_open_time")
+            if latest_open_time is not None:
+                stat["latest_open_time_ms"] = int(latest_open_time)
+            _sync_job_stats[metric_key] = stat
             jobs.append(
                 {
                     "symbol": symbol,
@@ -665,6 +866,15 @@ def run_incremental_sync_tick(
         except Exception as exc:
             errors += 1
             next_delay_seconds = min(cadence_seconds, error_backoff_seconds)
+            metric_key = (symbol, timeframe)
+            stat = _sync_job_stats.get(metric_key, {})
+            stat["attempts"] = int(stat.get("attempts", 0) or 0) + 1
+            stat["errors"] = int(stat.get("errors", 0) or 0) + 1
+            stat["last_attempt_at_epoch"] = float(now)
+            stat["last_error_at_epoch"] = float(now)
+            stat["last_status"] = "error"
+            stat["last_error"] = str(exc)
+            _sync_job_stats[metric_key] = stat
             jobs.append(
                 {
                     "symbol": symbol,
@@ -675,6 +885,49 @@ def run_incremental_sync_tick(
             )
         finally:
             _last_sync_at[key] = now - cadence_seconds + float(next_delay_seconds)
+
+    decision_metrics_rows: list[dict[str, Any]] = []
+    decision_metric_stale_symbols: list[str] = []
+    for symbol in unique_symbols:
+        key = (symbol, decision_timeframe)
+        last_sync_at = _last_sync_at.get(key)
+        age_seconds = (
+            max(0.0, float(now) - float(last_sync_at))
+            if last_sync_at is not None
+            else None
+        )
+        stat = _sync_job_stats.get(key, {})
+        observed_interval = stat.get("ema_success_interval_seconds")
+        update_frequency_per_hour = None
+        if observed_interval is not None and float(observed_interval) > 0:
+            update_frequency_per_hour = 3600.0 / float(observed_interval)
+        elif age_seconds is not None and age_seconds > 0:
+            update_frequency_per_hour = 3600.0 / float(age_seconds)
+        stale = bool(
+            age_seconds is not None and age_seconds > float(target_decision_freshness_seconds)
+        )
+        if stale:
+            decision_metric_stale_symbols.append(symbol)
+        decision_metrics_rows.append(
+            {
+                "symbol": symbol,
+                "timeframe": decision_timeframe,
+                "last_sync_at_epoch": (float(last_sync_at) if last_sync_at is not None else None),
+                "age_seconds": (float(age_seconds) if age_seconds is not None else None),
+                "observed_update_interval_seconds": (
+                    float(observed_interval) if observed_interval is not None else None
+                ),
+                "update_frequency_per_hour": (
+                    float(update_frequency_per_hour) if update_frequency_per_hour is not None else None
+                ),
+                "target_freshness_seconds": float(target_decision_freshness_seconds),
+                "stale": stale,
+                "attempts": int(stat.get("attempts", 0) or 0),
+                "successes": int(stat.get("successes", 0) or 0),
+                "errors": int(stat.get("errors", 0) or 0),
+                "last_status": stat.get("last_status"),
+            }
+        )
 
     watermark_persisted = _persist_watermark_if_due(cfg, now_epoch=now)
 
@@ -693,11 +946,36 @@ def run_incremental_sync_tick(
         "degraded": degraded,
         "scheduler": {
             "request_cap": int(request_cap),
+            "request_cap_base": int(request_cap_base),
+            "request_cap_auto_scale_enabled": bool(auto_scale_enabled),
+            "request_cap_auto_scale_max": int(auto_scale_max_cap),
+            "request_cap_desired": int(desired_request_cap),
+            "tick_interval_seconds": float(tick_interval_seconds),
+            "target_decision_freshness_seconds": float(target_decision_freshness_seconds),
+            "decision_jobs_required_for_target": int(decision_jobs_required),
+            "min_background_jobs_per_tick": int(min_background_jobs),
             "decision_timeframe": decision_timeframe,
             "reserved_requests_decision_timeframe": int(reserved_decision_requests),
             "decision_due_jobs": int(decision_due_count),
+            "background_due_jobs": int(background_due_count),
+            "background_degraded": bool(background_degraded),
+            "required_background_jobs": int(required_background_jobs),
             "decision_selected_jobs": int(decision_selected_count),
             "decision_reservation_met": bool(decision_reservation_met),
+            "decision_required_jobs_for_guard": int(decision_required_for_guard),
+            "max_decision_slots": int(max_decision_slots),
+            "decision_reserved_target": int(reserved_target),
+            "decision_reserved_slots_total": int(reserved_target + stale_catchup_selected_jobs),
+            "decision_oldest_due_age_seconds": float(decision_oldest_due_age),
+            "ingestion_guard": {
+                "status": ingestion_guard_status,
+                "reasons": list(dict.fromkeys(ingestion_guard_reasons)),
+                "decision_required_jobs": int(decision_required_for_guard),
+                "decision_selected_jobs": int(decision_selected_count),
+                "decision_due_jobs": int(decision_due_count),
+                "decision_oldest_due_age_seconds": float(decision_oldest_due_age),
+                "target_decision_freshness_seconds": float(target_decision_freshness_seconds),
+            },
             "stale_catchup_enabled": bool(stale_catchup_enabled),
             "stale_catchup_age_intervals": int(stale_catchup_age_intervals),
             "stale_catchup_reserved_requests": int(stale_catchup_reserved_requests),
@@ -723,6 +1001,11 @@ def run_incremental_sync_tick(
             },
             "watermark_restore_entries": int(watermark_restored),
             "watermark_persisted": bool(watermark_persisted),
+            "decision_timeframe_metrics": {
+                "symbols_total": int(len(unique_symbols)),
+                "stale_symbols": list(decision_metric_stale_symbols),
+                "rows": decision_metrics_rows,
+            },
         },
         "jobs": jobs,
     }

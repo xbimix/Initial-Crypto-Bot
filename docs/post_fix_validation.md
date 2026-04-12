@@ -1,67 +1,130 @@
 # Post-Fix Validation (Phase 7)
 
-Date: 2026-04-08
+Date: 2026-04-09
 
-## What was validated
-
-1. Scheduler unit tests (including new background fairness behavior)
-2. Deterministic scheduler simulation under mixed timeframe load
-3. Live runtime freshness baseline (pre-restart) for comparison context
+## Validation Executed
 
 ## 1) Unit tests
 
-Command:
+Commands:
 - `python -m pytest -q crypto_bot/tests/test_live_sync_scheduler.py`
+- `python -m pytest -q crypto_bot/tests/test_config_loader.py`
+- `python -m pytest -q crypto_bot/tests/test_market_layers.py`
 
-Result:
-- `16 passed`
+Results:
+- `test_live_sync_scheduler.py`: **21 passed**
+- `test_config_loader.py`: **17 passed**
+- `test_market_layers.py`: **9 passed**
 
-Includes new fairness test:
-- `test_incremental_sync_scheduler_rotates_background_timeframes`
+Notes:
+- pytest cache warnings occurred due local Windows file-permission issues on `.pytest_cache`; tests still executed and passed.
 
-## 2) Deterministic scheduler simulation
+## 2) Deterministic scheduler validation for 77-symbol workload
 
-Setup:
-- One symbol
-- Timeframes: `1m,1h,4h,1d,5m,15m`
-- Request cap: `2`
-- Decision reservation: `1`
-- Background share: `0.5` (one background slot)
-- 30 ticks
+Scenario:
+- symbols: `77`
+- decision timeframe: `1m`
+- base cap: `6`
+- auto-scale enabled
+- max cap: `14`
+- target decision freshness: `90s`
+- assumed tick: `12s`
+- minimum background jobs: `1`
 
-Result:
-- total calls: `60` (`30` decision + `30` background)
-- background distribution:
-  - `1h: 6`
-  - `4h: 6`
-  - `1d: 6`
-  - `5m: 6`
-  - `15m: 6`
+Observed scheduler output:
+- `request_cap_base`: `6`
+- `request_cap`: `12`
+- `decision_jobs_required_for_target`: `11`
+- `reserved_requests_decision_timeframe`: `11`
+- `decision_selected_jobs`: `11`
+- `selected_background_jobs`: `1`
+- `attempted_jobs`: `12`
+
+Implied decision refresh cadence (approx):
+- `(77 symbols / 11 jobs-per-tick) * 12s` ~= **84s**
+
+This meets the stated 60-90s target envelope for decision-candle servicing in the synthetic check.
+
+## 3) New ingestion guard + per-symbol decision metrics validation
+
+Added coverage verifies:
+- `ingestion_guard` emits `DEGRADED` when oldest decision due age exceeds target.
+- `ingestion_guard` emits `OK` when decision servicing is healthy.
+- `decision_timeframe_metrics.rows` contains per-symbol:
+  - `last_sync_at_epoch`
+  - `age_seconds`
+  - observed update interval / frequency
+  - attempt/success/error counters
+
+## 4) Live-runtime note
+
+Live-process metrics in `.runtime/state` reflect whichever bot process is currently running.  
+To validate this patch end-to-end in live runtime, restart the bot with:
+- `market_data.sync_auto_scale_requests_enabled = true`
+- and a suitable `sync_auto_scale_requests_max_per_tick` for your symbol set.
+
+Then re-run 30-60 minute freshness capture and compare:
+- 1m age p50/p90/max
+- `% symbols >120s` and `% >300s`
+- block-reason share for `core_not_ready:*stale*`
+- scheduler telemetry: due/selected/starvation by timeframe
+
+## 5) Live-runtime snapshot (last 60 minutes, current process)
+
+Window source:
+- `.runtime/state/market_sync_health_history.jsonl` (221 rows)
+
+Observed (current running process):
+- avg requests/tick: **6.0**
+- avg decision due jobs: **72.045**
+- avg decision selected jobs: **5.0**
+- avg decision selection ratio: **0.0694**
+- 1m oldest-due age p50/p90: **260.181s / 262.336s**
+- ingestion stale-ratio p50/p90: **41.34% / 45.89%**
+- rows carrying new scheduler fields (`request_cap_base`, `ingestion_guard`, `decision_timeframe_metrics`): **0**
+
+Current 1m candle-age distribution (from latest DB state):
+- p50/p90/max: **155.981s / 215.981s / 275.981s**
+- `% >120s`: **61.039%**
+- `% >300s`: **0.0%**
+
+24h execution count from decision audit:
+- executed: **0**
 
 Interpretation:
-- Background selection now rotates evenly instead of sticking to one timeframe.
+- This process is still running pre-restart scheduler payload shape.
+- Freshness improved versus older baseline but remains outside 60-90s target for most symbols.
 
-## 3) Live runtime baseline (before process restart with new code)
+## Conclusion
 
-Recent live metrics observed:
-- 1m age distribution improved from extreme stale toward moderate stale:
-  - p50 around `197s`
-  - p90 around `317s`
-  - max around `377s`
-- Scheduler starvation warnings still present in current running process logs.
+The data-plane fix is implemented and validated at unit/integration-scheduler level.  
+Final operational confirmation requires a restarted live runtime window using the opt-in scheduler scaling flag so new ingestion guard/metrics are emitted in live telemetry.
 
-Important:
-- Existing bot process was started before this patch load; a restart is required for live runtime to use the new scheduler behavior.
+---
 
-## Validation conclusion
+## 6) Post-fix decision trace audit (Task 12)
 
-- Code-level fix is verified and deterministic in tests/simulation.
-- Live end-to-end validation after patch requires restarting bot runtime and re-running a 30-60 minute freshness capture window.
+Date: 2026-04-11
 
-Recommended next validation run after restart:
-- Recompute:
-  - 1m age p50/p90/max
-  - `% symbols >120s / >300s`
-  - `core_not_ready:*stale*` decision reason frequency
-  - starvation timeframe counts from scheduler telemetry
+Command:
+- `python crypto_bot/tools/decision_trace_audit.py --hours 24 --top 8`
 
+Output summary:
+- `total_cycles`: **13073**
+- `trades_executed`: **0**
+- `blocked_cycles`: **13073**
+- `entry_blocked_cycles`: **12238**
+- `exit_hold_cycles`: **835**
+- Top entry blockers:
+  - `price_above_buy_zone` (**46.69%** of entry-blocked cycles)
+  - `price_below_buy_zone` (**18.43%**)
+  - `core_not_ready:1h:stale` (**17.01%**)
+
+Interpretation:
+- The new split is working: `waiting_for_first_lock` is now isolated under `exit_hold_cycles` and no longer pollutes entry-failure diagnosis.
+- Executed-opportunity rate has **not improved yet** in this live window (still 0 executions in 24h).
+- Drawdown controls were not loosened in this pass; risk controls remain unchanged.
+
+Promotion decision:
+- **Do not promote tuning/profile changes yet**.
+- Keep this pass as infrastructure/contract hardening and continue with a dedicated buy-zone/freshness blocker reduction pass under unchanged drawdown limits.

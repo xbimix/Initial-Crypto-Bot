@@ -540,6 +540,35 @@ def _to_float(value, fallback: float | None = None) -> float | None:
         return fallback
 
 
+def _decision_regime_scores(decision: dict | None) -> tuple[float | None, float | None, float | None]:
+    payload = decision if isinstance(decision, dict) else {}
+    confidence = _to_float(
+        payload.get("detected_regime_confidence_score")
+        or payload.get("detected_regime_confidence")
+        or payload.get("detectedRegimeConfidenceScore")
+        or payload.get("detectedRegimeConfidence")
+        or payload.get("regime_confidence_score"),
+        None,
+    )
+    stability = _to_float(
+        payload.get("detected_regime_stability_score")
+        or payload.get("detected_regime_stability")
+        or payload.get("detectedRegimeStabilityScore")
+        or payload.get("detectedRegimeStability")
+        or payload.get("regime_stability_score"),
+        None,
+    )
+    persistence = _to_float(
+        payload.get("detected_regime_persistence_score")
+        or payload.get("detected_regime_persistence")
+        or payload.get("detectedRegimePersistenceScore")
+        or payload.get("detectedRegimePersistence")
+        or payload.get("regime_persistence_score"),
+        None,
+    )
+    return confidence, stability, persistence
+
+
 def _normalize_route_key(value: str) -> str:
     return str(value or "").strip().lower()
 
@@ -683,24 +712,10 @@ def _non_mr_route_guard(
     if isinstance(readiness, dict) and not bool(readiness.get("ready", True)):
         return False, f"core_not_ready:{readiness.get('reason', 'unknown')}"
 
-    confidence = _to_float(
-        decision.get("detected_regime_confidence_score")
-        or decision.get("detectedRegimeConfidenceScore")
-        or decision.get("regime_confidence_score"),
-        0.0,
-    ) or 0.0
-    stability = _to_float(
-        decision.get("detected_regime_stability_score")
-        or decision.get("detectedRegimeStabilityScore")
-        or decision.get("regime_stability_score"),
-        0.0,
-    ) or 0.0
-    persistence = _to_float(
-        decision.get("detected_regime_persistence_score")
-        or decision.get("detectedRegimePersistenceScore")
-        or decision.get("regime_persistence_score"),
-        0.0,
-    ) or 0.0
+    confidence_raw, stability_raw, persistence_raw = _decision_regime_scores(decision)
+    confidence = confidence_raw or 0.0
+    stability = stability_raw or 0.0
+    persistence = persistence_raw or 0.0
 
     min_conf = _as_positive_float(
         market_data_cfg.get("route_quality_min_confidence"),
@@ -776,6 +791,7 @@ def _append_decision_audit(
     symbol: str,
     market: dict,
     decision: dict,
+    cfg: dict | None = None,
     executed: bool,
     blocked_reason: str | None,
     execution_report: dict | None = None,
@@ -787,11 +803,12 @@ def _append_decision_audit(
     if not isinstance(strategy_eval_gate, dict):
         strategy_eval_gate = {}
     decision_ts_epoch = _to_float(decision.get("decision_ts_epoch"), None)
+    confidence_score, stability_score, persistence_score = _decision_regime_scores(decision)
     risk_outcome = "passed" if bool(executed) else (f"blocked:{blocked_reason}" if blocked_reason else "not_executed")
     gate_diagnostics = _resolve_decision_gate_diagnostics(
         decision_reason=str(decision.get("reason") or ""),
         market=market,
-        cfg=None,
+        cfg=cfg,
     )
     payload = {
         "schema_name": DECISION_AUDIT_SCHEMA_NAME,
@@ -808,11 +825,16 @@ def _append_decision_audit(
         "effective_strategy": decision.get("effective_strategy"),
         "configured_regime": decision.get("configured_regime"),
         "detected_regime": decision.get("detected_regime"),
-        "confidence_score": decision.get("detected_regime_confidence_score"),
-        "stability_score": decision.get("detected_regime_stability_score"),
-        "persistence_score": decision.get("detected_regime_persistence_score"),
+        "confidence_score": confidence_score,
+        "stability_score": stability_score,
+        "persistence_score": persistence_score,
         "fallback_reason": decision.get("fallback_reason"),
         "auto_fallback_reason": decision.get("auto_fallback_reason"),
+        "regime_data_quality_status": decision.get("regime_data_quality_status"),
+        "regime_key_windows_supported": decision.get("regime_key_windows_supported"),
+        "regime_insufficient_reason_code": decision.get("regime_insufficient_reason_code"),
+        "regime_insufficient_reason_message": decision.get("regime_insufficient_reason_message"),
+        "regime_timeframe_summary": decision.get("regime_timeframe_summary"),
         "data_quality_status": market.get("data_quality_status"),
         "data_quality_reason": market.get("data_quality_reason"),
         "core_candle_readiness": market.get("core_candle_readiness"),
@@ -910,8 +932,17 @@ def _resolve_decision_gate_diagnostics(
     market: dict | None,
     cfg: dict | None,
 ) -> dict[str, object]:
-    del cfg  # Keep signature compatible for future threshold-based extensions.
     snapshot = market if isinstance(market, dict) else {}
+    config = cfg if isinstance(cfg, dict) else {}
+    market_regime = config.get("market_regime", {})
+    if not isinstance(market_regime, dict):
+        market_regime = {}
+    preferred_buy_zone = market_regime.get("preferred_buy_zone", [None, None])
+    if not isinstance(preferred_buy_zone, (list, tuple)) or len(preferred_buy_zone) < 2:
+        preferred_buy_zone = [None, None]
+    volatility_filters = config.get("volatility_filters", {})
+    if not isinstance(volatility_filters, dict):
+        volatility_filters = {}
     reason = str(decision_reason or "").strip().lower()
     if not reason:
         return {}
@@ -937,25 +968,55 @@ def _resolve_decision_gate_diagnostics(
             "correct": bool(atr is None or atr <= 0.0),
         }
     if reason == "atr_too_low":
+        min_atr = _to_float(volatility_filters.get("min_atr"), None)
         return {
             "condition": "atr_raw >= min_atr",
-            "threshold": None,
+            "threshold": min_atr,
             "actual": atr,
-            "correct": bool(atr is not None and atr > 0.0),
+            "correct": bool(
+                atr is not None
+                and min_atr is not None
+                and atr < min_atr
+            ),
         }
     if reason == "price_above_buy_zone":
+        buy_zone_high = _to_float(preferred_buy_zone[1], None)
+        range_position = _to_float(snapshot.get("range_position"), None)
         return {
             "condition": "range_position <= buy_zone_high",
-            "threshold": None,
-            "actual": _to_float(snapshot.get("range_position"), None),
-            "correct": None,
+            "threshold": buy_zone_high,
+            "actual": range_position,
+            "correct": bool(
+                range_position is not None
+                and buy_zone_high is not None
+                and range_position > buy_zone_high
+            ),
+        }
+    if reason == "price_below_buy_zone":
+        buy_zone_low = _to_float(preferred_buy_zone[0], None)
+        range_position = _to_float(snapshot.get("range_position"), None)
+        return {
+            "condition": "range_position >= buy_zone_low",
+            "threshold": buy_zone_low,
+            "actual": range_position,
+            "correct": bool(
+                range_position is not None
+                and buy_zone_low is not None
+                and range_position < buy_zone_low
+            ),
         }
     if reason == "score_below_threshold":
+        min_score = _to_float(market_regime.get("min_score_to_buy"), None)
+        score = _to_float(snapshot.get("score"), None)
         return {
             "condition": "score >= min_score_to_buy",
-            "threshold": None,
-            "actual": _to_float(snapshot.get("score"), None),
-            "correct": None,
+            "threshold": min_score,
+            "actual": score,
+            "correct": bool(
+                score is not None
+                and min_score is not None
+                and score < min_score
+            ),
         }
     return {}
 
@@ -1048,6 +1109,7 @@ def _log_sync_diagnostics(sync_summary: dict):
         starvation = scheduler.get("starvation_timeframes", [])
         due = scheduler.get("due_jobs_by_timeframe", {})
         selected = scheduler.get("selected_jobs_by_timeframe", {})
+        ingestion_guard = scheduler.get("ingestion_guard", {})
         if isinstance(starvation, list) and starvation:
             logger.warning(
                 "Scheduler starvation: decision_tf=%s reserve_met=%s starvation=%s due=%s selected=%s",
@@ -1056,6 +1118,16 @@ def _log_sync_diagnostics(sync_summary: dict):
                 ",".join(str(x) for x in starvation),
                 due,
                 selected,
+            )
+        if isinstance(ingestion_guard, dict) and str(ingestion_guard.get("status") or "").strip().upper() == "DEGRADED":
+            logger.warning(
+                "Ingestion guard degraded: reasons=%s selected=%s required=%s due=%s oldest_due_s=%s target_s=%s",
+                ",".join(str(x) for x in (ingestion_guard.get("reasons") or [])),
+                ingestion_guard.get("decision_selected_jobs"),
+                ingestion_guard.get("decision_required_jobs"),
+                ingestion_guard.get("decision_due_jobs"),
+                ingestion_guard.get("decision_oldest_due_age_seconds"),
+                ingestion_guard.get("target_decision_freshness_seconds"),
             )
 
 
@@ -1323,6 +1395,9 @@ def _build_sync_slo(sync_summary: dict, coverage_summary: dict, cfg: dict | None
     due_by_tf = scheduler.get("due_jobs_by_timeframe", {})
     selected_by_tf = scheduler.get("selected_jobs_by_timeframe", {})
     oldest_due_age_by_tf = scheduler.get("oldest_due_age_seconds_by_timeframe", {})
+    ingestion_guard = scheduler.get("ingestion_guard", {})
+    if not isinstance(ingestion_guard, dict):
+        ingestion_guard = {}
     due_decision = int((due_by_tf or {}).get(decision_timeframe, 0) or 0)
     selected_decision = int((selected_by_tf or {}).get(decision_timeframe, 0) or 0)
     decision_oldest_due_age = _to_float((oldest_due_age_by_tf or {}).get(decision_timeframe), None)
@@ -1350,6 +1425,22 @@ def _build_sync_slo(sync_summary: dict, coverage_summary: dict, cfg: dict | None
         if due_decision > 0 and selected_decision <= 0:
             decision_freshness_ok = False
             decision_degraded_reasons.append("decision_timeframe_starved")
+        guard_status = str(ingestion_guard.get("status") or "").strip().upper()
+        if guard_status == "DEGRADED":
+            guard_reasons = ingestion_guard.get("reasons", [])
+            if not isinstance(guard_reasons, list):
+                guard_reasons = []
+            normalized_guard_reasons = [
+                str(reason).strip()
+                for reason in guard_reasons
+                if str(reason).strip()
+            ]
+            if normalized_guard_reasons:
+                decision_freshness_ok = False
+                decision_degraded_reasons.extend(normalized_guard_reasons)
+            else:
+                decision_freshness_ok = False
+                decision_degraded_reasons.append("decision_ingestion_guard_degraded")
 
     coverage_ok = (
         fresh_1h >= min_fresh_1h
@@ -1368,6 +1459,7 @@ def _build_sync_slo(sync_summary: dict, coverage_summary: dict, cfg: dict | None
         degraded_reasons.append("sync_throughput")
     if not decision_freshness_ok:
         degraded_reasons.extend(decision_degraded_reasons)
+    unique_degraded_reasons = list(dict.fromkeys(degraded_reasons))
     return {
         "status": status,
         "coverage_ok": bool(coverage_ok),
@@ -1387,8 +1479,8 @@ def _build_sync_slo(sync_summary: dict, coverage_summary: dict, cfg: dict | None
         "new_inserted": inserted,
         "errors": errors,
         "degraded": degraded,
-        "degraded_reasons": degraded_reasons,
-        "entry_block_reason": degraded_reasons[0] if degraded_reasons else None,
+        "degraded_reasons": unique_degraded_reasons,
+        "entry_block_reason": unique_degraded_reasons[0] if unique_degraded_reasons else None,
         "thresholds": {
             "min_fresh_1h": int(min_fresh_1h),
             "min_fresh_4h": int(min_fresh_4h),
@@ -1959,6 +2051,7 @@ def main():
                                 symbol=symbol,
                                 market=market,
                                 decision=decision,
+                                cfg=cfg,
                                 executed=executed,
                                 blocked_reason=blocked_reason,
                                 execution_report=execution_report,
@@ -1981,6 +2074,7 @@ def main():
                                     symbol=symbol,
                                     market=market,
                                     decision=decision,
+                                    cfg=cfg,
                                     executed=executed,
                                     blocked_reason=blocked_reason,
                                     execution_report=execution_report,
@@ -2003,6 +2097,7 @@ def main():
                                     symbol=symbol,
                                     market=market,
                                     decision=decision,
+                                    cfg=cfg,
                                     executed=executed,
                                     blocked_reason=blocked_reason,
                                     execution_report=execution_report,
@@ -2022,6 +2117,7 @@ def main():
                                 symbol=symbol,
                                 market=market,
                                 decision=decision,
+                                cfg=cfg,
                                 executed=executed,
                                 blocked_reason=blocked_reason,
                                 execution_report=execution_report,
@@ -2047,6 +2143,7 @@ def main():
                         symbol=symbol,
                         market=market,
                         decision=decision,
+                        cfg=cfg,
                         executed=executed,
                         blocked_reason=blocked_reason,
                         execution_report=execution_report,

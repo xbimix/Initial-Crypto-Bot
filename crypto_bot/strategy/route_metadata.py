@@ -66,10 +66,19 @@ def record_route_metadata(
 ) -> bool:
     configured = route.get("configured_regime")
     detected = route.get("detected_regime")
-    detected_confidence = parse_numeric(route.get("detected_regime_confidence"), None)
+    detected_confidence = parse_numeric(
+        route.get("detected_regime_confidence", route.get("detected_regime_confidence_score")),
+        None,
+    )
     detected_confidence_label = route.get("detected_regime_confidence_label")
-    detected_stability = parse_numeric(route.get("detected_regime_stability"), None)
-    detected_persistence = parse_numeric(route.get("detected_regime_persistence"), None)
+    detected_stability = parse_numeric(
+        route.get("detected_regime_stability", route.get("detected_regime_stability_score")),
+        None,
+    )
+    detected_persistence = parse_numeric(
+        route.get("detected_regime_persistence", route.get("detected_regime_persistence_score")),
+        None,
+    )
     detected_stability_inferred = route.get("detected_regime_stability_inferred")
     detected_persistence_inferred = route.get("detected_regime_persistence_inferred")
     regime_data_quality_status = route.get("regime_data_quality_status")
@@ -234,3 +243,12 @@ def inject_payload(symbol: str, payload: dict[str, Any], route_maps: dict[str, d
         symbol_map = route_maps[key]
         if symbol in symbol_map:
             payload[key.replace("last_", "")] = symbol_map[symbol]
+    confidence = payload.get("detected_regime_confidence")
+    if confidence is not None:
+        payload.setdefault("detected_regime_confidence_score", confidence)
+    stability = payload.get("detected_regime_stability")
+    if stability is not None:
+        payload.setdefault("detected_regime_stability_score", stability)
+    persistence = payload.get("detected_regime_persistence")
+    if persistence is not None:
+        payload.setdefault("detected_regime_persistence_score", persistence)

@@ -166,9 +166,21 @@ class Executor:
         validation_error = self.decision_service.validation_error(intent)
         if validation_error == "invalid_decision_payload":
             logger.warning(f"Invalid decision payload: {decision}")
+            if action == "BUY":
+                self._reject_execution(
+                    side="BUY",
+                    symbol=symbol or "UNKNOWN",
+                    reason=validation_error,
+                )
             return False
         if validation_error == "invalid_decision_price":
             logger.warning(f"Invalid decision price for {symbol}: {price}")
+            if action == "BUY":
+                self._reject_execution(
+                    side="BUY",
+                    symbol=symbol,
+                    reason=validation_error,
+                )
             return False
 
         logger.info(f"Executor: {symbol} -> {action} @ {price} | {reason}")
@@ -216,6 +228,35 @@ class Executor:
     @staticmethod
     def read_execution_report(payload: dict | None) -> dict:
         return Executor._normalize_execution_report(payload, infer_legacy_schema=True)
+
+    @staticmethod
+    def _normalize_buy_reject_reason(reason: str | None) -> str:
+        token = str(reason or "").strip().lower()
+        if not token:
+            return "buy_rejected"
+        aliases = {
+            "liquidity_score_below_floor": "liquidity_floor",
+        }
+        return aliases.get(token, token)
+
+    def _reject_execution(
+        self,
+        *,
+        side: str,
+        symbol: str,
+        reason: str | None,
+        extra: dict | None = None,
+    ) -> bool:
+        payload = {
+            "status": "rejected",
+            "reason": str(reason or "execution_rejected"),
+            "side": str(side or "").upper(),
+            "symbol": symbol,
+        }
+        if isinstance(extra, dict):
+            payload.update(extra)
+        self.last_execution_report = self._as_execution_report(payload)
+        return False
 
     def _estimate_stop_price(
         self,
@@ -308,15 +349,15 @@ class Executor:
         try:
             runtime_safety = self.runtime_safety.check_buy_allowed(symbol)
             if not runtime_safety.allowed:
-                self.last_execution_report = self._as_execution_report({
-                    "status": "rejected",
-                    "reason": runtime_safety.blocked_reason or "runtime_safety_blocked",
-                    "side": "BUY",
-                    "symbol": symbol,
-                    "runtime_safety_counters": dict(runtime_safety.counters or {}),
-                    "runtime_safety_thresholds": dict(runtime_safety.thresholds or {}),
-                })
-                return False
+                return self._reject_execution(
+                    side="BUY",
+                    symbol=symbol,
+                    reason=runtime_safety.blocked_reason or "runtime_safety_blocked",
+                    extra={
+                        "runtime_safety_counters": dict(runtime_safety.counters or {}),
+                        "runtime_safety_thresholds": dict(runtime_safety.thresholds or {}),
+                    },
+                )
 
             has_position = self.has_open_position(symbol)
             precondition_reason = self.risk_gate.check_buy_preconditions(
@@ -329,7 +370,11 @@ class Executor:
                 has_open_position=has_position,
             )
             if precondition_reason:
-                return False
+                return self._reject_execution(
+                    side="BUY",
+                    symbol=symbol,
+                    reason=self._normalize_buy_reject_reason(precondition_reason),
+                )
 
             balance = self.paper.get_balance()
             route = None
@@ -388,13 +433,60 @@ class Executor:
                 trade_meta["sizing_rejected_reason"] = sizing_result.rejected_reason
 
             if size <= 0:
+                reject_reason = self._normalize_buy_reject_reason(sizing_result.rejected_reason or "size_capped_to_zero")
                 logger.warning(
                     f"Invalid position size for {symbol} "
                     f"(reason={sizing_result.rejected_reason or 'unknown'})"
                 )
-                return False
+                return self._reject_execution(
+                    side="BUY",
+                    symbol=symbol,
+                    reason=reject_reason,
+                    extra={
+                        "sizing_rejected_reason": sizing_result.rejected_reason,
+                        "sizing_mode": sizing_result.mode,
+                    },
+                )
 
-            trade_cost = price * size * (1.0 + (expected_total_cost_bps / 10000.0))
+            expected_cost_multiplier = 1.0 + (expected_total_cost_bps / 10000.0)
+            trade_cost = price * size * expected_cost_multiplier
+            max_trade_headroom = None
+            if hasattr(self.risk, "max_trade_amount_headroom_usd"):
+                max_trade_headroom = self.risk.max_trade_amount_headroom_usd(current_allocated)
+            if max_trade_headroom is not None:
+                if max_trade_headroom <= 0:
+                    return self._reject_execution(
+                        side="BUY",
+                        symbol=symbol,
+                        reason="max_trade_amount",
+                        extra={
+                            "max_trade_headroom_usd": 0.0,
+                            "current_allocated_usd": current_allocated,
+                        },
+                    )
+                if trade_cost > (max_trade_headroom + 1e-9):
+                    unit_cost = max(price * expected_cost_multiplier, 1e-9)
+                    clipped_size = max(max_trade_headroom / unit_cost, 0.0)
+                    if clipped_size < size:
+                        size = clipped_size
+                        trade_cost = price * size * expected_cost_multiplier
+                        if isinstance(trade_meta, dict):
+                            trade_meta["sizing_headroom_clip_applied"] = True
+                            trade_meta["sizing_headroom_clip_usd"] = max_trade_headroom
+                            trade_meta["sizing_capped_size"] = size
+                            trade_meta["sizing_capped_notional_usd"] = size * price
+            min_trade_notional = self._safe_float(getattr(sizing_result, "min_trade_notional_usd", None), None)
+            if min_trade_notional is not None and trade_cost < min_trade_notional:
+                return self._reject_execution(
+                    side="BUY",
+                    symbol=symbol,
+                    reason="below_min_trade_notional",
+                    extra={
+                        "trade_cost_usd": trade_cost,
+                        "min_trade_notional_usd": min_trade_notional,
+                    },
+                )
+
             allocation_reason = self.risk_gate.check_allocation_limits(
                 symbol=symbol,
                 trade_cost=trade_cost,
@@ -403,7 +495,11 @@ class Executor:
                 equity=equity,
             )
             if allocation_reason:
-                return False
+                return self._reject_execution(
+                    side="BUY",
+                    symbol=symbol,
+                    reason=self._normalize_buy_reject_reason(allocation_reason),
+                )
 
             ok, execution_report = self.execution_service.execute_buy(
                 symbol=symbol,
@@ -435,7 +531,21 @@ class Executor:
                 self._register_execution_success()
                 return True
 
-            self._register_execution_failure(str(self.last_execution_report.get("reason") or "buy_failed"))
+            failure_reason = str(self.last_execution_report.get("reason") or "buy_failed")
+            failure_status = str(self.last_execution_report.get("status") or "").strip().lower()
+            normalized_report = (
+                dict(self.last_execution_report)
+                if isinstance(self.last_execution_report, dict)
+                else {}
+            )
+            normalized_report["status"] = "rejected"
+            normalized_report["reason"] = failure_reason
+            normalized_report["side"] = "BUY"
+            normalized_report["symbol"] = symbol
+            if failure_status and failure_status != "rejected":
+                normalized_report["execution_status"] = failure_status
+            self.last_execution_report = self._as_execution_report(normalized_report)
+            self._register_execution_failure(failure_reason)
             return False
         finally:
             if staged and not executed:

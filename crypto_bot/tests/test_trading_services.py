@@ -99,6 +99,13 @@ def test_decision_service_validation_error_on_bad_price():
     assert DecisionService.validation_error(intent) == "invalid_decision_price"
 
 
+def test_decision_intent_accepts_confidence_score_alias():
+    intent = DecisionIntent.from_payload(
+        {"symbol": "BTC-USD", "action": "BUY", "price": 100.0, "detected_regime_confidence_score": 77.5}
+    )
+    assert intent.entry_confidence == 77.5
+
+
 def test_risk_gate_blocks_bad_market_quality():
     gate = RiskGateService(_FakeRisk(), _FakeLogger())
     reason = gate.check_buy_preconditions(
@@ -141,4 +148,3 @@ def test_portfolio_state_service_tracks_allocated_and_partial_sell():
     assert still_open is False
     assert risk.closed == []
     assert risk.registered[-1][0] == "BTC-USD"
-

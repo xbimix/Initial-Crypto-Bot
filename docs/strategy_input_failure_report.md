@@ -1,62 +1,89 @@
 # Strategy Input Failure Report (Phase 4)
 
-Date: 2026-04-08  
-Goal: classify blocked decision inputs without changing strategy logic.
+Date: 2026-04-09  
+Window: 2026-04-08T07:30:36Z -> 2026-04-09T07:30:36Z (last 24h)  
+Source: `.runtime/state/decision_audit.jsonl`  
+Scope: validation only (no strategy/routing/threshold changes)
 
-## Data sources
+## Decision Trace Summary
 
-- `.runtime/state/decision_audit.jsonl` (last 24h summary)
-- `.runtime/state/bot.runtime.log` (recent runtime decision + snapshot context)
+- Total cycles: **16,342**
+- Trades executed: **0**
+- Blocked cycles: **16,342**
 
-## Decision outcomes (last 24h)
+## Top 5 Block Reasons (with %)
 
-- Total decisions: `17650`
-- Executed BUY: `70`
-- Blocked/non-BUY: `17580`
+1. `price_above_buy_zone` -> **4,277 (26.17%)**
+2. `price_below_buy_zone` -> **2,734 (16.73%)**
+3. `core_not_ready:1h:stale` -> **2,654 (16.24%)**
+4. `score_below_threshold` -> **1,721 (10.53%)**
+5. `waiting_for_first_lock` -> **1,179 (7.21%)**
 
-Top block reasons (24h):
-- `price_above_buy_zone`: `4737`
-- `price_below_buy_zone`: `4509`
-- `score_below_threshold`: `2638`
-- `insufficient_volatility_stretch`: `1646`
-- `waiting_for_first_lock`: `1390`
-- `regime_unknown`: `1069`
-- `scalper_momentum_not_ready`: `462`
-- `core_not_ready:1h:insufficient_depth,4h:insufficient_depth,1d:insufficient_depth`: `358`
-- `market_data_quality:stale`: `210`
-- `atr_too_low`: `194`
+## Classification Buckets
 
-## Runtime-window classification (recent live stream)
+- `other` (strategy/rule-level holds): **9,837 (60.19%)**
+- `stale_data`: **2,654 (16.24%)**
+- `insufficient_data`: **2,573 (15.74%)**
+- `low_volatility`: **1,278 (7.82%)**
+- `missing_inputs`: **0 (0.00%)**
 
-From recent `bot.runtime.log` decision rows with directly adjacent snapshot context:
-- analyzed rows: `325`
-- stale/core-data-gated: `325` (`100%`)
+## Top Reason Deep Dive
 
-Dominant reasons in this window:
-- `core_not_ready:1h:insufficient_depth,4h:insufficient_depth,1d:insufficient_depth`
-- `core_not_ready:4h:stale`
-- `core_not_ready:1h:stale,4h:stale`
-- `market_data_quality:stale`
+Top reason: `price_above_buy_zone`
 
-## Required fields requested by audit
+- Exact condition triggered:
+  - `gate_trigger_condition = "range_position <= buy_zone_high"`
+- Threshold used:
+  - Not persisted in this row (`gate_trigger_threshold = null`)
+- Actual observed value:
+  - Not persisted in this row (`gate_trigger_actual = null`)
+- Was decision correct:
+  - **Likely yes**, based on reason semantics (`price_above_buy_zone` implies condition failed).
+  - Observability gap remains: threshold/actual are not consistently materialized for this gate.
 
-Requested per blocked decision:
+Representative row for this reason:
+- `symbol=ZRX-USD`
+- `decision_reason=price_above_buy_zone`
+- `data_quality_status=GOOD`
+- `candle_age_seconds=261.929`
+- `atr_raw=0.0007968127490039516`
+
+## Requested Field Validation (blocked attempts)
+
+All blocked rows contain the requested strategy-input fields with high consistency:
 - `symbol`
-- `ATR`
+- `atr_raw`
 - `data_quality_status`
-- `candle_age`
-- `block_reason`
+- `candle_age_seconds`
+- `decision_reason` / `strategy_eval_gate_blocked_reason`
 
-Current state:
-- `symbol` and `block_reason` are consistently available.
-- `ATR` and `quality` are available from runtime snapshot stream.
-- exact per-decision `candle_age_seconds` is not consistently persisted in `decision_audit.jsonl` rows.
+Examples by class:
 
-Gap:
-- Decision audit schema should include explicit candle-age-at-decision for full forensic traceability.
+- `stale_data`:
+  - `XRP-USD`, reason `core_not_ready:1h:stale`, `dq=GOOD`, `age=64.121`, `atr=0.0004369674`
+- `insufficient_data`:
+  - `ZK-USD`, reason `core_not_ready:1h:stale,4h:insufficient_depth,1d:insufficient_depth`, `dq=GOOD`, `age=125.028`, `atr=0.0004932858`
+- `low_volatility`:
+  - `TRX-USD`, reason `atr_too_low`, `dq=GOOD`, `age=262.280`, `atr=0.0002197526`
+- `other`:
+  - `XYO-USD`, reason `price_below_buy_zone`, `dq=GOOD`, `age=304.691`, `atr=0.0008270857`
 
-## Conclusion
+## Input/Freshness Shape in Blocked Set
 
-1. Current low execution frequency is primarily due to gate conditions, with a significant live contribution from stale/core readiness conditions.
-2. Observability is improved but still missing exact per-decision candle-age persistence in audit rows.
+- `candle_age_seconds` distribution in blocked set:
+  - p50: **154.608s**
+  - p90: **258.091s**
+  - max: **321.507s**
+
+Interpretation:
+- The blocked population is mixed:
+  - a large share are pure strategy-rule holds (`buy_zone`, `score`, lock sequencing),
+  - but stale/insufficient readiness is still a material blocker.
+
+## Phase 4 Conclusion
+
+The strategy input boundary is populated and auditable; current non-execution is not due to missing payload fields.  
+Main blockers in this 24h window are:
+1. rule-level hold logic (`buy_zone` and score filters), and
+2. core-timeframe readiness degradation (`1h` stale / insufficient depth combinations).
 

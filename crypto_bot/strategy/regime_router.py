@@ -660,7 +660,11 @@ def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
     if confidence_score is None:
         confidence_score = _normalize_confidence_score(snapshot.get("detected_regime_confidence"))
     if confidence_score is None:
+        confidence_score = _normalize_confidence_score(snapshot.get("detected_regime_confidence_score"))
+    if confidence_score is None:
         confidence_score = _normalize_confidence_score(snapshot.get("detectedRegimeConfidence"))
+    if confidence_score is None:
+        confidence_score = _normalize_confidence_score(snapshot.get("detectedRegimeConfidenceScore"))
 
     confidence_label = _normalized_confidence_label(advisory.get("confidenceLabel"))
     if confidence_label is None:
@@ -698,9 +702,17 @@ def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
     stability_score = _normalize_confidence_score(advisory.get("stabilityScore"))
     if stability_score is None:
         stability_score = _normalize_confidence_score(advisory.get("stability_score"))
+    if stability_score is None:
+        stability_score = _normalize_confidence_score(snapshot.get("detected_regime_stability"))
+    if stability_score is None:
+        stability_score = _normalize_confidence_score(snapshot.get("detected_regime_stability_score"))
     persistence_score = _normalize_confidence_score(advisory.get("persistenceScore"))
     if persistence_score is None:
         persistence_score = _normalize_confidence_score(advisory.get("persistence_score"))
+    if persistence_score is None:
+        persistence_score = _normalize_confidence_score(snapshot.get("detected_regime_persistence"))
+    if persistence_score is None:
+        persistence_score = _normalize_confidence_score(snapshot.get("detected_regime_persistence_score"))
     stability_inferred = False
     persistence_inferred = False
     if stability_score is None:
@@ -723,6 +735,31 @@ def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
     supported_key_windows = _as_bool(data_quality.get("supportedKeyWindows"), False)
     if "supported_key_windows" in data_quality:
         supported_key_windows = _as_bool(data_quality.get("supported_key_windows"), supported_key_windows)
+    supported_window_count = _as_float(data_quality.get("supportedWindowCount"))
+    if supported_window_count is None:
+        supported_window_count = _as_float(data_quality.get("supported_window_count"))
+
+    insufficient_reason_code = advisory.get("insufficientReasonCode")
+    if not isinstance(insufficient_reason_code, str):
+        insufficient_reason_code = advisory.get("insufficient_reason_code")
+    if isinstance(insufficient_reason_code, str):
+        insufficient_reason_code = insufficient_reason_code.strip().lower() or None
+    else:
+        insufficient_reason_code = None
+
+    insufficient_reason_message = advisory.get("insufficientReasonMessage")
+    if not isinstance(insufficient_reason_message, str):
+        insufficient_reason_message = advisory.get("insufficient_reason_message")
+    if isinstance(insufficient_reason_message, str):
+        insufficient_reason_message = insufficient_reason_message.strip() or None
+    else:
+        insufficient_reason_message = None
+
+    timeframe_summary = advisory.get("timeframeSummary")
+    if not isinstance(timeframe_summary, list):
+        timeframe_summary = advisory.get("timeframe_summary")
+    if not isinstance(timeframe_summary, list):
+        timeframe_summary = None
 
     normalized_suggested = _normalize_suggested_regime(suggested) or ""
 
@@ -732,6 +769,8 @@ def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
         "confidence_label": confidence_label,
         "insufficient_data": insufficient_data,
         "insufficient_reason": "snapshot_advisory_insufficient" if insufficient_data else None,
+        "insufficient_reason_code": insufficient_reason_code,
+        "insufficient_reason_message": insufficient_reason_message,
         "detection_source": detection_source.strip().lower(),
         "detection_timestamp_epoch": detection_timestamp_epoch,
         "stability_score": stability_score,
@@ -740,6 +779,8 @@ def _extract_regime_advisory(snapshot: dict[str, Any]) -> dict[str, Any]:
         "persistence_inferred": persistence_inferred,
         "data_quality_status": data_quality_status,
         "supported_key_windows": supported_key_windows,
+        "supported_window_count": supported_window_count,
+        "timeframe_summary": timeframe_summary,
     }
 
 
@@ -897,13 +938,20 @@ def resolve_entry_route(
         "detected_regime": None,
         "suggested_regime_v2": None,
         "detected_regime_confidence": None,
+        "detected_regime_confidence_score": None,
         "detected_regime_confidence_label": None,
         "detected_regime_stability": None,
+        "detected_regime_stability_score": None,
         "detected_regime_persistence": None,
+        "detected_regime_persistence_score": None,
         "detected_regime_stability_inferred": False,
         "detected_regime_persistence_inferred": False,
         "regime_data_quality_status": "UNKNOWN",
         "regime_key_windows_supported": False,
+        "regime_supported_window_count": None,
+        "regime_insufficient_reason_code": None,
+        "regime_insufficient_reason_message": None,
+        "regime_timeframe_summary": None,
         "detection_source": "configured_manual",
         "detection_timestamp_epoch": None,
         # AUTO and unclear cases must degrade to frozen mean reversion by default.
@@ -959,6 +1007,9 @@ def resolve_entry_route(
                 "shadow_age_seconds": result.get("shadow_age_seconds"),
                 "regime_data_quality_status": result.get("regime_data_quality_status"),
                 "regime_key_windows_supported": result.get("regime_key_windows_supported"),
+                "regime_supported_window_count": result.get("regime_supported_window_count"),
+                "regime_insufficient_reason_code": result.get("regime_insufficient_reason_code"),
+                "regime_timeframe_summary": result.get("regime_timeframe_summary"),
                 "route_quality_promoted": promoted_state,
                 "route_quality_promotion_reason": promotion_reason,
                 "route_share_pct": route_share_pct,
@@ -1080,13 +1131,21 @@ def resolve_entry_route(
     result["detected_regime"] = advisory["suggested_regime"]
     result["suggested_regime_v2"] = advisory["suggested_regime"]
     result["detected_regime_confidence"] = advisory["confidence_score"]
+    result["detected_regime_confidence_score"] = advisory["confidence_score"]
     result["detected_regime_confidence_label"] = advisory["confidence_label"]
     result["detected_regime_stability"] = advisory.get("stability_score")
+    result["detected_regime_stability_score"] = advisory.get("stability_score")
     result["detected_regime_persistence"] = advisory.get("persistence_score")
+    result["detected_regime_persistence_score"] = advisory.get("persistence_score")
     result["detected_regime_stability_inferred"] = _as_bool(advisory.get("stability_inferred"), False)
     result["detected_regime_persistence_inferred"] = _as_bool(advisory.get("persistence_inferred"), False)
     result["regime_data_quality_status"] = str(advisory.get("data_quality_status") or "UNKNOWN").upper()
     result["regime_key_windows_supported"] = _as_bool(advisory.get("supported_key_windows"), False)
+    result["regime_supported_window_count"] = _as_float(advisory.get("supported_window_count"))
+    result["regime_insufficient_reason_code"] = advisory.get("insufficient_reason_code")
+    result["regime_insufficient_reason_message"] = advisory.get("insufficient_reason_message")
+    timeframe_summary = advisory.get("timeframe_summary")
+    result["regime_timeframe_summary"] = timeframe_summary if isinstance(timeframe_summary, list) else None
     result["detection_source"] = str(advisory.get("detection_source") or "runtime_shadow")
     result["detection_timestamp_epoch"] = _as_float(advisory.get("detection_timestamp_epoch"))
     if result["regime_eval_ts"] is None:

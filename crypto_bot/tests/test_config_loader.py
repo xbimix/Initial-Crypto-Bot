@@ -56,6 +56,11 @@ def test_normalize_config_warn_mode_populates_defaults():
     assert normalized["market_data"]["sync_watermark_ttl_seconds"] == 21600
     assert normalized["market_data"]["sync_watermark_persist_interval_seconds"] == 30
     assert normalized["market_data"]["sync_watermark_max_entries"] == 5000
+    assert normalized["market_data"]["sync_auto_scale_requests_enabled"] is False
+    assert normalized["market_data"]["sync_auto_scale_requests_max_per_tick"] == 12
+    assert normalized["market_data"]["sync_target_decision_freshness_seconds"] == 90.0
+    assert normalized["market_data"]["sync_assumed_tick_seconds"] == 12.0
+    assert normalized["market_data"]["sync_min_background_jobs_per_tick"] == 1
     assert "1m" in normalized["market_data"]["sync_timeframes"]
 
 
@@ -335,3 +340,17 @@ def test_normalize_config_adds_execution_realism_and_stop_sizing_defaults():
     assert normalized["market_data"]["freshness_slo"]["entry_block_after_degraded_cycles"] == 3
     assert normalized["market_data"]["freshness_slo"]["decision_timeframe_enforce"] is True
     assert normalized["market_data"]["sync_reserved_requests_decision_timeframe"] == 3
+
+
+def test_normalize_config_accepts_negative_preferred_buy_zone_low_bound():
+    raw = {
+        "enabled": True,
+        "symbols": ["btc-usd"],
+        "market_regime": {
+            "preferred_buy_zone": [-0.1, 0.35],
+        },
+    }
+    normalized, warnings, changed = normalize_config(raw, strict=False)
+    assert changed is True
+    assert warnings
+    assert normalized["market_regime"]["preferred_buy_zone"] == [-0.1, 0.35]

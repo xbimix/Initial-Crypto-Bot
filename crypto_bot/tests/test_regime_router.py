@@ -1576,6 +1576,51 @@ def test_auto_router_reason_precedence_data_quality_before_core_readiness():
     assert route["auto_fallback_reason"] == "data_quality_not_acceptable"
 
 
+def test_auto_router_surfaces_advisory_telemetry_and_confidence_aliases():
+    cfg = _base_cfg()
+    cfg["token_regimes"] = {"TEST-USD": "AUTO"}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "auto_use_route_quality_gates": False,
+        }
+    }
+    snapshot = _snapshot(
+        regime_advisory={
+            "suggestedRegime": "TREND_CONTINUATION",
+            "confidenceScore": 82,
+            "stabilityScore": 79,
+            "persistenceScore": 77,
+            "insufficientData": True,
+            "insufficientReasonCode": "INSUFFICIENT_DEPTH",
+            "insufficientReasonMessage": "Need more 4h history",
+            "timeframeSummary": [
+                {"window": "1h", "supported": True},
+                {"window": "24h", "supported": False},
+            ],
+            "dataQuality": {
+                "status": "PARTIAL",
+                "supportedKeyWindows": False,
+                "supportedWindowCount": 1,
+            },
+        }
+    )
+    route = se.resolve_entry_route(
+        cfg=cfg,
+        symbol="TEST-USD",
+        snapshot=snapshot,
+        default_strategy="mean_reversion",
+        shadow_state={},
+    )
+    assert route["regime_supported_window_count"] == 1.0
+    assert route["regime_insufficient_reason_code"] == "insufficient_depth"
+    assert route["regime_insufficient_reason_message"] == "Need more 4h history"
+    assert isinstance(route["regime_timeframe_summary"], list)
+    assert route["detected_regime_confidence"] == route["detected_regime_confidence_score"]
+    assert route["detected_regime_stability"] == route["detected_regime_stability_score"]
+    assert route["detected_regime_persistence"] == route["detected_regime_persistence_score"]
+
+
 def test_auto_router_randomized_gate_precedence_is_deterministic():
     rng = random.Random(7)
     cfg = _base_cfg()

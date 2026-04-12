@@ -132,7 +132,9 @@ def evaluate_regime_v2(
     cfg = cfg or {}
     router_cfg = _router_cfg(cfg)
 
-    prices_raw = snapshot.get("recent_prices", [])
+    prices_raw = snapshot.get("regime_recent_prices")
+    if not isinstance(prices_raw, list):
+        prices_raw = snapshot.get("recent_prices", [])
     prices: list[float] = []
     if isinstance(prices_raw, list):
         for value in prices_raw:

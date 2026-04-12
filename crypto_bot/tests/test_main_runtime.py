@@ -403,6 +403,28 @@ def test_non_mr_route_guard_blocks_low_confidence():
     assert reason == "route_quality_low_confidence"
 
 
+def test_non_mr_route_guard_accepts_canonical_regime_confidence_aliases():
+    decision = {
+        "effective_route": "TREND_PULLBACK",
+        "detected_regime_confidence": 95,
+        "detected_regime_stability": 90,
+        "detected_regime_persistence": 90,
+        "regime_data_quality_status": "GOOD",
+    }
+    market = {"core_candle_readiness": {"ready": True}, "spread_bps": 8, "trade_count": 35}
+    cfg = {"market_data": {"route_quality_guard_enabled": True}}
+    ok, reason = bot_main._non_mr_route_guard(
+        symbol="BTC-USD",
+        decision=decision,
+        market=market,
+        cfg=cfg,
+        now_epoch=1000.0,
+        pressure={"rate_limited_count": 0},
+    )
+    assert ok is True
+    assert reason is None
+
+
 def test_non_mr_route_guard_blocks_when_route_exposure_cap_hit(monkeypatch):
     decision = {
         "effective_route": "TREND_PULLBACK",
@@ -554,6 +576,41 @@ def test_append_decision_audit_writes_jsonl(tmp_path: Path, monkeypatch):
     assert row["gate_trigger_correct"] is True
 
 
+def test_append_decision_audit_uses_cfg_for_gate_threshold_resolution(tmp_path: Path, monkeypatch):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(bot_main, "STATE_DIR", state_dir)
+    monkeypatch.setattr(bot_main, "DECISION_AUDIT_PATH", state_dir / "decision_audit.jsonl")
+
+    cfg = {
+        "market_regime": {
+            "preferred_buy_zone": [0.1, 0.4],
+            "min_score_to_buy": 55.0,
+        },
+        "volatility_filters": {"min_atr": 0.0003},
+    }
+    bot_main._append_decision_audit(
+        symbol="BTC-USD",
+        market={
+            "price": 100.0,
+            "range_position": 0.55,
+            "score": 70.0,
+            "atr_raw": 0.001,
+            "data_quality_status": "GOOD",
+        },
+        decision={"action": "HOLD", "effective_route": "MEAN_REVERSION", "reason": "price_above_buy_zone"},
+        cfg=cfg,
+        executed=False,
+        blocked_reason=None,
+        decision_context_audit={},
+    )
+    row = json.loads((state_dir / "decision_audit.jsonl").read_text(encoding="utf-8").strip())
+    assert row["gate_trigger_condition"] == "range_position <= buy_zone_high"
+    assert row["gate_trigger_threshold"] == 0.4
+    assert row["gate_trigger_actual"] == 0.55
+    assert row["gate_trigger_correct"] is True
+
+
 def test_read_decision_audit_rows_infers_legacy_schema(tmp_path: Path, monkeypatch):
     state_dir = tmp_path / "state"
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -590,6 +647,57 @@ def test_resolve_decision_gate_diagnostics_for_stale_market():
     assert result["threshold"] == 420.0
     assert result["actual"] == 600.0
     assert result["correct"] is True
+
+
+def test_resolve_decision_gate_diagnostics_for_buy_zone_and_score_reasons():
+    cfg = {
+        "market_regime": {
+            "preferred_buy_zone": [0.1, 0.4],
+            "min_score_to_buy": 50.0,
+        },
+        "volatility_filters": {
+            "min_atr": 0.0003,
+        },
+    }
+
+    above = bot_main._resolve_decision_gate_diagnostics(
+        decision_reason="price_above_buy_zone",
+        market={"range_position": 0.55},
+        cfg=cfg,
+    )
+    assert above["condition"] == "range_position <= buy_zone_high"
+    assert above["threshold"] == 0.4
+    assert above["actual"] == 0.55
+    assert above["correct"] is True
+
+    below = bot_main._resolve_decision_gate_diagnostics(
+        decision_reason="price_below_buy_zone",
+        market={"range_position": 0.05},
+        cfg=cfg,
+    )
+    assert below["condition"] == "range_position >= buy_zone_low"
+    assert below["threshold"] == 0.1
+    assert below["actual"] == 0.05
+    assert below["correct"] is True
+
+    score = bot_main._resolve_decision_gate_diagnostics(
+        decision_reason="score_below_threshold",
+        market={"score": 42.0},
+        cfg=cfg,
+    )
+    assert score["condition"] == "score >= min_score_to_buy"
+    assert score["threshold"] == 50.0
+    assert score["actual"] == 42.0
+    assert score["correct"] is True
+
+    atr_low = bot_main._resolve_decision_gate_diagnostics(
+        decision_reason="atr_too_low",
+        market={"atr_raw": 0.0002},
+        cfg=cfg,
+    )
+    assert atr_low["threshold"] == 0.0003
+    assert atr_low["actual"] == 0.0002
+    assert atr_low["correct"] is True
 
 
 def test_persist_market_sync_health_writes_snapshot_and_history(tmp_path: Path, monkeypatch):
@@ -721,3 +829,58 @@ def test_build_sync_slo_degrades_when_decision_timeframe_freshness_breaches():
         "decision_oldest_due_age_exceeded",
         "decision_timeframe_starved",
     }
+
+
+def test_build_sync_slo_uses_scheduler_ingestion_guard_reason_codes():
+    cfg = {
+        "market_data": {
+            "decision_candle_timeframe": "1m",
+            "freshness_slo": {
+                "min_fresh_1h": 1,
+                "min_fresh_4h": 1,
+                "min_fresh_24h": 0,
+                "min_fresh_decision_timeframe": 1,
+                "decision_timeframe_enforce": True,
+                "decision_timeframe_max_oldest_due_seconds": 420,
+                "max_sync_errors": 0,
+                "max_degraded_jobs": 0,
+                "min_sync_requests": 1,
+            },
+        }
+    }
+    sync_summary = {
+        "errors": 0,
+        "degraded": 0,
+        "requests": 4,
+        "new_inserted": 12,
+        "scheduler": {
+            "due_jobs_by_timeframe": {"1m": 72},
+            "selected_jobs_by_timeframe": {"1m": 5},
+            "oldest_due_age_seconds_by_timeframe": {"1m": 250.0},
+            "ingestion_guard": {
+                "status": "DEGRADED",
+                "reasons": [
+                    "decision_timeframe_under_served",
+                    "decision_oldest_due_exceeds_target",
+                    "decision_timeframe_under_served",
+                ],
+                "decision_required_jobs": 11,
+                "decision_selected_jobs": 5,
+                "decision_due_jobs": 72,
+                "decision_oldest_due_age_seconds": 250.0,
+                "target_decision_freshness_seconds": 90.0,
+            },
+        },
+    }
+    coverage_summary = {
+        "fresh_counts_by_timeframe": {"1h": 2, "4h": 2, "1d": 1, "1m": 75},
+        "stale_symbol_timeframes": 0,
+    }
+
+    slo = bot_main._build_sync_slo(sync_summary, coverage_summary, cfg)
+
+    assert slo["status"] == "DEGRADED"
+    assert slo["decision_freshness_ok"] is False
+    assert slo["entry_block_reason"] == "decision_timeframe_under_served"
+    assert "decision_oldest_due_exceeds_target" in slo["degraded_reasons"]
+    assert slo["degraded_reasons"].count("decision_timeframe_under_served") == 1

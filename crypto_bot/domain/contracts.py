@@ -96,7 +96,13 @@ class DecisionIntent:
             entry_regime=str(payload.get("entry_regime") or "").strip().lower() or None,
             exit_policy=str(payload.get("exit_policy") or "").strip().lower() or None,
             entry_confidence=_to_float(
-                payload.get("entry_confidence", payload.get("detected_regime_confidence")),
+                payload.get(
+                    "entry_confidence",
+                    payload.get(
+                        "detected_regime_confidence",
+                        payload.get("detected_regime_confidence_score"),
+                    ),
+                ),
                 None,
             ),
             expected_edge_bps=_to_float(payload.get("expected_edge_bps"), None),
@@ -146,4 +152,3 @@ class FillEvent:
 class RiskCheckResult:
     allowed: bool
     reason: str | None = None
-

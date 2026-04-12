@@ -1,187 +1,143 @@
-# Data Pipeline Audit (Phase 1, No Code Changes)
+﻿# Data Pipeline Audit (Phase 1)
 
-Date: 2026-04-08  
-Mode: Forensic audit only (no strategy/routing/threshold changes)
+Date: 2026-04-09 (UTC)
+Scope: **Audit only** (no strategy/routing/threshold changes)
+Runtime root examined: `.runtime/state/`
 
-## Scope
+## 1) Candle Fetch Path Audit (Revolut API -> Ingestion)
 
-This audit traces data flow across:
+### Code path inspected
+- `crypto_bot/data/revolut_candle_fetcher.py`
+- `crypto_bot/data/revolut_incremental_sync.py`
+- `crypto_bot/data/live_sync_scheduler.py`
 
-1. Revolut API candle fetch contract and request usage
-2. Ingestion/scheduler cadence and request budget behavior
-3. Storage integrity in SQLite (`candles`, `sync_state`)
-4. Freshness and staleness distribution for 1m candles
+### Endpoint/parameter behavior confirmed
+- Canonical private endpoint candidate is used first: `/candles/{symbol}`.
+- Request params include:
+  - `interval` (minutes)
+  - `since` (ms preferred, with seconds/ISO fallbacks)
+  - `until` (ms preferred, with seconds/ISO fallbacks)
+- Windowing guard is enabled:
+  - `MAX_CANDLES_PER_REQUEST = 1000`
+  - oversized ranges are split via `_iter_request_windows(...)`
+- Fallback policy exists (config-driven):
+  - public fallback optional
+  - snapshot-derived candle fallback optional
 
-## Ground Truth Sources
+### OpenAPI reference cross-check (local)
+- `crypto_bot/api/revolut-x.yml`
+- `crypto_bot/api/revolut-x.json`
+- Both include canonical candle operation: `/candles/{symbol}` with `interval`, `since`, `until`.
 
-- OpenAPI references:
-  - `crypto_bot/api/revolut-x.yml`
-  - `crypto_bot/api/revolut-x.json`
-- Runtime state:
-  - `.runtime/state/market_data.db`
-  - `.runtime/state/market_sync_health.json`
-  - `.runtime/state/market_sync_health_history.jsonl`
-  - `.runtime/state/bot.log`
-- Implementation:
-  - `crypto_bot/data/revolut_candle_fetcher.py`
-  - `crypto_bot/data/revolut_incremental_sync.py`
-  - `crypto_bot/data/live_sync_scheduler.py`
-  - `crypto_bot/data/candle_coverage.py`
+### Runtime telemetry observed
+From `.runtime/state/market_sync_health.json` at audit time:
+- `endpoint_telemetry.fetch_calls`: 18,396
+- `success_calls`: 18,396
+- `failed_calls`: 0
+- `official_success_calls`: 18,396
+- `public_success_calls`: 0
 
-## 1) Fetch Contract Audit (Revolut vs RevBot)
+Interpretation: current runtime is successfully hitting official signed candle endpoints.
 
-### OpenAPI contract (`/candles/{symbol}`)
+## 2) 1m Candle Age Check (Sampled Symbols)
 
-From `revolut-x.yml`:
+Expected decision timeframe cadence target: 60s bars (practical fresh window generally <=60-90s, scheduler-dependent).
 
-- Path: `/candles/{symbol}`
-- Query:
-  - `interval` (minutes, enum includes 1/5/15/30/60/240/1440/2880/5760/10080/20160/40320)
-  - `since` (epoch ms)
-  - `until` (epoch ms)
-- Note: if `since` omitted, API can return up to 5000 candles before `until`
+### Universe stats (1m)
+- Symbols in DB (1m): 77
+- Age distribution (`now - latest candle close`):
+  - min: 46.9s
+  - p50: 166.9s
+  - p90: 226.9s
+  - p99: 286.9s
+  - max: 286.9s
+- `>120s`: 47 symbols
+- `>300s`: 0 symbols
 
-From `revolut-x.json`:
+### 10-symbol sample (freshest + stalest)
+| Symbol | Latest candle age (s) |
+|---|---:|
+| BNB-USD | 46.9 |
+| GMT-USD | 46.9 |
+| HBAR-USD | 46.9 |
+| HFT-USD | 46.9 |
+| HYPE-USD | 46.9 |
+| MLN-USD | 286.9 |
+| POL-USD | 286.9 |
+| SUI-USD | 286.9 |
+| XLM-USD | 286.9 |
+| ZK-USD | 286.9 |
 
-- `symbol` is required path param
-- `interval/since/until` match above
+Interpretation: candles are updating, but many symbols are multiple minutes old versus 1m ideal freshness.
 
-### RevBot implementation behavior
+## 3) Storage Integrity Audit (SQLite)
 
-`revolut_candle_fetcher.py`:
+DB: `.runtime/state/market_data.db`
+- `PRAGMA quick_check`: `ok`
+- Tables: `candles`, `sync_state`, `orderbook_snapshots`
 
-- Uses canonical endpoint first (`/candles/{symbol}`) with ms and seconds variants.
-- Supports official/public fallback candidates and path variants.
-- Normalizes symbol (`/`/`_` -> `-`).
-- Enforces local max-per-request windowing via `MAX_CANDLES_PER_REQUEST = 1000`.
-
-`revolut_incremental_sync.py`:
-
-- Uses incremental fetch (`since = latest_open + interval`) and chunks request windows.
-- Request windows size = `interval_ms * MAX_CANDLES_PER_REQUEST`.
-
-### Contract alignment summary
-
-- Correct: uses documented `/candles/{symbol}`, `interval`, `since`, `until`.
-- Conservative: local cap 1000 vs API note mentioning up to 5000 when `since` omitted.
-- Risk: broad candidate probing still exists (many fallback endpoint shapes), though working-candidate cache reduces repeated probing after success.
-
-## 2) Storage Integrity Audit
-
-Active DB: `.runtime/state/market_data.db`
-
-Tables present:
-
-- `candles`
-- `sync_state`
-- `orderbook_snapshots`
-
-`candles` schema contains expected OHLCV + timestamps:
-
-- `symbol,timeframe,open_time,close_time,open,high,low,close,volume,source,updated_at`
-
-Integrity checks (1m focus):
-
+### Integrity checks
 - Duplicate key rows (`symbol,timeframe,open_time`): **0**
-- Recent gap checks (top 10 symbols, last 500 rows):
-  - Mostly exact 60s spacing
-  - Occasional 120s max gap on a minority (observed on SNX-USD/CVX-USD sample)
+- Non-positive OHLC rows: **0**
+- `high < low` violations: **0**
+- 1m step continuity (last 500 bars per symbol):
+  - symbols with gaps: **0 / 77**
+  - global avg step: **60,000 ms**
 
-Conclusion: no evidence of DB corruption or duplication in active runtime DB.
+### Notable storage characteristic
+- `close_time` is mostly null in stored rows (timeframe-dependent, near 100% for most TFs).
+- Runtime compensates by estimating close time from `open_time + interval`.
 
-## 3) Freshness Audit (1m)
+Interpretation: storage is structurally healthy and not the primary break point.
 
-### Current point-in-time (audit moment)
+## 4) Ingestion Frequency / Throughput Audit
 
-Across 77 symbols:
+### Scheduler cadence (last 180 health-history rows)
+Source: `.runtime/state/market_sync_health_history.jsonl`
+- Avg cycle interval: **16.23s**
+- Max cycle interval: **18.47s**
+- Avg requests/cycle: **6**
+- Avg new candles inserted/cycle: **26.7**
+- Errors total: **0**
 
-- p50 age: ~21604.5s
-- p90 age: ~21724.5s
-- p99 age: ~21724.5s
-- max age: ~21724.5s
-- `>120s`: 77/77
-- `>300s`: 77/77
+### Decision-timeframe servicing pressure
+- Avg due decision jobs per cycle: **72**
+- Avg selected decision jobs per cycle: **5**
+- Selection ratio: **~6.94%** per cycle
+- Scheduler report repeatedly shows large due backlog across TFs and many stale-catchup candidates.
 
-Interpretation: data is uniformly stale now because ingestion has not advanced since last runtime activity.
+### Sync-state age (1m)
+- Rows: 77 (`status=ok` for all)
+- p50 last-sync age: **129.8s**
+- max last-sync age: **258.5s**
 
-### Last active sync evidence (from runtime logs/history)
+Interpretation: ingestion is active and error-free, but service capacity per tick is much lower than due workload.
 
-From `bot.log` / `market_sync_health_history` near last active window:
+## 5) Required Phase 1 Deliverables
 
-- Candle sync cycle interval: avg ~16.4s (min 15s, max 21s)
-- Requests per cycle: fixed 6
-- Errors: 0
-- Decision timeframe oldest due age (`1m`): avg ~264s, max ~294s
-- Decision freshness SLO reported as OK at that time
+### Fetch frequency
+- Stable ~16s cycle, ~6 requests/tick, official candle endpoint success rate currently 100%.
 
-Interpretation: while running, ingestion was active and internally healthy under current SLO; current stale state reflects halted/idle ingestion since last run.
+### Candle age distribution
+- 1m age p50 ~167s, p90 ~227s, max ~287s.
 
-## 4) Ingestion Frequency / Bottleneck Audit
+### Symbols with stale data
+- Runtime freshness ledger indicates a large rotating set of stale decision-timeframe symbols each cycle (dozens).
+- Example max-age symbols at audit snapshot include: `ACH-USD`, `ASM-USD`, `BIGTIME-USD`, `CVX-USD`, `DOGE-USD`, `FIL-USD`, `FLR-USD`, `IMX-USD`, `JASMY-USD`, `JUP-USD` (~258s).
 
-### Scheduler pressure (last 200 snapshots)
+### Symbols missing data
+- 1m missing symbols in active universe: **0** (all 77 present).
 
-- `due_jobs_total` avg: ~423.1 (min 384, max 449)
-- `selected_jobs_total` avg: **6.0**
-- `sync.requests` avg: **6.0**
-- Starvation frequency observed:
-  - `1d`: 188
-  - `15m`: 188
-  - `5m`: 178
-  - `1h`: 123
-  - `4h`: 123
+### Ingestion bottlenecks
+1. **Capacity mismatch / starvation pattern**
+   - Due 1m jobs (~72) far exceed selected (~5) per cycle.
+2. **Request budget constraint**
+   - `max_sync_requests_per_tick=6` with multi-timeframe pressure leaves many 1m symbols aging.
+3. **Cross-timeframe backlog pressure**
+   - Background TFs remain heavily due; scheduler reports starvation in non-decision TFs and high stale-catchup candidate counts.
 
-### Config/runtime context
+## Phase 1 Conclusion (Audit Only)
 
-- `market_data.max_sync_requests_per_tick = 6`
-- `decision_candle_timeframe = 1m`
-- `sync_timeframes = [1h,4h,1d,1m,5m,15m]`
-- Universe size in coverage snapshot: 77 symbols
+Primary observed failure mode is **ingestion servicing pressure** (not DB corruption, not endpoint failure, not duplicate/gap storage faults).
 
-### Bottleneck evidence
-
-The scheduler has structurally higher due-job demand than request capacity:
-
-- Demand queue: ~384-449 due jobs
-- Capacity per tick: 6 jobs
-- This guarantees persistent backlog and recurring starvation of non-priority timeframes.
-
-Primary bottleneck detected: **ingestion throughput under current request budget vs universe/timeframe workload**.
-
-## 5) Symbol-level sample (1m)
-
-Sampled top symbols showed:
-
-- Continuous 60s cadence in stored rows (historical sequence quality is good)
-- Latest-open ages currently ~21494-21674s (uniform stale due to runtime inactivity)
-
-## 6) Additional Observations
-
-- Active runtime source is `.runtime/state/*`; legacy `crypto_bot/state/*` still exists and can confuse manual audits if inspected accidentally.
-- `market_sync_health.coverage.fresh_counts_by_timeframe` can look healthy for core TFs while `stale_symbol_timeframes` remains high, because stale counting includes broader symbol-timeframe combinations.
-
-## 7) Phase 1 Conclusion
-
-No evidence found of:
-
-- DB corruption
-- duplicate candle key explosion
-- timestamp ordering breakage in sampled 1m data
-
-Strong evidence found of:
-
-- **Throughput mismatch / scheduler pressure** (high due queue vs fixed low request cap)
-- **Current stale state caused by ingestion inactivity since last run**
-
-Likely primary root-cause class (for low trade frequency episodes): **ingestion starvation under workload pressure**, especially when runtime is active but constrained by low request budget across many symbols/timeframes.
-
----
-
-## Recommended Next Phase (Phase 2)
-
-Proceed with `data_freshness_report.md` using rolling-window freshness distributions and explicit delay-ratio metrics:
-
-- `candle_age_seconds` by symbol
-- p50/p90/max while process is actively running
-- `% symbols >2x` and `>5x` expected interval
-- compare candle age vs scheduler oldest-due age
-
+At audit time, data does not appear invalid/corrupt; it appears **under-served relative to symbol/timeframe workload**, causing many symbols to run at 2-5 minute candle age despite healthy API calls and healthy storage writes.

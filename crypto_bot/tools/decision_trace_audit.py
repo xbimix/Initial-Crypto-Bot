@@ -17,7 +17,11 @@ from utils.state_paths import project_root, resolve_state_dir
 
 ADVISORY_ONLY_REASONS = {
     "insufficient_advisory",
+    "insufficient_advisory_data",
     "volatility_insufficient",
+}
+EXIT_HOLD_REASONS = {
+    "waiting_for_first_lock",
 }
 
 
@@ -67,6 +71,13 @@ def _is_advisory_only_reason(reason: str) -> bool:
     if token in ADVISORY_ONLY_REASONS:
         return True
     return token.startswith("advisory_")
+
+
+def _is_exit_hold_reason(reason: str) -> bool:
+    token = str(reason or "").strip().lower()
+    if not token:
+        return False
+    return token in EXIT_HOLD_REASONS
 
 
 def _infer_gate_fields(*, reason: str, row: dict[str, Any]) -> tuple[str | None, float | None, float | None, bool | None]:
@@ -146,26 +157,59 @@ def run_audit(*, hours: int, limit: int = 5) -> dict[str, Any]:
     total_cycles = len(scoped)
     trades_executed = sum(1 for row in scoped if bool(row.get("executed", False)))
     blocked_cycles = max(total_cycles - trades_executed, 0)
+    blocked_rows = [row for row in scoped if not bool(row.get("executed", False))]
+    exit_hold_rows = [row for row in blocked_rows if _is_exit_hold_reason(_reason(row))]
+    entry_blocked_rows = [row for row in blocked_rows if not _is_exit_hold_reason(_reason(row))]
+    entry_blocked_cycles = len(entry_blocked_rows)
+    exit_hold_cycles = len(exit_hold_rows)
 
     reason_counts: Counter[str] = Counter(_reason(row) for row in scoped)
     top_reasons: list[dict[str, Any]] = []
     advisory_only_blocked_cycles = 0
+    exit_hold_reason_cycles = 0
     for name, count in reason_counts.most_common(max(limit, 1)):
         pct = (count / total_cycles * 100.0) if total_cycles > 0 else 0.0
         advisory_only = _is_advisory_only_reason(name)
+        exit_hold = _is_exit_hold_reason(name)
         if name != "executed" and advisory_only:
             advisory_only_blocked_cycles += int(count)
+        if name != "executed" and exit_hold:
+            exit_hold_reason_cycles += int(count)
         top_reasons.append(
             {
                 "reason": name,
                 "count": int(count),
                 "pct": round(pct, 2),
                 "advisory_only": advisory_only,
-                "execution_blocking": (name != "executed") and (not advisory_only),
+                "exit_hold": exit_hold,
+                "execution_blocking": (name != "executed") and (not advisory_only) and (not exit_hold),
             }
         )
 
-    execution_blocked_cycles = max(blocked_cycles - advisory_only_blocked_cycles, 0)
+    execution_blocked_cycles = max(blocked_cycles - advisory_only_blocked_cycles - exit_hold_reason_cycles, 0)
+    entry_reason_counts: Counter[str] = Counter(_reason(row) for row in entry_blocked_rows)
+    top_entry_block_reasons: list[dict[str, Any]] = []
+    for name, count in entry_reason_counts.most_common(max(limit, 1)):
+        pct = (count / entry_blocked_cycles * 100.0) if entry_blocked_cycles > 0 else 0.0
+        top_entry_block_reasons.append(
+            {
+                "reason": name,
+                "count": int(count),
+                "pct": round(pct, 2),
+            }
+        )
+
+    exit_hold_reason_counts: Counter[str] = Counter(_reason(row) for row in exit_hold_rows)
+    top_exit_hold_reasons: list[dict[str, Any]] = []
+    for name, count in exit_hold_reason_counts.most_common(max(limit, 1)):
+        pct = (count / exit_hold_cycles * 100.0) if exit_hold_cycles > 0 else 0.0
+        top_exit_hold_reasons.append(
+            {
+                "reason": name,
+                "count": int(count),
+                "pct": round(pct, 2),
+            }
+        )
 
     top_reason_detail: dict[str, Any] | None = None
     if top_reasons:
@@ -182,7 +226,11 @@ def run_audit(*, hours: int, limit: int = 5) -> dict[str, Any]:
         "blocked_cycles": int(blocked_cycles),
         "execution_blocked_cycles": int(execution_blocked_cycles),
         "advisory_only_blocked_cycles": int(advisory_only_blocked_cycles),
+        "entry_blocked_cycles": int(entry_blocked_cycles),
+        "exit_hold_cycles": int(exit_hold_cycles),
         "top_block_reasons": top_reasons,
+        "top_entry_block_reasons": top_entry_block_reasons,
+        "top_exit_hold_reasons": top_exit_hold_reasons,
         "top_reason_detail": top_reason_detail,
     }
 

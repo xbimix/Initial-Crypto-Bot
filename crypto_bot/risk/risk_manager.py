@@ -236,16 +236,27 @@ class RiskManager:
         )
         return current_symbol_positions < max_symbol_trades
 
-    def can_open_under_max_trade_amount(self, current_allocated_usd: float, next_trade_cost_usd: float):
+    def max_trade_amount_limit_usd(self) -> float | None:
         risk_cfg = self._risk_cfg()
         raw_limit = risk_cfg.get(
             "max_trade_amount_usd",
             self._as_float(self.cfg.get("starting_balance"), None),
         )
         if raw_limit is None:
+            return None
+        return max(self._as_float(raw_limit, 0.0), 0.0)
+
+    def max_trade_amount_headroom_usd(self, current_allocated_usd: float) -> float | None:
+        limit = self.max_trade_amount_limit_usd()
+        if limit is None:
+            return None
+        return max(limit - max(current_allocated_usd, 0.0), 0.0)
+
+    def can_open_under_max_trade_amount(self, current_allocated_usd: float, next_trade_cost_usd: float):
+        limit = self.max_trade_amount_limit_usd()
+        if limit is None:
             return True
 
-        limit = max(self._as_float(raw_limit, 0.0), 0.0)
         return (current_allocated_usd + next_trade_cost_usd) <= (limit + 1e-9)
 
     def exposure_block_reason(
@@ -594,6 +605,14 @@ class RiskManager:
                 capped_notional = min(capped_notional, liquidity_cap_notional * max(liquidity_score, 0.1))
             else:
                 capped_notional = min(capped_notional, liquidity_cap_notional)
+
+        max_trade_headroom_usd = self.max_trade_amount_headroom_usd(current_open_value_usd)
+        if max_trade_headroom_usd is not None:
+            if max_trade_headroom_usd <= 0:
+                capped_notional = 0.0
+            else:
+                cost_divisor = max(1.0 + expected_cost_pct, 1e-9)
+                capped_notional = min(capped_notional, max_trade_headroom_usd / cost_divisor)
 
         min_trade_notional_usd = max(self._as_float(risk_cfg.get("min_trade_notional_usd"), 10.0), 0.0)
         if capped_notional < min_trade_notional_usd:

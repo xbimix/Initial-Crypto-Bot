@@ -917,6 +917,17 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
         low_24h = float(features.get("low_24h", min(prices)))
         recent_prices = list(features.get("recent_prices", prices[-60:]))
         history_points = int(features.get("history_points", len(prices)))
+        sampling_minutes = (
+            1.0
+            if history_source == "sqlite_candles"
+            else max(
+                1.0,
+                float(history_seconds) / max(float(len(prices)), 1.0) / 60.0,
+            )
+        )
+        # Regime routing needs >=24h depth while route-scoring uses short context.
+        regime_required_points = max(int(round((24.0 * 60.0) / max(sampling_minutes, 1.0))), 60)
+        regime_recent_prices = list(prices[-min(len(prices), regime_required_points):])
 
         raw_momentum = (last_price - first_price) / (first_price + EPSILON)
         norm_momentum = raw_momentum / (atr + EPSILON)
@@ -971,11 +982,10 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             "trade_count": history_points if strategy_quality_ok else 0,
             "history_points": history_points,
             "recent_prices": recent_prices,
+            "regime_recent_prices": regime_recent_prices,
+            "regime_recent_prices_points": len(regime_recent_prices),
             "snapshot_ts_epoch": snapshot_ts_epoch,
-            "sampling_minutes": 1.0 if history_source == "sqlite_candles" else max(
-                1.0,
-                float(history_seconds) / max(float(len(prices)), 1.0) / 60.0,
-            ),
+            "sampling_minutes": sampling_minutes,
             "candle_timeframe": candle_timeframe,
             "candle_last_update_ts": candle_last_update_ts,
             "candle_age_seconds": candle_age_seconds,

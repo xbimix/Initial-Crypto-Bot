@@ -76,6 +76,28 @@ def test_regime_v2_requires_both_core_key_windows():
     assert result["dataQuality"]["status"] in {"UNSUPPORTED_WINDOW", "INSUFFICIENT", "PARTIAL"}
 
 
+def test_regime_v2_prefers_dedicated_regime_horizon_series_when_present():
+    shallow = evaluate_regime_v2(
+        snapshot=_snapshot(recent_prices=[100.0, 100.1, 99.9]),
+        now_epoch=1_730_000_050.0,
+        cfg={},
+    )
+    assert shallow["insufficientData"] is True
+
+    deep_series = [100 + (idx * 0.08) for idx in range(300)]
+    with_regime_series = evaluate_regime_v2(
+        snapshot=_snapshot(
+            recent_prices=[100.0, 100.1, 99.9],
+            regime_recent_prices=deep_series,
+            regime_recent_prices_points=len(deep_series),
+        ),
+        now_epoch=1_730_000_050.0,
+        cfg={},
+    )
+    assert with_regime_series["insufficientData"] is False
+    assert with_regime_series["dataQuality"]["status"] in {"GOOD", "PARTIAL"}
+
+
 def test_regime_v2_atr_norm_uses_weighted_amplitude():
     result = evaluate_regime_v2(snapshot=_snapshot(), now_epoch=1_730_000_050.0, cfg={})
     summary = result["timeframeSummary"]

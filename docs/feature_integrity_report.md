@@ -1,58 +1,110 @@
-# Feature Integrity Report (Phase 3)
+﻿# Feature Integrity Report (Phase 3)
 
-Date: 2026-04-08  
-Inputs:
-- `.runtime/state/bot.runtime.log` latest `SNAPSHOT` lines
-- `.runtime/state/market_data.db` recent 1m closes per symbol
+Date: 2026-04-09 (UTC)
+Scope: Indicator integrity check only (no strategy/routing/threshold changes)
+Runtime sources:
+- `.runtime/state/market_data.db`
+- `.runtime/state/config.json`
 
-## Checks executed
+## Method
 
-1. Indicator presence and distribution from latest snapshot payloads
-2. ATR-zero / tiny-ATR incidence
-3. Return-series quality over last 120 closes:
-   - volatility proxy (`std(returns)`)
-   - zero-return ratio
-4. Cause classification for observed weak indicators
+For each symbol (`timeframe=1m`), using latest 600 candles:
 
-## Snapshot indicator integrity
+1. Extracted closes/highs/lows.
+2. Computed close-return ATR proxy (same intent as runtime feature path):
+   - `d_i = abs(close_i - close_{i-1}) / close_{i-1}`
+   - `atr_close = median(non_zero(d_i))`
+3. Computed range ATR proxy:
+   - `r_i = (high_i - low_i) / close_i`
+   - `atr_hl = median(non_zero(r_i))`
+4. Effective volatility proxy:
+   - `effective_atr = max(atr_close, atr_hl)`
+5. Classified failure causes:
+   - `stale_data` if candle age > stale threshold
+   - `insufficient_candles` if rows < `min_history_points`
+   - `close_quantization_or_flat_closes` if `atr_close == 0 && atr_hl > 0`
+   - `zero_volatility_inputs` if both are zero
 
-- Symbols with snapshot metrics: `77`
-- ATR values present: `77/77`
-- ATR distribution:
-  - `min`: `0.00021975`
-  - `p50`: `0.00069735`
-  - `p90`: `0.00181159`
-  - `max`: `0.01142857`
-- `ATR == 0`: `0`
-- `ATR < 1e-6`: `0`
+Config inputs read:
+- `market_data.min_history_points = 8`
+- stale threshold inferred from config = `max(decision_candle_min_stale_seconds, decision_candle_stale_intervals*60)`
+  - current = `max(300, 3*60) = 420s`
 
-Quality status in latest snapshots:
-- `ok`: `57`
-- `candle_history_stale`: `17`
-- `spread_too_wide,candle_history_stale`: `2`
-- `spread_too_wide`: `1`
+## Results
 
-## Return-series integrity (last 120 closes)
+## 1) ATR distribution and zero-rate
 
-No broad missing-history issue:
-- computed symbols: `77`
-- all sampled symbols had sufficient close history for return calculation
+Symbols analyzed: **77**
 
-Observed microstructure artifact (important):
-- Some symbols show very high zero-return ratios on 1m (`0.80-0.94`), which depresses realized short-horizon variation.
-- This is a market/data granularity characteristic for low-turnover pairs, not a parser corruption signal.
+Effective ATR proxy distribution:
+- p50: **0.00539**
+- p90: **0.01105**
+- p99: **0.03468**
+- max: **0.03468**
 
-Examples (highest zero-return ratios):
-- `SPELL-USD` `0.941`
-- `POLS-USD` `0.933`
-- `HFT-USD` `0.933`
-- `FLOKI-USD` `0.933`
-- `ASM-USD` `0.916`
-- `MLN-USD` `0.916`
+Zero-rate:
+- `% effective_atr == 0`: **0.0%** (0/77)
+- `% atr_close == 0`: **0.0%** (0/77)
 
-## Conclusion
+Interpretation: ATR collapse-to-zero is not present in the current runtime window.
 
-1. Indicators are populated; ATR collapse-to-zero is **not** currently the dominant failure mode.
-2. Main integrity risk is freshness/coverage quality (`core_not_ready`, `stale`), not missing ATR computation.
-3. For thin symbols, high zero-return ratios can make volatility features less expressive; this is a data-quality/market-activity issue rather than calculation breakage.
+## 2) Cause classification summary
 
+Counts:
+- `stale_data`: **0**
+- `insufficient_candles`: **0**
+- `close_quantization_or_flat_closes`: **0**
+- `zero_volatility_inputs`: **0**
+
+Interpretation: With current DB state, feature inputs are sufficient and non-zero for all symbols at audit time.
+
+## 3) Sample symbols with raw inputs (last 10 closes/returns)
+
+Representative symbols checked (includes low-vol majors):
+- `BTC-USD`
+  - rows: 600
+  - age: 37.2s
+  - `atr_close=0.0003087`, `atr_hl=0.0002351`
+  - non-zero returns: 397/599
+  - flat close ratio: 0.337
+- `ETH-USD`
+  - rows: 600
+  - age: 97.2s
+  - `atr_close=0.0004214`, `atr_hl=0.0003052`
+  - non-zero returns: 347/599
+  - flat close ratio: 0.421
+- `SOL-USD`
+  - rows: 600
+  - age: 97.2s
+  - `atr_close=0.0004193`, `atr_hl=0.0007249`
+  - non-zero returns: 311/599
+  - flat close ratio: 0.481
+- `XRP-USD`
+  - rows: 600
+  - age: 97.2s
+  - `atr_close=0.0004097`, `atr_hl=0.0009698`
+  - non-zero returns: 298/599
+  - flat close ratio: 0.503
+
+Important observation:
+- Several symbols have high flat-close ratios, but ATR remains non-zero because non-zero returns still occur and/or high-low ranges carry volatility signal.
+
+## 4) Minimum-data and insufficient-data trigger verification
+
+Current strategy-side insufficient checks (entry paths) include:
+- `trades < min_trades`
+- invalid 24h range (`high_24h <= low_24h`)
+- missing/invalid `vwap`
+- missing/invalid `atr` or `atr <= 0`
+
+Given current feature audit:
+- `atr <= 0` is **not** the current blocking driver.
+- feature integrity appears healthy; data freshness pressure (Phase 2) is the dominant concern.
+
+## Phase 3 Conclusion
+
+At audit time, indicators are not failing from zeroed ATR inputs.
+
+Current bottleneck is not “indicator math broken,” but “decision-timeframe freshness lag under ingestion capacity pressure.”
+
+Feature layer is producing valid volatility proxies; freshness/scheduling remains the primary issue to address in subsequent phases.

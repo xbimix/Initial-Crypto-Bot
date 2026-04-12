@@ -1098,6 +1098,40 @@ def normalize_config(
         "market_data.sync_pressure_throttle_sleep_seconds",
         min_value=0.5,
     )
+    normalize_bool(
+        market_data,
+        "sync_auto_scale_requests_enabled",
+        False,
+        "market_data.sync_auto_scale_requests_enabled",
+    )
+    normalize_int(
+        market_data,
+        "sync_auto_scale_requests_max_per_tick",
+        12,
+        "market_data.sync_auto_scale_requests_max_per_tick",
+        min_value=1,
+    )
+    normalize_float(
+        market_data,
+        "sync_target_decision_freshness_seconds",
+        90.0,
+        "market_data.sync_target_decision_freshness_seconds",
+        min_value=15.0,
+    )
+    normalize_float(
+        market_data,
+        "sync_assumed_tick_seconds",
+        12.0,
+        "market_data.sync_assumed_tick_seconds",
+        min_value=0.5,
+    )
+    normalize_int(
+        market_data,
+        "sync_min_background_jobs_per_tick",
+        1,
+        "market_data.sync_min_background_jobs_per_tick",
+        min_value=0,
+    )
     normalize_float(
         market_data,
         "watchlist_poll_seconds",
@@ -1433,7 +1467,8 @@ def normalize_config(
     if isinstance(raw_zone, (list, tuple)) and len(raw_zone) == 2:
         lo = _to_float(raw_zone[0])
         hi = _to_float(raw_zone[1])
-        if lo is not None and hi is not None and lo >= 0 and hi >= lo:
+        # Allow mild overshoot below range low for entry gating (e.g. -10%).
+        if lo is not None and hi is not None and lo >= -1.0 and hi >= lo:
             zone = [lo, hi]
     if regime.get("preferred_buy_zone") != zone:
         regime["preferred_buy_zone"] = zone

@@ -17,6 +17,7 @@ from strategy.exits.trend_exit import evaluate_trend_exit
 from strategy.routes.breakout_momentum import evaluate_breakout_momentum_route_entry
 from strategy.routes.mean_reversion import evaluate_mean_reversion_entry
 from strategy.routes.trend_pullback import evaluate_trend_pullback_route_entry
+from strategy.data_quality_gate import evaluate_entry_data_quality
 from strategy.routing import (
     advisory_has_required_fields as _advisory_has_required_fields_impl,
     configured_regime_for_symbol as _configured_regime_for_symbol_impl,
@@ -611,6 +612,7 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx, runtime_state=None) -> 
             blocked_regimes=scalper_blocked_regimes,
             min_trades=min_trades,
             scalper_cfg=scalper_cfg,
+            cfg=cfg,
             parse_numeric=ctx._parse_numeric,
             decision=ctx._decision,
         )
@@ -1055,20 +1057,21 @@ def _evaluate_scalper_buy(
     blocked_regimes,
     min_trades,
     scalper_cfg,
+    cfg,
     parse_numeric,
     decision,
 ):
-    data_quality_ok = snapshot.get("data_quality_ok")
-    if data_quality_ok is not True:
-        reason = snapshot.get("data_quality_reason")
-        if not isinstance(reason, str) or not reason.strip():
-            reason = "data_quality_missing" if data_quality_ok is None else "data_quality_failed"
+    data_quality_allowed, blocked_reason = evaluate_entry_data_quality(
+        snapshot=snapshot,
+        cfg=cfg,
+    )
+    if not data_quality_allowed:
         return decision(
             symbol,
             "HOLD",
             price,
             momentum,
-            str(reason),
+            str(blocked_reason or "data_quality_failed"),
         )
 
     if regime in blocked_regimes:
