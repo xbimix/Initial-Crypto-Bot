@@ -28,7 +28,6 @@ type ConfigState = {
     min_score_to_buy?: number;
     max_range_pos?: number;
   };
-  symbol_enabled?: Record<string, boolean>;
   symbol_buy_enabled?: Record<string, boolean>;
   symbol_sell_enabled?: Record<string, boolean>;
   token_regimes?: Record<string, unknown>;
@@ -2023,7 +2022,6 @@ export async function GET() {
   const positions = paper.positions ?? {};
   const positionSymbols = Object.keys(positions);
   const configuredSymbols = normalizeSymbols(config.symbols);
-  const legacyMap = parseEnabledMap(config.symbol_enabled);
   const buyMap = parseEnabledMap(config.symbol_buy_enabled);
   const sellMap = parseEnabledMap(config.symbol_sell_enabled);
   const symbolStrategies = parseStrategyMap(config.symbol_strategies);
@@ -2059,7 +2057,6 @@ export async function GET() {
   const runtimeNonMrReadyReasonMap = parseTextMap(strategy.last_non_mr_ready_reason);
   const allSymbols = uniqueSymbols(
     configuredSymbols,
-    Object.keys(legacyMap),
     Object.keys(buyMap),
     Object.keys(sellMap),
     Object.keys(symbolStrategies),
@@ -2230,7 +2227,7 @@ export async function GET() {
       strategyOverrides,
       scalperSymbols,
     );
-    const buyEnabled = buyMap[symbol] ?? legacyMap[symbol] ?? true;
+    const buyEnabled = buyMap[symbol] ?? true;
     const hasOpenPosition = symbol in positions;
     const capitalEfficiency = capitalEfficiencyBySymbol[symbol];
     const rotation = rotationBySymbol[symbol];
@@ -2385,7 +2382,7 @@ export async function GET() {
       readyForNonMrRoute,
       nonMrReadyReason,
       buyEnabled,
-      sellEnabled: sellMap[symbol] ?? legacyMap[symbol] ?? true,
+      sellEnabled: sellMap[symbol] ?? true,
       hasOpenPosition,
       scalperEnabled: strategyMode === "volatility_scalper",
       cooldownOverrideSeconds: cooldownOverrideMap[symbol] ?? null,

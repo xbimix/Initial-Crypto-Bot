@@ -45,6 +45,35 @@ _SCHEMA_READY_BASE: set[str] = set()
 _SCHEMA_READY_WITH_ORDERBOOK: set[str] = set()
 
 
+def _interval_ms_for_timeframe(timeframe: str) -> int | None:
+    token = str(timeframe or "").strip().lower()
+    if not token:
+        return None
+    try:
+        return int(timeframe_to_interval_minutes(token) * 60_000)
+    except Exception:
+        return None
+
+
+def _resolve_close_time_ms(
+    *,
+    open_time_ms: int,
+    close_time_value: object,
+    timeframe: str,
+) -> int | None:
+    if close_time_value is not None:
+        try:
+            parsed = int(close_time_value)
+            if parsed > 0:
+                return parsed
+        except (TypeError, ValueError):
+            pass
+    interval_ms = _interval_ms_for_timeframe(timeframe)
+    if interval_ms is None or interval_ms <= 0:
+        return None
+    return int(open_time_ms + interval_ms - 1)
+
+
 def resolve_db_path(db_path: str | Path | None = None) -> Path:
     path = Path(db_path) if db_path is not None else DEFAULT_DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -248,8 +277,11 @@ def upsert_candles(
 
     for candle in candles:
         open_time = int(candle["ts"])
-        close_time = candle.get("close_time")
-        close_time_val = int(close_time) if close_time is not None else None
+        close_time_val = _resolve_close_time_ms(
+            open_time_ms=open_time,
+            close_time_value=candle.get("close_time"),
+            timeframe=timeframe,
+        )
         volume = candle.get("volume")
         volume_val = float(volume) if volume is not None else None
         rows.append(
@@ -468,6 +500,105 @@ def get_last_updated_at(
     if not row or row["max_updated_at"] is None:
         return None
     return int(row["max_updated_at"])
+
+
+def audit_close_time_integrity(
+    *,
+    db_path: str | Path | None = None,
+) -> dict:
+    ensure_schema(db_path)
+    summary_rows: list[dict[str, int | str | float]] = []
+    with connect(db_path) as conn:
+        total_rows = int(conn.execute("SELECT COUNT(*) FROM candles").fetchone()[0] or 0)
+        total_null = int(
+            conn.execute("SELECT COUNT(*) FROM candles WHERE close_time IS NULL").fetchone()[0] or 0
+        )
+        grouped = conn.execute(
+            """
+            SELECT
+                timeframe,
+                COUNT(*) AS row_count,
+                SUM(CASE WHEN close_time IS NULL THEN 1 ELSE 0 END) AS null_count
+            FROM candles
+            GROUP BY timeframe
+            ORDER BY row_count DESC
+            """
+        ).fetchall()
+    for row in grouped:
+        row_count = int(row["row_count"] or 0)
+        null_count = int(row["null_count"] or 0)
+        summary_rows.append(
+            {
+                "timeframe": str(row["timeframe"]),
+                "row_count": row_count,
+                "null_close_time_count": null_count,
+                "null_close_time_pct": round((null_count * 100.0 / row_count), 4) if row_count > 0 else 0.0,
+            }
+        )
+    return {
+        "total_rows": total_rows,
+        "null_close_time_count": total_null,
+        "null_close_time_pct": round((total_null * 100.0 / total_rows), 6) if total_rows > 0 else 0.0,
+        "by_timeframe": summary_rows,
+    }
+
+
+def backfill_null_close_times(
+    *,
+    db_path: str | Path | None = None,
+    dry_run: bool = False,
+) -> dict:
+    ensure_schema(db_path)
+    updated_total = 0
+    skipped_timeframes: list[str] = []
+    updated_by_timeframe: dict[str, int] = {}
+    inspected_timeframes: list[str] = []
+    with connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT timeframe, COUNT(*) AS null_count
+            FROM candles
+            WHERE close_time IS NULL
+            GROUP BY timeframe
+            ORDER BY null_count DESC
+            """
+        ).fetchall()
+        for row in rows:
+            timeframe = str(row["timeframe"] or "").strip().lower()
+            null_count = int(row["null_count"] or 0)
+            if not timeframe:
+                continue
+            inspected_timeframes.append(timeframe)
+            interval_ms = _interval_ms_for_timeframe(timeframe)
+            if interval_ms is None or interval_ms <= 0:
+                skipped_timeframes.append(timeframe)
+                continue
+            if dry_run:
+                updated_by_timeframe[timeframe] = null_count
+                updated_total += null_count
+                continue
+            result = conn.execute(
+                """
+                UPDATE candles
+                SET close_time = open_time + ?
+                WHERE close_time IS NULL AND timeframe = ?
+                """,
+                (int(interval_ms - 1), timeframe),
+            )
+            changed = int(result.rowcount or 0)
+            updated_by_timeframe[timeframe] = changed
+            updated_total += changed
+        if dry_run:
+            conn.rollback()
+        else:
+            conn.commit()
+    return {
+        "dry_run": bool(dry_run),
+        "updated_rows": int(updated_total),
+        "updated_by_timeframe": updated_by_timeframe,
+        "inspected_timeframes": sorted(set(inspected_timeframes)),
+        "skipped_timeframes": sorted(set(skipped_timeframes)),
+    }
 
 
 def get_sync_state(

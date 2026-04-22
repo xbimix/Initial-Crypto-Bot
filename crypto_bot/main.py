@@ -569,6 +569,121 @@ def _decision_regime_scores(decision: dict | None) -> tuple[float | None, float 
     return confidence, stability, persistence
 
 
+def _resolve_buy_path_observability(
+    *,
+    market: dict | None,
+    decision: dict | None,
+    cfg: dict | None,
+) -> dict[str, object]:
+    snapshot = market if isinstance(market, dict) else {}
+    payload = decision if isinstance(decision, dict) else {}
+    config = cfg if isinstance(cfg, dict) else {}
+    market_regime = config.get("market_regime", {})
+    if not isinstance(market_regime, dict):
+        market_regime = {}
+
+    preferred_buy_zone = market_regime.get("preferred_buy_zone", [None, None])
+    if not isinstance(preferred_buy_zone, (list, tuple)) or len(preferred_buy_zone) < 2:
+        preferred_buy_zone = [None, None]
+    buy_zone_low = _to_float(preferred_buy_zone[0], None)
+    buy_zone_high = _to_float(preferred_buy_zone[1], None)
+
+    def _first_numeric(*values):
+        for value in values:
+            parsed = _to_float(value, None)
+            if parsed is not None:
+                return parsed
+        return None
+
+    buy_score_actual = _first_numeric(
+        payload.get("buy_score_actual"),
+        payload.get("score"),
+        payload.get("route_score"),
+        payload.get("entry_score"),
+        snapshot.get("score"),
+    )
+    buy_score_threshold = _to_float(
+        market_regime.get("min_score_to_buy"),
+        _to_float(config.get("min_score_to_buy"), None),
+    )
+    buy_price_position_in_range = _first_numeric(
+        payload.get("buy_price_position_in_range"),
+        payload.get("range_position"),
+        payload.get("price_position_in_range"),
+        snapshot.get("range_position"),
+    )
+    range_source_reason = "from_snapshot" if buy_price_position_in_range is not None else None
+    if buy_price_position_in_range is None:
+        price = _to_float(payload.get("price"), _to_float(snapshot.get("price"), None))
+        high_24h = _to_float(
+            snapshot.get("high_24h"),
+            _to_float(snapshot.get("24h_high"), None),
+        )
+        low_24h = _to_float(
+            snapshot.get("low_24h"),
+            _to_float(snapshot.get("24h_low"), None),
+        )
+        if (
+            price is not None
+            and high_24h is not None
+            and low_24h is not None
+            and high_24h > low_24h
+        ):
+            buy_price_position_in_range = (price - low_24h) / (high_24h - low_24h)
+            range_source_reason = "computed_from_24h_window"
+
+    buy_zscore_actual = _first_numeric(
+        payload.get("buy_zscore_actual"),
+        payload.get("z_score"),
+        payload.get("zscore"),
+        snapshot.get("z_score"),
+        snapshot.get("zscore"),
+    )
+    if buy_zscore_actual is None:
+        price = _to_float(payload.get("price"), _to_float(snapshot.get("price"), None))
+        vwap = _to_float(snapshot.get("vwap"), None)
+        atr = _to_float(snapshot.get("atr_raw"), None)
+        if price is not None and vwap is not None and atr is not None and atr > 0:
+            buy_zscore_actual = (price - vwap) / atr
+
+    buy_zscore_threshold = _to_float(market_regime.get("min_z_score"), None)
+    if buy_zscore_threshold is None:
+        buy_zscore_threshold = _to_float(payload.get("buy_zscore_threshold"), None)
+    buy_score_population_reason = str(payload.get("buy_score_population_reason") or "").strip() or None
+    if buy_score_population_reason is None:
+        buy_score_population_reason = "available" if buy_score_actual is not None else "missing_score_inputs"
+    buy_range_position_reason = str(payload.get("buy_range_position_reason") or "").strip() or None
+    if buy_range_position_reason is None:
+        buy_range_position_reason = (
+            range_source_reason
+            if range_source_reason is not None
+            else "missing_range_window"
+        )
+    buy_route_name = str(
+        payload.get("effective_route")
+        or payload.get("buy_route_name")
+        or payload.get("effective_strategy")
+        or payload.get("entry_route")
+        or payload.get("route_name")
+        or ""
+    ).strip() or None
+
+    return {
+        "buy_score_actual": buy_score_actual,
+        "buy_score_threshold": buy_score_threshold,
+        "buy_zscore_actual": buy_zscore_actual,
+        "buy_zscore_threshold": buy_zscore_threshold,
+        "buy_stretch_actual": buy_zscore_actual,
+        "buy_stretch_threshold": buy_zscore_threshold,
+        "buy_price_position_in_range": buy_price_position_in_range,
+        "buy_zone_low": buy_zone_low,
+        "buy_zone_high": buy_zone_high,
+        "buy_route_name": buy_route_name,
+        "buy_score_population_reason": buy_score_population_reason,
+        "buy_range_position_reason": buy_range_position_reason,
+    }
+
+
 def _normalize_route_key(value: str) -> str:
     return str(value or "").strip().lower()
 
@@ -698,7 +813,7 @@ def _non_mr_route_guard(
     market_data_cfg = cfg.get("market_data", {})
     if not isinstance(market_data_cfg, dict):
         market_data_cfg = {}
-    if not bool(market_data_cfg.get("route_quality_guard_enabled", True)):
+    if not bool(market_data_cfg.get("route_quality_guard_enabled", False)):
         return True, None
 
     route = str(decision.get("effective_route") or decision.get("effective_strategy") or "").upper()
@@ -712,50 +827,7 @@ def _non_mr_route_guard(
     if isinstance(readiness, dict) and not bool(readiness.get("ready", True)):
         return False, f"core_not_ready:{readiness.get('reason', 'unknown')}"
 
-    confidence_raw, stability_raw, persistence_raw = _decision_regime_scores(decision)
-    confidence = confidence_raw or 0.0
-    stability = stability_raw or 0.0
-    persistence = persistence_raw or 0.0
-
-    min_conf = _as_positive_float(
-        market_data_cfg.get("route_quality_min_confidence"),
-        DEFAULT_ROUTE_QUALITY_MIN_CONFIDENCE,
-    )
-    min_conf *= _route_confidence_multiplier(cfg, market)
-    min_stability = _as_positive_float(
-        market_data_cfg.get("route_quality_min_stability"),
-        DEFAULT_ROUTE_QUALITY_MIN_STABILITY,
-    )
-    min_persistence = _as_positive_float(
-        market_data_cfg.get("route_quality_min_persistence"),
-        DEFAULT_ROUTE_QUALITY_MIN_PERSISTENCE,
-    )
-    if confidence < min_conf:
-        return False, "route_quality_low_confidence"
-    if stability < min_stability:
-        return False, "route_quality_low_stability"
-    if persistence < min_persistence:
-        return False, "route_quality_low_persistence"
-
-    quality_status = str(
-        decision.get("regime_data_quality_status")
-        or market.get("data_quality_status")
-        or "UNKNOWN"
-    ).upper()
-    if quality_status in {"STALE", "INSUFFICIENT", "UNSUPPORTED_WINDOW"}:
-        return False, "route_quality_bad_data"
-
     route_key = _normalize_route_key(route)
-    per_route_cap_cfg = market_data_cfg.get("route_quality_max_route_share_pct", {})
-    if not isinstance(per_route_cap_cfg, dict):
-        per_route_cap_cfg = {}
-    cap_pct = _to_float(per_route_cap_cfg.get(route_key), None)
-    if cap_pct is not None and cap_pct > 0:
-        share_pct = _route_exposure_share_pct(route_key, cfg, now_epoch)
-        if share_pct is not None and share_pct >= cap_pct:
-            _route_guard_cap_hits[route_key] = int(_route_guard_cap_hits.get(route_key, 0) or 0) + 1
-            return False, f"route_exposure_cap:{route_key}:{round(share_pct, 2)}"
-
     streak_cfg = market_data_cfg.get("route_quality_max_consecutive_losses", {})
     if not isinstance(streak_cfg, dict):
         streak_cfg = {}
@@ -810,6 +882,11 @@ def _append_decision_audit(
         market=market,
         cfg=cfg,
     )
+    buy_observability = _resolve_buy_path_observability(
+        market=market,
+        decision=decision,
+        cfg=cfg,
+    )
     payload = {
         "schema_name": DECISION_AUDIT_SCHEMA_NAME,
         "schema_version": DECISION_AUDIT_SCHEMA_VERSION,
@@ -859,6 +936,18 @@ def _append_decision_audit(
         "gate_trigger_threshold": gate_diagnostics.get("threshold"),
         "gate_trigger_actual": gate_diagnostics.get("actual"),
         "gate_trigger_correct": gate_diagnostics.get("correct"),
+        "buy_score_actual": buy_observability.get("buy_score_actual"),
+        "buy_score_threshold": buy_observability.get("buy_score_threshold"),
+        "buy_zscore_actual": buy_observability.get("buy_zscore_actual"),
+        "buy_zscore_threshold": buy_observability.get("buy_zscore_threshold"),
+        "buy_stretch_actual": buy_observability.get("buy_stretch_actual"),
+        "buy_stretch_threshold": buy_observability.get("buy_stretch_threshold"),
+        "buy_price_position_in_range": buy_observability.get("buy_price_position_in_range"),
+        "buy_zone_low": buy_observability.get("buy_zone_low"),
+        "buy_zone_high": buy_observability.get("buy_zone_high"),
+        "buy_route_name": buy_observability.get("buy_route_name"),
+        "buy_score_population_reason": buy_observability.get("buy_score_population_reason"),
+        "buy_range_position_reason": buy_observability.get("buy_range_position_reason"),
         "spread_bps": market.get("spread_bps"),
         "quoted_mid_price": market.get("mid_price"),
         "quoted_best_bid": market.get("best_bid"),
@@ -1040,12 +1129,9 @@ def _select_symbols_for_cycle(
 
 
 def _is_action_enabled(cfg: dict, symbol: str, action: str) -> bool:
-    legacy_map = cfg.get("symbol_enabled", {})
     buy_map = cfg.get("symbol_buy_enabled", {})
     sell_map = cfg.get("symbol_sell_enabled", {})
 
-    if not isinstance(legacy_map, dict):
-        legacy_map = {}
     if not isinstance(buy_map, dict):
         buy_map = {}
     if not isinstance(sell_map, dict):
@@ -1060,10 +1146,6 @@ def _is_action_enabled(cfg: dict, symbol: str, action: str) -> bool:
             return sell_map.get(symbol) is not False
     else:
         return True
-
-    # Backward compatibility with old single-toggle config.
-    if symbol in legacy_map:
-        return legacy_map.get(symbol) is not False
 
     return True
 

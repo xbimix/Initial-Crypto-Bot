@@ -1,5 +1,5 @@
 from strategy.regime import detect_regime
-from strategy.legacy.scoring_adapter import score_indicators
+from strategy.scoring import score_indicators
 
 try:
     from analysis.data_analysis import calculate_support_resistance
@@ -39,6 +39,10 @@ def compute_buy_diagnostics(
 ):
     regime = detect_regime(snapshot, regime_cfg)
     volatility = parse_numeric(atr, fallback=None)
+    preferred_buy_zone = regime_cfg.get("preferred_buy_zone", [])
+    score_range_cap = None
+    if isinstance(preferred_buy_zone, (list, tuple)) and len(preferred_buy_zone) >= 2:
+        score_range_cap = parse_numeric(preferred_buy_zone[1], fallback=None)
 
     range_pos = None
     if high_24h > low_24h:
@@ -98,6 +102,7 @@ def compute_buy_diagnostics(
         "rsi": rsi,
         "momentum": parse_numeric(momentum, fallback=0.0),
         "structure": structure,
+        "mr_score_max_range_pos": score_range_cap,
     }
 
     score = score_indicators(

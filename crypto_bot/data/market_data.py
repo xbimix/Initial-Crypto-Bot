@@ -655,6 +655,9 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
             candle_timeframe=candle_timeframe,
             market_data_cfg=market_data_cfg,
         )
+        enforce_candle_history_stale_quality_gate = bool(
+            market_data_cfg.get("enforce_candle_history_stale_quality_gate", False)
+        )
         candle_sync_enabled = bool(
             market_data_cfg.get("decision_candle_sync_enabled", DEFAULT_CANDLE_SYNC_ENABLED)
         )
@@ -799,7 +802,10 @@ def fetch_market_snapshot(symbol: str, cfg: dict) -> dict | None:
         if len(prices) < min_history_points:
             quality_reasons.append("warming_up_history")
         if history_source == "sqlite_candles":
-            if candle_meta.get("stale") is True:
+            if (
+                enforce_candle_history_stale_quality_gate
+                and candle_meta.get("stale") is True
+            ):
                 quality_reasons.append("candle_history_stale")
             if candle_meta.get("supported") is False:
                 quality_reasons.append("candle_timeframe_unsupported")

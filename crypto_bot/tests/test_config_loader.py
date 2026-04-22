@@ -61,7 +61,9 @@ def test_normalize_config_warn_mode_populates_defaults():
     assert normalized["market_data"]["sync_target_decision_freshness_seconds"] == 90.0
     assert normalized["market_data"]["sync_assumed_tick_seconds"] == 12.0
     assert normalized["market_data"]["sync_min_background_jobs_per_tick"] == 1
+    assert normalized["market_data"]["route_quality_guard_enabled"] is False
     assert "1m" in normalized["market_data"]["sync_timeframes"]
+    assert normalized["strategy_defaults"]["router"]["auto_require_core_candle_readiness"] is False
 
 
 def test_normalize_config_source_map_invalid_values_are_normalized():
@@ -315,6 +317,32 @@ def test_normalize_config_router_thresholds_are_normalized_and_clamped():
     assert router["auto_trend_min_confidence"] == 100.0
     assert router["auto_trend_max_route_share_pct"] == 100.0
     assert router["auto_use_route_quality_gates"] is True
+
+
+def test_normalize_config_migrates_legacy_route_gates_to_strategy_defaults():
+    raw = {
+        "enabled": True,
+        "symbols": ["btc-usd"],
+        "strategy_defaults": {
+            "route_gates": {
+                "trend_pullback": {"min_score_to_buy": 42},
+            }
+        },
+        "route_gates": {
+            "trend_pullback": {"min_momentum": 0.77},
+            "breakout_momentum": {"min_momentum": 0.81},
+        },
+    }
+    normalized, warnings, changed = normalize_config(raw, strict=False)
+    assert changed is True
+    assert warnings
+    assert "route_gates" not in normalized
+    trend_gates = normalized["strategy_defaults"]["route_gates"]["trend_pullback"]
+    breakout_gates = normalized["strategy_defaults"]["route_gates"]["breakout_momentum"]
+    assert trend_gates["min_score_to_buy"] == 42
+    assert trend_gates["min_momentum"] == 0.77
+    assert breakout_gates["min_momentum"] == 0.81
+    assert any("route_gates deprecated" in warning for warning in warnings)
 
 
 def test_normalize_config_adds_execution_realism_and_stop_sizing_defaults():

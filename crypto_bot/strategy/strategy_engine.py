@@ -10,9 +10,11 @@ from strategy.entry_contracts import (
     confirm_exit as _confirm_exit_impl,
     stage_entry_contract,
 )
-from strategy.exits.breakout_exit import evaluate_breakout_exit
-from strategy.exits.mr_exit import evaluate_mr_exit
-from strategy.exits.trend_exit import evaluate_trend_exit
+from strategy.sell_eval import (
+    evaluate_sell as evaluate_breakout_exit,
+    evaluate_sell as evaluate_mr_exit,
+    evaluate_sell as evaluate_trend_exit,
+)
 from strategy.regime import detect_regime
 from strategy.regime_engine import normalize_shadow_state, update_regime_shadow_state
 from strategy.regime_engine_v2 import evaluate_regime_unified
@@ -122,6 +124,7 @@ _COMPAT_RUNTIME_EXPORTS = {
     "_entry_regime_eval_ts": "_entry_regime_eval_ts",
     "_pending_entry_contract": "_pending_entry_contract",
     "_shadow_regime_state": "_shadow_regime_state",
+    "_route_expectancy_state": "_route_expectancy_state",
 }
 
 
@@ -175,6 +178,7 @@ def _save_strategy_state():
             "last_buy_block_route": rt._last_buy_block_route,
             "buy_block_counts_by_symbol": rt._buy_block_counts_by_symbol,
             "buy_block_counts_by_symbol_route": rt._buy_block_counts_by_symbol_route,
+            "route_expectancy_state": rt._route_expectancy_state,
             **_route_metadata_state_map(rt.ROUTE_METADATA_MAPS),
         },
         shadow_regime_state=rt._shadow_regime_state,
@@ -209,6 +213,7 @@ def _load_strategy_state():
             "last_buy_block_route": rt._last_buy_block_route,
             "buy_block_counts_by_symbol": rt._buy_block_counts_by_symbol,
             "buy_block_counts_by_symbol_route": rt._buy_block_counts_by_symbol_route,
+            "route_expectancy_state": rt._route_expectancy_state,
             **_route_metadata_state_map(rt.ROUTE_METADATA_MAPS),
         },
         shadow_regime_state=rt._shadow_regime_state,

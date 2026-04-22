@@ -17,14 +17,30 @@ def _normalize_regime(regime):
     return compat.get(raw, raw or "unknown")
 
 
+def _as_float(value, default=None):
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    if parsed != parsed:  # NaN guard
+        return default
+    return parsed
+
+
 def score_indicators(regime, indicators, range_pos):
     normalized = _normalize_regime(regime)
+
+    score_range_cap = _as_float(indicators.get("mr_score_max_range_pos"), 0.30)
+    if score_range_cap is None:
+        score_range_cap = 0.30
+    score_range_cap = max(0.0, min(score_range_cap, 1.0))
 
     # Hard blocks for non-entry or downside regimes in long-only flow.
     if normalized in {"trend_down", "breakout_down", "choppy", "unknown"}:
         return 0.0
 
-    if range_pos > 0.30 and normalized in {"range", "low_vol"}:
+    # Keep MR score gating aligned with configured buy-zone envelope.
+    if range_pos > score_range_cap and normalized in {"range", "low_vol"}:
         return 0.0
 
     rsi = float(indicators.get("rsi", 50.0))

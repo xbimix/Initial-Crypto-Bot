@@ -8,13 +8,19 @@ Use the one-page checklist first:
 
 `.\scripts\OPERATOR_CHECKLIST.md`
 
+## Archived Scripts
+
+Legacy/unused utilities have been moved to:
+
+`.\scripts\archive\unused\`
+
 ## 1) Backup state
 
 ```powershell
 .\scripts\backup_state.ps1
 ```
 
-Creates a timestamped backup folder under `crypto_bot/state/backups/`.
+Creates a timestamped backup folder under `.runtime/state/backups/`.
 
 ## Control/Auth environment (required for mutating actions)
 
@@ -35,7 +41,7 @@ Optional controls:
 - `REVBOT_MUTATING_PAYLOAD_MAX_BYTES` (default: `65536`).
 - `REVBOT_RATE_LIMIT_WINDOW_SECONDS` / `REVBOT_RATE_LIMIT_MAX_REQUESTS` for control server rate limit.
 - `REVBOT_UI_RATE_LIMIT_WINDOW_SECONDS` / `REVBOT_UI_RATE_LIMIT_MAX_REQUESTS` for Next API route limit.
-- `REVBOT_STATE_DIR` to override runtime state root (default: `crypto_bot/state`).
+- `REVBOT_STATE_DIR` to override runtime state root (default: `.runtime/state`).
   Useful for isolating tests/replay from live paper state.
 
 ## 2) Restore state
@@ -238,7 +244,7 @@ python .\scripts\generate_daily_summary.py --day 2026-03-14
 Write to a custom output file:
 
 ```powershell
-python .\scripts\generate_daily_summary.py --day 2026-03-14 --output .\crypto_bot\state\reports\daily_summary_2026-03-14.json
+python .\scripts\generate_daily_summary.py --day 2026-03-14 --output .\.runtime\state\reports\daily_summary_2026-03-14.json
 ```
 
 ## 11) Generate weekly validation summary

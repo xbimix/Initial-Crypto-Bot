@@ -15,7 +15,6 @@ def status_payload(
     cfg = load_config()
 
     symbols = normalize_symbols(cfg.get("symbols", []))
-    symbol_enabled = parse_enabled_map(cfg.get("symbol_enabled", {}))
     symbol_buy_enabled = parse_enabled_map(cfg.get("symbol_buy_enabled", {}))
     symbol_sell_enabled = parse_enabled_map(cfg.get("symbol_sell_enabled", {}))
     token_regimes = parse_token_regime_map(cfg.get("token_regimes", {}))
@@ -23,12 +22,12 @@ def status_payload(
     buy_enabled_symbols = [
         symbol
         for symbol in symbols
-        if is_enabled(symbol_buy_enabled if symbol in symbol_buy_enabled else symbol_enabled, symbol)
+        if is_enabled(symbol_buy_enabled, symbol)
     ]
     sell_enabled_symbols = [
         symbol
         for symbol in symbols
-        if is_enabled(symbol_sell_enabled if symbol in symbol_sell_enabled else symbol_enabled, symbol)
+        if is_enabled(symbol_sell_enabled, symbol)
     ]
 
     risk = cfg.get("risk", {})
@@ -218,4 +217,3 @@ def ready_payload(*, refresh_startup_status: Callable[[], dict]) -> tuple[dict, 
     payload["error"] = "startup_checks_failed"
     payload["code"] = "not_ready"
     return payload, 503
-

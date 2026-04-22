@@ -4,7 +4,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from utils.state_paths import read_path_with_legacy_fallback, resolve_legacy_state_dir, resolve_legacy_state_file
+from utils.state_paths import (
+    legacy_state_fallback_enabled,
+    read_path_with_legacy_fallback,
+    resolve_legacy_state_dir,
+    resolve_legacy_state_file,
+)
 
 
 @dataclass(frozen=True)
@@ -78,11 +83,19 @@ def build_state_integrity_report(
     required_filenames: tuple[str, ...] | list[str],
 ) -> StateIntegrityReport:
     rows: list[StateFileResolution] = []
+    legacy_enabled = legacy_state_fallback_enabled()
     for filename in required_filenames:
         primary_path = active_state_dir / filename
         legacy_path = resolve_legacy_state_file(default_state_dir, filename)
-        resolved = read_path_with_legacy_fallback(primary_path, legacy_path, emit_warning=False)
-        collision_detected, collision_reason = _detect_collision(primary_path, legacy_path)
+        if legacy_enabled:
+            resolved = read_path_with_legacy_fallback(primary_path, legacy_path, emit_warning=False)
+            collision_detected, collision_reason = _detect_collision(primary_path, legacy_path)
+            used_legacy_fallback = resolved == legacy_path and legacy_path.exists()
+        else:
+            resolved = primary_path
+            collision_detected = False
+            collision_reason = None
+            used_legacy_fallback = False
 
         rows.append(
             StateFileResolution(
@@ -92,7 +105,7 @@ def build_state_integrity_report(
                 resolved_path=str(resolved),
                 primary_exists=primary_path.exists(),
                 legacy_exists=legacy_path.exists(),
-                used_legacy_fallback=resolved == legacy_path and legacy_path.exists(),
+                used_legacy_fallback=used_legacy_fallback,
                 collision_detected=collision_detected,
                 collision_reason=collision_reason,
             )
@@ -103,7 +116,7 @@ def build_state_integrity_report(
     return StateIntegrityReport(
         generated_at=datetime.now(timezone.utc).isoformat(),
         active_state_root=str(active_state_dir),
-        legacy_state_root=str(resolve_legacy_state_dir(default_state_dir)),
+        legacy_state_root=str(resolve_legacy_state_dir(default_state_dir)) if legacy_enabled else "disabled",
         ok=collision_count == 0,
         collision_count=int(collision_count),
         used_legacy_count=int(used_legacy_count),

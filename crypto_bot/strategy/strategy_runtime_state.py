@@ -55,6 +55,7 @@ _entry_route_eval_ts: dict = {}
 _entry_regime_eval_ts: dict = {}
 _pending_entry_contract: dict = {}
 _shadow_regime_state: dict = {}
+_route_expectancy_state: dict = {}
 _synced = False
 _last_paper_state_mtime = None
 _metrics_dirty = False

@@ -214,7 +214,8 @@ def read_json_file(
     started_at = time.perf_counter() if STATE_IO_METRICS_ENABLED else None
 
     try:
-        with open(json_path, "r", encoding="utf-8") as handle:
+        # Accept UTF-8 BOM for compatibility with files edited by Windows tooling.
+        with open(json_path, "r", encoding="utf-8-sig") as handle:
             return json.load(handle)
     except FileNotFoundError:
         if strict:

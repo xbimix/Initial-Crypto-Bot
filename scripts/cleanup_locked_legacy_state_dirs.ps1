@@ -1,5 +1,5 @@
 param(
-    [string]$StateDir = "crypto_bot/state",
+    [string]$StateDir = ".runtime/state",
     [switch]$Apply
 )
 
@@ -7,13 +7,19 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 Push-Location $repoRoot
 try {
+    $stateRoot = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $StateDir))
+    $repoRootPath = [System.IO.Path]::GetFullPath([string]$repoRoot)
+    if (-not $stateRoot.StartsWith($repoRootPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "StateDir must resolve inside repository root: $StateDir"
+    }
+
     $targets = @(
         "pytest_base_env",
         "tmpbz5d4cs7",
         "pytest_runtime"
-    ) | ForEach-Object { Join-Path $StateDir $_ }
+    ) | ForEach-Object { Join-Path $stateRoot $_ }
 
-    Write-Host "Locked/temporary legacy-state targets:"
+    Write-Host "Locked/temporary state targets:"
     foreach ($target in $targets) {
         Write-Host " - $target"
     }
@@ -36,7 +42,7 @@ try {
         Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    Write-Host "Legacy locked/temp directories cleanup complete."
+    Write-Host "Locked/temp directories cleanup complete."
 }
 finally {
     Pop-Location

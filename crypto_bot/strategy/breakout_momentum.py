@@ -38,14 +38,33 @@ def _gate_value(
 def _breakout_gate_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     strategy_defaults = _as_dict(cfg.get("strategy_defaults"))
     route_gates = _as_dict(strategy_defaults.get("route_gates"))
-    route_defaults = _as_dict(route_gates.get("breakout_momentum"))
-    # Backward-compatible legacy top-level route_gates support.
-    legacy_route_gates = _as_dict(cfg.get("route_gates"))
-    legacy_route_defaults = _as_dict(legacy_route_gates.get("breakout_momentum"))
-    merged = dict(route_defaults)
-    if legacy_route_defaults:
-        merged.update(legacy_route_defaults)
-    return merged
+    return _as_dict(route_gates.get("breakout_momentum"))
+
+
+def _extract_prices(snapshot: dict[str, Any]) -> list[float]:
+    ohlcv_rows = snapshot.get("ohlcv")
+    if isinstance(ohlcv_rows, list):
+        prices_from_ohlcv: list[float] = []
+        for row in ohlcv_rows:
+            if not isinstance(row, dict):
+                continue
+            value = _as_float(row.get("close"), default=None)
+            if value is None or value <= 0:
+                continue
+            prices_from_ohlcv.append(float(value))
+        if len(prices_from_ohlcv) >= 12:
+            return prices_from_ohlcv
+
+    rows = snapshot.get("recent_prices")
+    if not isinstance(rows, list):
+        return []
+    prices: list[float] = []
+    for raw in rows:
+        value = _as_float(raw, default=None)
+        if value is None or value <= 0:
+            continue
+        prices.append(float(value))
+    return prices
 
 
 def evaluate_breakout_momentum_entry(
@@ -69,6 +88,7 @@ def evaluate_breakout_momentum_entry(
     range_pos: float | None,
     cfg: dict[str, Any],
 ) -> tuple[str, str]:
+    _ = (high_24h, low_24h, vwap, prev_momentum, range_pos)
     data_quality_allowed, blocked_reason = evaluate_entry_data_quality(
         snapshot=snapshot,
         cfg=cfg,
@@ -103,261 +123,146 @@ def evaluate_breakout_momentum_entry(
         return "HOLD", "breakout_momentum_insufficient_trades"
 
     atr_value = _as_float(atr, default=None)
-    min_mode_atr = max(
-        _as_float(
-            _gate_value(
-                mode_cfg=mode_cfg,
-                gate_defaults=gate_defaults,
-                key="min_atr",
-                fallback=min_atr,
-            ),
-            min_atr,
-        )
-        or min_atr,
-        min_atr,
-        0.0,
-    )
     if atr_value is None or atr_value <= 0:
         return "HOLD", "breakout_momentum_missing_volatility"
-    if atr_value < min_mode_atr:
+    atr_multiplier = max(
+        _as_float(
+            _gate_value(
+                mode_cfg=mode_cfg,
+                gate_defaults=gate_defaults,
+                key="atr_multiplier",
+                fallback=0.75,
+            ),
+            0.75,
+        )
+        or 0.75,
+        0.0,
+    )
+    if atr_value < (max(min_atr, 0.0) * atr_multiplier):
         return "HOLD", "breakout_momentum_volatility_too_low"
 
-    atr_pct = _as_float(snapshot.get("atr_pct"), default=None)
-    if atr_pct is None:
-        atr_pct = atr_value
-    min_breakout_atr_pct = _as_float(
-        _gate_value(
-            mode_cfg=mode_cfg,
-            gate_defaults=gate_defaults,
-            key="min_breakout_atr_pct",
-            fallback=0.00010,
-        ),
-        0.00010,
-    )
-    if min_breakout_atr_pct is not None and atr_pct is not None and atr_pct < min_breakout_atr_pct:
-        return "HOLD", "breakout_momentum_atr_compressed"
+    prices = _extract_prices(snapshot)
+    if len(prices) < 12:
+        return "HOLD", "breakout_momentum_insufficient_history"
 
-    adx = _as_float(snapshot.get("adx"), default=None)
-    min_adx = _as_float(
-        _gate_value(
-            mode_cfg=mode_cfg,
-            gate_defaults=gate_defaults,
-            key="min_adx",
-            fallback=18.0,
-        ),
-        18.0,
-    )
-    if adx is not None and min_adx is not None and adx < min_adx:
-        return "HOLD", "breakout_momentum_adx_too_low"
+    prior_window = prices[-12:-6]
+    trigger_window = prices[-6:]
+    prior_high = max(prior_window)
+    prior_low = min(prior_window)
+    prior_range_pct = ((prior_high - prior_low) / max(prior_low, 1e-9)) * 100.0
 
-    volume_ratio = _as_float(snapshot.get("volume_ratio"), default=None)
-    min_volume_ratio = _as_float(
-        _gate_value(
-            mode_cfg=mode_cfg,
-            gate_defaults=gate_defaults,
-            key="min_volume_ratio",
-            fallback=1.05,
-        ),
-        1.05,
+    compression_window = trigger_window[:-1]
+    compression_high = max(compression_window)
+    compression_low = min(compression_window)
+    compression_range_pct = ((compression_high - compression_low) / max(compression_low, 1e-9)) * 100.0
+    compression_ratio = (
+        (compression_range_pct / prior_range_pct)
+        if prior_range_pct > 0
+        else 1.0
     )
-    if volume_ratio is not None and min_volume_ratio is not None and volume_ratio < min_volume_ratio:
-        return "HOLD", "breakout_momentum_volume_not_confirmed"
-
-    structure_prices_raw = snapshot.get("recent_prices", [])
-    structure_prices: list[float] = []
-    if isinstance(structure_prices_raw, list):
-        for value in structure_prices_raw:
-            numeric = _as_float(value, default=None)
-            if numeric is not None and numeric > 0:
-                structure_prices.append(float(numeric))
-    structure_lookback = int(
+    compression_ratio_max = max(
         _as_float(
             _gate_value(
                 mode_cfg=mode_cfg,
                 gate_defaults=gate_defaults,
-                key="compression_lookback_points",
-                fallback=8,
+                key="compression_ratio_max",
+                fallback=0.9,
             ),
-            8,
+            0.9,
         )
-        or 8
+        or 0.9,
+        0.0,
     )
-    structure_lookback = max(structure_lookback, 8)
-    if len(structure_prices) < structure_lookback:
-        return "HOLD", "breakout_momentum_insufficient_compression_history"
-
-    structure_window = structure_prices[-structure_lookback:]
-    half = structure_lookback // 2
-    prior_window = structure_window[:half]
-    recent_window = structure_window[half:]
-    if len(prior_window) < 2 or len(recent_window) < 2:
-        return "HOLD", "breakout_momentum_insufficient_compression_history"
-
-    prior_range = max(prior_window) - min(prior_window)
-    recent_range = max(recent_window) - min(recent_window)
-    max_compression_ratio = max(
-        _as_float(
-            _gate_value(
-                mode_cfg=mode_cfg,
-                gate_defaults=gate_defaults,
-                key="max_compression_ratio",
-                fallback=0.92,
-            ),
-            0.92,
-        )
-        or 0.92,
-        0.1,
-    )
-    if prior_range > 0 and (recent_range / prior_range) > max_compression_ratio:
+    if compression_ratio > compression_ratio_max:
         return "HOLD", "breakout_momentum_no_compression"
 
-    breakout_confirm_pct = max(
+    breakout_buffer = max(
         _as_float(
             _gate_value(
                 mode_cfg=mode_cfg,
                 gate_defaults=gate_defaults,
-                key="breakout_confirm_pct",
-                fallback=0.0015,
+                key="breakout_buffer",
+                fallback=0.0012,
             ),
-            0.0015,
+            0.0012,
         )
-        or 0.0015,
+        or 0.0012,
         0.0,
     )
-    prior_high_before_breakout = max(structure_window[:-1]) if len(structure_window) > 1 else max(structure_window)
-    if price < prior_high_before_breakout * (1.0 + breakout_confirm_pct):
-        return "HOLD", "breakout_momentum_breakout_unconfirmed"
+    if price <= (prior_high * (1.0 + breakout_buffer)):
+        return "HOLD", "breakout_momentum_not_triggered"
 
-    max_late_entry_pct = max(
+    breakout_price = trigger_window[-1]
+    follow_through_buffer = max(
         _as_float(
             _gate_value(
                 mode_cfg=mode_cfg,
                 gate_defaults=gate_defaults,
-                key="max_late_entry_pct",
-                fallback=0.045,
+                key="follow_through_buffer",
+                fallback=0.0004,
             ),
-            0.045,
+            0.0004,
         )
-        or 0.045,
+        or 0.0004,
         0.0,
     )
-    if price > prior_high_before_breakout * (1.0 + max_late_entry_pct):
-        return "HOLD", "breakout_momentum_too_late"
-
-    require_retest = bool(
-        _gate_value(
-            mode_cfg=mode_cfg,
-            gate_defaults=gate_defaults,
-            key="require_retest_confirmation",
-            fallback=False,
-        )
-    )
-    if require_retest and len(structure_window) >= 4:
-        retest_tolerance_pct = max(
-            _as_float(
-                _gate_value(
-                    mode_cfg=mode_cfg,
-                    gate_defaults=gate_defaults,
-                    key="retest_tolerance_pct",
-                    fallback=0.003,
-                ),
-                0.003,
-            )
-            or 0.003,
-            0.0,
-        )
-        recent_low = min(structure_window[-4:])
-        if recent_low > prior_high_before_breakout * (1.0 + retest_tolerance_pct):
-            return "HOLD", "breakout_momentum_wait_retest"
-
-    if high_24h <= low_24h:
-        return "HOLD", "breakout_momentum_insufficient_range_data"
-
-    breakout_buffer_pct = max(
-        _as_float(
-            _gate_value(
-                mode_cfg=mode_cfg,
-                gate_defaults=gate_defaults,
-                key="breakout_buffer_pct",
-                fallback=0.0025,
-            ),
-            0.0025,
-        )
-        or 0.0025,
-        0.0,
-    )
-    breakout_trigger = high_24h * (1.0 - breakout_buffer_pct)
-    if price < breakout_trigger:
-        return "HOLD", "breakout_momentum_waiting_breakout"
-
-    min_range_pos = _as_float(
-        _gate_value(
-            mode_cfg=mode_cfg,
-            gate_defaults=gate_defaults,
-            key="min_range_pos",
-            fallback=0.72,
-        ),
-        0.72,
-    )
-    if min_range_pos is not None and range_pos is not None and range_pos < min_range_pos:
-        return "HOLD", "breakout_momentum_not_at_range_high"
-
-    min_entry_z = _as_float(
-        _gate_value(
-            mode_cfg=mode_cfg,
-            gate_defaults=gate_defaults,
-            key="min_entry_z_score",
-            fallback=-0.05,
-        ),
-        -0.05,
-    )
-    if min_entry_z is not None and z_score is not None and z_score < min_entry_z:
-        return "HOLD", "breakout_momentum_not_confirmed_above_vwap"
-
-    max_entry_z = _as_float(
-        _gate_value(
-            mode_cfg=mode_cfg,
-            gate_defaults=gate_defaults,
-            key="max_entry_z_score",
-            fallback=2.2,
-        ),
-        2.2,
-    )
-    if max_entry_z is not None and z_score is not None and z_score > max_entry_z:
-        return "HOLD", "breakout_momentum_overextended"
-
-    min_entry_score = max(
-        _as_float(
-            _gate_value(
-                mode_cfg=mode_cfg,
-                gate_defaults=gate_defaults,
-                key="min_score_to_buy",
-                fallback=min_score_to_buy,
-            ),
-            min_score_to_buy,
-        )
-        or min_score_to_buy,
-        0.0,
-    )
-    if float(score) < min_entry_score:
-        return "HOLD", "breakout_momentum_score_below_threshold"
+    if breakout_price <= (compression_high * (1.0 + follow_through_buffer)):
+        return "HOLD", "breakout_momentum_no_follow_through"
+    if len(trigger_window) >= 2 and trigger_window[-1] <= trigger_window[-2]:
+        return "HOLD", "breakout_momentum_breakout_not_sustained"
 
     min_momentum = _as_float(
         _gate_value(
             mode_cfg=mode_cfg,
             gate_defaults=gate_defaults,
             key="min_momentum",
-            fallback=0.45,
+            fallback=0.25,
         ),
-        0.45,
+        0.25,
     )
     if min_momentum is not None and float(momentum) < min_momentum:
-        return "HOLD", "breakout_momentum_not_ready"
+        return "HOLD", "breakout_momentum_momentum_not_ready"
 
-    if prev_momentum is not None and float(momentum) < float(prev_momentum):
-        return "HOLD", "breakout_momentum_weakening"
+    overextended_z_score = _as_float(
+        _gate_value(
+            mode_cfg=mode_cfg,
+            gate_defaults=gate_defaults,
+            key="overextended_z_score",
+            fallback=2.2,
+        ),
+        2.2,
+    )
+    if overextended_z_score is not None and z_score is not None and z_score > overextended_z_score:
+        return "HOLD", "breakout_momentum_overextended"
 
-    if vwap is None:
-        return "HOLD", "breakout_momentum_missing_vwap"
+    score_mult = max(
+        _as_float(
+            _gate_value(
+                mode_cfg=mode_cfg,
+                gate_defaults=gate_defaults,
+                key="score_multiplier",
+                fallback=0.9,
+            ),
+            0.9,
+        )
+        or 0.9,
+        0.0,
+    )
+    score_floor = max(
+        _as_float(
+            _gate_value(
+                mode_cfg=mode_cfg,
+                gate_defaults=gate_defaults,
+                key="score_floor",
+                fallback=55.0,
+            ),
+            55.0,
+        )
+        or 55.0,
+        0.0,
+    )
+    threshold = max(float(min_score_to_buy) * score_mult, score_floor)
+    if float(score) < threshold:
+        return "HOLD", "breakout_momentum_score_below_threshold"
 
-    return "BUY", "breakout_momentum_entry"
+    return "BUY", "breakout_momentum_entry_v1"

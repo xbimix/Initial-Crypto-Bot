@@ -11,12 +11,9 @@ from strategy.diagnostics import (
     compute_scalper_diagnostics as _compute_scalper_diagnostics_impl,
     record_symbol_metrics as _record_symbol_metrics_impl,
 )
-from strategy.exits.breakout_exit import evaluate_breakout_exit
-from strategy.exits.mr_exit import evaluate_mr_exit
-from strategy.exits.trend_exit import evaluate_trend_exit
-from strategy.routes.breakout_momentum import evaluate_breakout_momentum_route_entry
+from strategy.breakout_momentum import evaluate_breakout_momentum_entry
 from strategy.routes.mean_reversion import evaluate_mean_reversion_entry
-from strategy.routes.trend_pullback import evaluate_trend_pullback_route_entry
+from strategy.trend_pullback import evaluate_trend_pullback_entry
 from strategy.data_quality_gate import evaluate_entry_data_quality
 from strategy.routing import (
     advisory_has_required_fields as _advisory_has_required_fields_impl,
@@ -343,13 +340,31 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx, runtime_state=None) -> 
                 except Exception as emit_exc:
                     ctx.logger.warning(f"Route quality failure event emit failed for {symbol}: {emit_exc}")
 
-    entry_route = ctx.resolve_entry_route(
-        cfg=cfg,
-        symbol=symbol,
-        snapshot=route_snapshot,
-        default_strategy=strategy_mode,
-        shadow_state=rt._shadow_regime_state,
-    )
+    symbol_expectancy_state = {}
+    if isinstance(rt._route_expectancy_state, dict):
+        symbol_expectancy_state = rt._route_expectancy_state.get(symbol, {})
+        if not isinstance(symbol_expectancy_state, dict):
+            symbol_expectancy_state = {}
+
+    try:
+        entry_route = ctx.resolve_entry_route(
+            cfg=cfg,
+            symbol=symbol,
+            snapshot=route_snapshot,
+            default_strategy=strategy_mode,
+            shadow_state=rt._shadow_regime_state,
+            route_expectancy_state=symbol_expectancy_state,
+        )
+    except TypeError as exc:
+        if "route_expectancy_state" not in str(exc):
+            raise
+        entry_route = ctx.resolve_entry_route(
+            cfg=cfg,
+            symbol=symbol,
+            snapshot=route_snapshot,
+            default_strategy=strategy_mode,
+            shadow_state=rt._shadow_regime_state,
+        )
     route_strategy = entry_contracts._normalize_strategy(
         entry_route.get("effective_strategy", strategy_mode),
         fallback=entry_contracts._normalize_strategy(strategy_mode, fallback="mean_reversion"),
@@ -492,72 +507,8 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx, runtime_state=None) -> 
             parse_numeric=ctx._parse_numeric,
             decision=ctx._decision,
         )
-    elif active_exit_policy == rt.EXIT_POLICY_TREND:
-        sell_signal = ctx.evaluate_trend_exit(
-            symbol=symbol,
-            price=price,
-            momentum=momentum,
-            entry=entry,
-            entry_ts=entry_ts,
-            z_score=z_score,
-            first_activation=profit_cfg.get("first_activation", 0.02),
-            initial_lock=profit_cfg.get("initial_lock", 0.01),
-            profit_levels=profit_cfg.get(
-                "levels",
-                [
-                    [0.04, 0.03],
-                    [0.05, 0.04],
-                    [0.06, 0.05],
-                    [0.08, 0.06],
-                ],
-            ),
-            trailing_activation=profit_cfg.get("trailing_activation", 0.10),
-            trailing_gap=profit_cfg.get("trailing_gap", 0.02),
-            reset_below_activation=profit_cfg.get("reset_below_activation", True),
-            max_negative_z_score=max_negative_z_score,
-            profit_lock_state=rt._profit_lock,
-            peak_pnl_state=rt._peak_pnl,
-            entry_price_state=rt._entry_price,
-            save_strategy_state=ctx._save_strategy_state,
-            decision=ctx._decision,
-            logger=ctx.logger,
-            stale_exit_max_hold_seconds=stale_exit_max_hold_seconds,
-            stale_exit_min_pnl_pct=stale_exit_min_pnl_pct,
-        )
-    elif active_exit_policy == rt.EXIT_POLICY_BREAKOUT:
-        sell_signal = ctx.evaluate_breakout_exit(
-            symbol=symbol,
-            price=price,
-            momentum=momentum,
-            entry=entry,
-            entry_ts=entry_ts,
-            z_score=z_score,
-            first_activation=profit_cfg.get("first_activation", 0.02),
-            initial_lock=profit_cfg.get("initial_lock", 0.01),
-            profit_levels=profit_cfg.get(
-                "levels",
-                [
-                    [0.04, 0.03],
-                    [0.05, 0.04],
-                    [0.06, 0.05],
-                    [0.08, 0.06],
-                ],
-            ),
-            trailing_activation=profit_cfg.get("trailing_activation", 0.10),
-            trailing_gap=profit_cfg.get("trailing_gap", 0.02),
-            reset_below_activation=profit_cfg.get("reset_below_activation", True),
-            max_negative_z_score=max_negative_z_score,
-            profit_lock_state=rt._profit_lock,
-            peak_pnl_state=rt._peak_pnl,
-            entry_price_state=rt._entry_price,
-            save_strategy_state=ctx._save_strategy_state,
-            decision=ctx._decision,
-            logger=ctx.logger,
-            stale_exit_max_hold_seconds=stale_exit_max_hold_seconds,
-            stale_exit_min_pnl_pct=stale_exit_min_pnl_pct,
-        )
     else:
-        sell_signal = ctx.evaluate_mr_exit(
+        sell_signal = ctx._evaluate_sell(
             symbol=symbol,
             price=price,
             momentum=momentum,
@@ -579,9 +530,6 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx, runtime_state=None) -> 
             trailing_gap=profit_cfg.get("trailing_gap", 0.02),
             reset_below_activation=profit_cfg.get("reset_below_activation", True),
             max_negative_z_score=max_negative_z_score,
-            profit_lock_state=rt._profit_lock,
-            peak_pnl_state=rt._peak_pnl,
-            entry_price_state=rt._entry_price,
             save_strategy_state=ctx._save_strategy_state,
             decision=ctx._decision,
             logger=ctx.logger,
@@ -597,6 +545,11 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx, runtime_state=None) -> 
         return ctx._decision(symbol, "HOLD", price, momentum, "observe_only_mode")
 
     if effective_strategy == "volatility_scalper":
+        scalper_min_score_to_buy = max(float(scalper_cfg.get("min_score_to_buy", 55.0)), 0.0)
+        scalper_entry_z_score_max = ctx._parse_numeric(
+            scalper_cfg.get("entry_z_score_max"),
+            fallback=-0.1,
+        )
         decision = ctx._evaluate_scalper_buy(
             snapshot=snapshot,
             symbol=symbol,
@@ -615,6 +568,21 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx, runtime_state=None) -> 
             cfg=cfg,
             parse_numeric=ctx._parse_numeric,
             decision=ctx._decision,
+        )
+        decision = _instrument_buy_observability(
+            decision_payload=decision,
+            route_name=effective_strategy,
+            score=score,
+            score_threshold=scalper_min_score_to_buy,
+            z_score=z_score,
+            z_threshold=scalper_entry_z_score_max,
+            range_pos=range_pos,
+            price=price,
+            high_24h=high_24h,
+            low_24h=low_24h,
+            buy_zone_low=buy_zone_low,
+            buy_zone_high=buy_zone_high,
+            parse_numeric=ctx._parse_numeric,
         )
         return entry_contracts._attach_entry_contract_candidate(
             decision=decision,
@@ -646,6 +614,21 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx, runtime_state=None) -> 
             cfg=cfg,
             decision=ctx._decision,
         )
+        decision = _instrument_buy_observability(
+            decision_payload=decision,
+            route_name=effective_strategy,
+            score=score,
+            score_threshold=min_score_to_buy,
+            z_score=z_score,
+            z_threshold=min_z_score,
+            range_pos=range_pos,
+            price=price,
+            high_24h=high_24h,
+            low_24h=low_24h,
+            buy_zone_low=buy_zone_low,
+            buy_zone_high=buy_zone_high,
+            parse_numeric=ctx._parse_numeric,
+        )
         return entry_contracts._attach_entry_contract_candidate(
             decision=decision,
             active_strategy=effective_strategy,
@@ -675,6 +658,21 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx, runtime_state=None) -> 
             range_pos=range_pos,
             cfg=cfg,
             decision=ctx._decision,
+        )
+        decision = _instrument_buy_observability(
+            decision_payload=decision,
+            route_name=effective_strategy,
+            score=score,
+            score_threshold=min_score_to_buy,
+            z_score=z_score,
+            z_threshold=min_z_score,
+            range_pos=range_pos,
+            price=price,
+            high_24h=high_24h,
+            low_24h=low_24h,
+            buy_zone_low=buy_zone_low,
+            buy_zone_high=buy_zone_high,
+            parse_numeric=ctx._parse_numeric,
         )
         return entry_contracts._attach_entry_contract_candidate(
             decision=decision,
@@ -707,6 +705,21 @@ def generate_decision(snapshot: dict, cfg: dict, *, ctx, runtime_state=None) -> 
         range_pos=range_pos,
         decision=ctx._decision,
         cfg=cfg,
+    )
+    decision = _instrument_buy_observability(
+        decision_payload=decision,
+        route_name=effective_strategy,
+        score=score,
+        score_threshold=min_score_to_buy,
+        z_score=z_score,
+        z_threshold=min_z_score,
+        range_pos=range_pos,
+        price=price,
+        high_24h=high_24h,
+        low_24h=low_24h,
+        buy_zone_low=buy_zone_low,
+        buy_zone_high=buy_zone_high,
+        parse_numeric=ctx._parse_numeric,
     )
     return entry_contracts._attach_entry_contract_candidate(
         decision=decision,
@@ -779,6 +792,89 @@ def _decision(symbol, action, price, momentum, reason, *, logger):
         logger=logger,
         record_buy_block_gate=_record_buy_block_gate,
     )
+
+
+def _resolve_range_position(
+    *,
+    range_pos,
+    price,
+    high_24h,
+    low_24h,
+    parse_numeric,
+):
+    resolved = parse_numeric(range_pos, fallback=None)
+    if resolved is not None:
+        return float(resolved), "from_route_bundle"
+    p = parse_numeric(price, fallback=None)
+    hi = parse_numeric(high_24h, fallback=None)
+    lo = parse_numeric(low_24h, fallback=None)
+    if (
+        p is not None
+        and hi is not None
+        and lo is not None
+        and hi > lo
+    ):
+        return float((p - lo) / (hi - lo)), "computed_from_24h_window"
+    return None, "missing_range_window"
+
+
+def _instrument_buy_observability(
+    *,
+    decision_payload,
+    route_name: str,
+    score,
+    score_threshold,
+    z_score,
+    z_threshold,
+    range_pos,
+    price,
+    high_24h,
+    low_24h,
+    buy_zone_low,
+    buy_zone_high,
+    parse_numeric,
+):
+    payload = dict(decision_payload) if isinstance(decision_payload, dict) else {}
+
+    score_value = parse_numeric(
+        payload.get("buy_score_actual"),
+        fallback=parse_numeric(payload.get("score"), fallback=parse_numeric(score, fallback=None)),
+    )
+    payload["buy_score_actual"] = float(score_value) if score_value is not None else None
+    payload["buy_score_population_reason"] = "available" if score_value is not None else "missing_score_inputs"
+
+    score_threshold_value = parse_numeric(score_threshold, fallback=None)
+    payload["buy_score_threshold"] = float(score_threshold_value) if score_threshold_value is not None else None
+
+    z_value = parse_numeric(
+        payload.get("buy_zscore_actual"),
+        fallback=parse_numeric(payload.get("z_score"), fallback=parse_numeric(z_score, fallback=None)),
+    )
+    payload["buy_zscore_actual"] = float(z_value) if z_value is not None else None
+    z_threshold_value = parse_numeric(z_threshold, fallback=None)
+    payload["buy_zscore_threshold"] = float(z_threshold_value) if z_threshold_value is not None else None
+    payload["buy_stretch_actual"] = payload["buy_zscore_actual"]
+    payload["buy_stretch_threshold"] = payload["buy_zscore_threshold"]
+
+    range_value, range_reason = _resolve_range_position(
+        range_pos=payload.get("buy_price_position_in_range", range_pos),
+        price=price,
+        high_24h=high_24h,
+        low_24h=low_24h,
+        parse_numeric=parse_numeric,
+    )
+    payload["buy_price_position_in_range"] = float(range_value) if range_value is not None else None
+    payload["buy_range_position_reason"] = range_reason
+
+    zone_low = parse_numeric(buy_zone_low, fallback=None)
+    zone_high = parse_numeric(buy_zone_high, fallback=None)
+    payload["buy_zone_low"] = float(zone_low) if zone_low is not None else None
+    payload["buy_zone_high"] = float(zone_high) if zone_high is not None else None
+    payload["buy_route_name"] = (
+        str(payload.get("buy_route_name") or route_name or payload.get("effective_route") or "").strip()
+        or None
+    )
+    return payload
 
 
 def _compute_buy_diagnostics(
@@ -900,7 +996,7 @@ def _evaluate_trend_pullback_buy(
     cfg,
     decision,
 ):
-    action, reason = evaluate_trend_pullback_route_entry(
+    action, reason = evaluate_trend_pullback_entry(
         snapshot=snapshot,
         price=price,
         momentum=momentum,
@@ -947,7 +1043,7 @@ def _evaluate_breakout_momentum_buy(
     cfg,
     decision,
 ):
-    action, reason = evaluate_breakout_momentum_route_entry(
+    action, reason = evaluate_breakout_momentum_entry(
         snapshot=snapshot,
         price=price,
         momentum=momentum,
@@ -978,6 +1074,7 @@ def _evaluate_sell(
     price,
     momentum,
     entry,
+    entry_ts,
     z_score,
     first_activation,
     initial_lock,
@@ -989,12 +1086,15 @@ def _evaluate_sell(
     save_strategy_state,
     decision,
     logger,
+    stale_exit_max_hold_seconds=0,
+    stale_exit_min_pnl_pct=0.0025,
 ):
     return _evaluate_sell_impl(
         symbol=symbol,
         price=price,
         momentum=momentum,
         entry=entry,
+        entry_ts=entry_ts,
         z_score=z_score,
         first_activation=first_activation,
         initial_lock=initial_lock,
@@ -1009,6 +1109,8 @@ def _evaluate_sell(
         save_strategy_state=save_strategy_state,
         decision=decision,
         logger=logger,
+        stale_exit_max_hold_seconds=stale_exit_max_hold_seconds,
+        stale_exit_min_pnl_pct=stale_exit_min_pnl_pct,
     )
 
 

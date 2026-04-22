@@ -1033,7 +1033,6 @@ def update_symbols():
     if isinstance(cfg_before, dict):
         old_payload = {
             "symbols": cfg_before.get("symbols"),
-            "symbol_enabled": cfg_before.get("symbol_enabled"),
             "symbol_buy_enabled": cfg_before.get("symbol_buy_enabled"),
             "symbol_sell_enabled": cfg_before.get("symbol_sell_enabled"),
         }
@@ -1047,7 +1046,6 @@ def update_symbols():
         if symbol not in symbols:
             symbols.append(symbol)
 
-        legacy_map = _parse_enabled_map(cfg.get("symbol_enabled", {}))
         buy_map = _parse_enabled_map(cfg.get("symbol_buy_enabled", {}))
         sell_map = _parse_enabled_map(cfg.get("symbol_sell_enabled", {}))
 
@@ -1058,10 +1056,8 @@ def update_symbols():
         else:
             buy_map[symbol] = enabled
             sell_map[symbol] = enabled
-            legacy_map[symbol] = enabled
 
         cfg["symbols"] = symbols
-        cfg["symbol_enabled"] = legacy_map
         cfg["symbol_buy_enabled"] = buy_map
         cfg["symbol_sell_enabled"] = sell_map
 
@@ -1072,7 +1068,6 @@ def update_symbols():
             "symbols": symbols,
             "symbol_buy_enabled": buy_map,
             "symbol_sell_enabled": sell_map,
-            "symbol_enabled": legacy_map,
         }
         return cfg
 
@@ -1121,7 +1116,6 @@ def update_universe_track():
         symbols = _normalize_symbols(cfg.get("symbols", []))
         buy_map = _parse_enabled_map(cfg.get("symbol_buy_enabled", {}))
         sell_map = _parse_enabled_map(cfg.get("symbol_sell_enabled", {}))
-        legacy_map = _parse_enabled_map(cfg.get("symbol_enabled", {}))
         token_regimes = cfg.get("token_regimes")
         if not isinstance(token_regimes, dict):
             token_regimes = {}
@@ -1143,12 +1137,10 @@ def update_universe_track():
                 symbols.append(symbol)
             buy_map[symbol] = True
             sell_map[symbol] = True
-            legacy_map[symbol] = True
         else:
             symbols = [item for item in symbols if item != symbol]
             buy_map.pop(symbol, None)
             sell_map.pop(symbol, None)
-            legacy_map.pop(symbol, None)
             token_regimes.pop(symbol, None)
             symbol_strategies.pop(symbol, None)
             strategy_overrides.pop(symbol, None)
@@ -1157,7 +1149,6 @@ def update_universe_track():
         cfg["symbols"] = symbols
         cfg["symbol_buy_enabled"] = buy_map
         cfg["symbol_sell_enabled"] = sell_map
-        cfg["symbol_enabled"] = legacy_map
         cfg["token_regimes"] = token_regimes
         cfg["symbol_strategies"] = symbol_strategies
         cfg["strategy_overrides"] = strategy_overrides
@@ -1170,7 +1161,6 @@ def update_universe_track():
             "symbols": symbols,
             "symbol_buy_enabled": buy_map,
             "symbol_sell_enabled": sell_map,
-            "symbol_enabled": legacy_map,
         }
         return cfg
 

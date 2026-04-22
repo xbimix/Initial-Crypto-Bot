@@ -39,6 +39,6 @@ Behavior-sensitive modules (directly affect trading outcomes):
 ## Baseline Inputs
 
 - Strategy hash baseline file: `crypto_bot/strategy/strategy_hash_baseline.json`
-- Runtime baseline snapshots: `crypto_bot/state/backups/*`
+- Runtime baseline snapshots: `.runtime/state/backups/*`
 - Replay fixture from real logs: `crypto_bot/tests/fixtures/strategy_replay_cases.json`
-- Replay diff artifacts: `crypto_bot/state/reports/strategy_replay_*.json`
+- Replay diff artifacts: `.runtime/state/reports/strategy_replay_*.json`

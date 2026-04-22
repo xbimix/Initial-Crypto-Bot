@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from strategy.route_expectancy import adaptive_threshold_delta
 from utils.token_regimes import (
     TOKEN_REGIME_BREAKOUT_MOMENTUM,
     TOKEN_REGIME_MEAN_REVERSION,
@@ -450,7 +451,7 @@ def _auto_min_confirmations(cfg: dict[str, Any]) -> int:
 
 def _auto_use_multitimeframe_advisory(cfg: dict[str, Any]) -> bool:
     router = _router_cfg(cfg)
-    return _as_bool(router.get("auto_use_multitimeframe_advisory"), False)
+    return _as_bool(router.get("auto_use_multitimeframe_advisory"), True)
 
 
 def _auto_min_stability_score(cfg: dict[str, Any]) -> float:
@@ -463,7 +464,7 @@ def _auto_min_persistence_score(cfg: dict[str, Any]) -> float:
 
 def _auto_use_route_quality_gates(cfg: dict[str, Any]) -> bool:
     router = _router_cfg(cfg)
-    return _as_bool(router.get("auto_use_route_quality_gates"), True)
+    return _as_bool(router.get("auto_use_route_quality_gates"), False)
 
 
 def _auto_strategy_min_confidence_score(cfg: dict[str, Any], strategy: str) -> float:
@@ -536,6 +537,82 @@ def _route_share_pct(snapshot: dict[str, Any], strategy: str) -> float | None:
     return (target / total) * 100.0
 
 
+def _bounded_score(value: float) -> float:
+    return max(0.0, min(float(value), 100.0))
+
+
+def _route_expectancy_stats(route_expectancy_state: dict[str, Any] | None, strategy: str) -> dict[str, Any]:
+    if not isinstance(route_expectancy_state, dict):
+        return {}
+    raw = route_expectancy_state.get(strategy)
+    if isinstance(raw, dict):
+        return raw
+    return {}
+
+
+def _router_expectancy_thresholds(cfg: dict[str, Any], strategy: str) -> tuple[int, float]:
+    router = _router_cfg(cfg)
+    if strategy == STRATEGY_TREND_PULLBACK:
+        min_trades = int(_as_float(router.get("trend_min_closed_trades")) or 8)
+        expectancy = float(_as_float(router.get("trend_min_expectancy_usd")) or 0.25)
+        return max(min_trades, 1), abs(expectancy)
+    if strategy == STRATEGY_BREAKOUT_MOMENTUM:
+        min_trades = int(_as_float(router.get("breakout_min_closed_trades")) or 12)
+        expectancy = float(_as_float(router.get("breakout_min_expectancy_usd")) or 0.5)
+        return max(min_trades, 1), abs(expectancy)
+    return 0, 0.0
+
+
+def _route_quality_expectancy_delta(
+    *,
+    cfg: dict[str, Any],
+    snapshot: dict[str, Any],
+    strategy: str,
+) -> tuple[float, dict[str, Any] | None]:
+    payload = _route_quality_payload(snapshot)
+    windows = payload.get("windows")
+    if not isinstance(windows, dict):
+        return 0.0, None
+    stats_30d = windows.get("30d")
+    if not isinstance(stats_30d, dict):
+        return 0.0, None
+    row = stats_30d.get(strategy)
+    if not isinstance(row, dict):
+        return 0.0, None
+
+    sell_count = int(_as_float(row.get("sell_count")) or 0)
+    expectancy_usd = _as_float(row.get("expectancy_usd"))
+    min_trades, baseline_expectancy = _router_expectancy_thresholds(cfg, strategy)
+    min_samples = max(min_trades, 10)
+    if sell_count < min_samples or expectancy_usd is None:
+        return 0.0, {
+            "source": "route_quality_30d",
+            "sell_count": sell_count,
+            "expectancy_usd": expectancy_usd,
+            "min_samples": min_samples,
+            "baseline_expectancy_usd": baseline_expectancy,
+            "insufficient_samples": True,
+        }
+
+    baseline = max(float(baseline_expectancy), 1e-9)
+    delta = 0.0
+    if expectancy_usd >= (2.0 * baseline):
+        delta = -4.0
+    elif expectancy_usd >= baseline:
+        delta = -2.0
+    elif expectancy_usd <= (-2.0 * baseline):
+        delta = 6.0
+    elif expectancy_usd <= -baseline:
+        delta = 3.0
+    return delta, {
+        "source": "route_quality_30d",
+        "sell_count": sell_count,
+        "expectancy_usd": expectancy_usd,
+        "min_samples": min_samples,
+        "baseline_expectancy_usd": baseline,
+    }
+
+
 def _auto_max_route_age_seconds(cfg: dict[str, Any]) -> float:
     router = _router_cfg(cfg)
     age = _as_float(router.get("auto_max_route_age_seconds"))
@@ -546,7 +623,7 @@ def _auto_max_route_age_seconds(cfg: dict[str, Any]) -> float:
 
 def _auto_require_core_candle_readiness(cfg: dict[str, Any]) -> bool:
     router = _router_cfg(cfg)
-    return _as_bool(router.get("auto_require_core_candle_readiness"), True)
+    return _as_bool(router.get("auto_require_core_candle_readiness"), False)
 
 
 def _build_auto_router_thresholds(cfg: dict[str, Any]) -> AutoRouterThresholds:
@@ -919,6 +996,7 @@ def resolve_entry_route(
     snapshot: dict[str, Any],
     default_strategy: str,
     shadow_state: dict[str, Any] | None = None,
+    route_expectancy_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     configured_regime = _configured_regime(cfg, symbol)
     manual_scalper_toggle = _is_manual_scalper_toggle_enabled(cfg, symbol)
@@ -932,6 +1010,9 @@ def resolve_entry_route(
     promotion_reason: str | None = None
     route_share_pct: float | None = None
     route_share_cap_pct: float | None = None
+    adaptive_threshold_delta_score: float = 0.0
+    adaptive_threshold_source: str | None = None
+    adaptive_threshold_stats: dict[str, Any] | None = None
 
     result = {
         "configured_regime": configured_regime,
@@ -995,6 +1076,8 @@ def resolve_entry_route(
                 "min_persistence_score": min_persistence_score,
                 "max_route_age_seconds": max_route_age_seconds,
                 "min_shadow_confirmations": min_confirmations if "min_confirmations" in locals() else None,
+                "adaptive_threshold_delta_score": adaptive_threshold_delta_score,
+                "adaptive_threshold_source": adaptive_threshold_source,
             },
             "observed": {
                 "detected_regime": result.get("detected_regime"),
@@ -1014,6 +1097,7 @@ def resolve_entry_route(
                 "route_quality_promotion_reason": promotion_reason,
                 "route_share_pct": route_share_pct,
                 "route_share_cap_pct": route_share_cap_pct,
+                "adaptive_threshold_stats": adaptive_threshold_stats,
             },
             "outcome": {
                 "effective_strategy": result.get("effective_strategy"),
@@ -1231,6 +1315,35 @@ def resolve_entry_route(
     min_stability_score = thresholds.min_stability(mapped_strategy)
     min_persistence_score = thresholds.min_persistence(mapped_strategy)
 
+    if mapped_strategy in {STRATEGY_TREND_PULLBACK, STRATEGY_BREAKOUT_MOMENTUM}:
+        route_stats = _route_expectancy_stats(route_expectancy_state, mapped_strategy)
+        adaptive_delta = adaptive_threshold_delta(
+            route=mapped_strategy,
+            route_stats=route_stats,
+        )
+        if route_stats:
+            adaptive_threshold_source = "route_expectancy_state"
+            adaptive_threshold_stats = {
+                "source": "route_expectancy_state",
+                "trades": int(_as_float(route_stats.get("trades")) or 0),
+                "expectancy_pct": _as_float(route_stats.get("expectancy_pct")),
+            }
+        if adaptive_delta == 0.0:
+            fallback_delta, fallback_stats = _route_quality_expectancy_delta(
+                cfg=cfg,
+                snapshot=snapshot,
+                strategy=mapped_strategy,
+            )
+            if fallback_stats is not None:
+                adaptive_threshold_source = str(fallback_stats.get("source") or "route_quality_30d")
+                adaptive_threshold_stats = fallback_stats
+                adaptive_delta = fallback_delta
+        adaptive_threshold_delta_score = float(adaptive_delta)
+        if adaptive_delta != 0.0:
+            min_confidence_score = _bounded_score(min_confidence_score + adaptive_delta)
+            min_stability_score = _bounded_score(min_stability_score + (adaptive_delta * 0.5))
+            min_persistence_score = _bounded_score(min_persistence_score + (adaptive_delta * 0.5))
+
     if confidence_score is None or confidence_score < min_confidence_score:
         result["auto_fallback_reason"] = "low_confidence"
         result["fallback_reason"] = result["auto_fallback_reason"]
@@ -1256,7 +1369,7 @@ def resolve_entry_route(
         promoted_state = promoted
         if not promoted:
             result["auto_fallback_reason"] = "route_not_promoted"
-            result["fallback_reason"] = f"route_not_promoted:{promotion_reason}"
+            result["fallback_reason"] = result["auto_fallback_reason"]
             _mark_not_ready(result["fallback_reason"], gate="route_not_promoted")
             return result
 

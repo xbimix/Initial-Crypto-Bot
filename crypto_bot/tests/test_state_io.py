@@ -26,6 +26,14 @@ def test_write_and_read_json_file_roundtrip(tmp_path: Path):
     assert actual == expected
 
 
+def test_read_json_file_supports_utf8_bom(tmp_path: Path):
+    path = tmp_path / "bom.json"
+    path.write_bytes(b"\xef\xbb\xbf" + b'{"enabled": true, "value": 42}')
+    actual = state_io.read_json_file(path, strict=True)
+    assert actual["enabled"] is True
+    assert actual["value"] == 42
+
+
 def test_mutate_json_file_applies_update(tmp_path: Path):
     path = tmp_path / "config.json"
     state_io.write_json_file(path, {"counter": 1})

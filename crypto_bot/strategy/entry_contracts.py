@@ -4,6 +4,7 @@ import time
 
 from strategy import strategy_runtime_state as rt
 from strategy.route_metadata import cleanup_symbol as cleanup_route_metadata_symbol
+from strategy.route_expectancy import record_route_outcome
 
 
 def _normalize_strategy(value, fallback: str = "mean_reversion") -> str:
@@ -20,6 +21,13 @@ def _safe_confidence_value(value, *, parse_numeric):
     if 0 <= parsed <= 1.0:
         parsed *= 100.0
     return max(0.0, min(parsed, 100.0))
+
+
+def _as_float(value, default=None):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _exit_policy_for_route(route: str) -> str:
@@ -176,6 +184,31 @@ def _cleanup(symbol, price, *, route_metadata_maps):
     cleanup_route_metadata_symbol(symbol, route_metadata_maps)
 
 
+def _record_exit_route_outcome(symbol: str, exit_price: float) -> None:
+    entry_price = _as_float(rt._entry_price.get(symbol), None)
+    if entry_price is None or entry_price <= 0:
+        return
+
+    exit_value = _as_float(exit_price, None)
+    if exit_value is None or exit_value <= 0:
+        return
+
+    route = _normalize_strategy(rt._entry_route.get(symbol), fallback="mean_reversion")
+    entry_ts = _as_float(rt._entry_time.get(symbol), None)
+    hold_seconds = 0.0
+    if entry_ts is not None and entry_ts > 0:
+        hold_seconds = max(time.time() - entry_ts, 0.0)
+    pnl_pct = (exit_value - entry_price) / entry_price
+    record_route_outcome(
+        state=rt._route_expectancy_state,
+        symbol=symbol,
+        route=route,
+        pnl_pct=pnl_pct,
+        hold_seconds=hold_seconds,
+    )
+
+
 def confirm_exit(symbol: str, price: float, *, route_metadata_maps, save_strategy_state):
+    _record_exit_route_outcome(symbol, price)
     _cleanup(symbol, price, route_metadata_maps=route_metadata_maps)
     save_strategy_state()

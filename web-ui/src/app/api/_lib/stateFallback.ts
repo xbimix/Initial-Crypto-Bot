@@ -656,7 +656,6 @@ export async function updateUniverseTrackLocal(body: UniverseTrackBody) {
     let symbols = normalizeSymbols(cfg.symbols);
     const buyMap = parseEnabledMap(cfg.symbol_buy_enabled);
     const sellMap = parseEnabledMap(cfg.symbol_sell_enabled);
-    const legacyMap = parseEnabledMap(cfg.symbol_enabled);
     const tokenRegimes = parseTokenRegimeMap(cfg.token_regimes);
     const symbolStrategies = toObject(cfg.symbol_strategies);
     const strategyOverrides = toObject(cfg.strategy_overrides);
@@ -669,12 +668,10 @@ export async function updateUniverseTrackLocal(body: UniverseTrackBody) {
       }
       buyMap[symbol] = true;
       sellMap[symbol] = true;
-      legacyMap[symbol] = true;
     } else {
       symbols = symbols.filter((value) => value !== symbol);
       delete buyMap[symbol];
       delete sellMap[symbol];
-      delete legacyMap[symbol];
       delete tokenRegimes[symbol];
       delete symbolStrategies[symbol];
       delete strategyOverrides[symbol];
@@ -684,7 +681,6 @@ export async function updateUniverseTrackLocal(body: UniverseTrackBody) {
     cfg.symbols = symbols;
     cfg.symbol_buy_enabled = buyMap;
     cfg.symbol_sell_enabled = sellMap;
-    cfg.symbol_enabled = legacyMap;
     cfg.token_regimes = tokenRegimes;
     cfg.symbol_strategies = symbolStrategies;
     cfg.strategy_overrides = strategyOverrides;
@@ -702,7 +698,6 @@ export async function updateUniverseTrackLocal(body: UniverseTrackBody) {
       symbols,
       symbol_buy_enabled: buyMap,
       symbol_sell_enabled: sellMap,
-      symbol_enabled: legacyMap,
       fallback: true,
     };
     await appendAuditEvent("universe_track_update_fallback", {
@@ -743,7 +738,6 @@ export async function updateSymbolsLocal(body: SymbolsBody) {
       symbols.push(symbol);
     }
 
-    const legacyMap = parseEnabledMap(cfg.symbol_enabled);
     const buyMap = parseEnabledMap(cfg.symbol_buy_enabled);
     const sellMap = parseEnabledMap(cfg.symbol_sell_enabled);
 
@@ -754,11 +748,9 @@ export async function updateSymbolsLocal(body: SymbolsBody) {
     } else {
       buyMap[symbol] = enabled;
       sellMap[symbol] = enabled;
-      legacyMap[symbol] = enabled;
     }
 
     cfg.symbols = symbols;
-    cfg.symbol_enabled = legacyMap;
     cfg.symbol_buy_enabled = buyMap;
     cfg.symbol_sell_enabled = sellMap;
     await writeJsonAtomic(CONFIG_PATH, cfg);
@@ -770,7 +762,6 @@ export async function updateSymbolsLocal(body: SymbolsBody) {
       symbols,
       symbol_buy_enabled: buyMap,
       symbol_sell_enabled: sellMap,
-      symbol_enabled: legacyMap,
       fallback: true,
     };
     await appendAuditEvent("symbols_update_fallback", {

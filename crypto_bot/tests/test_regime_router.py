@@ -680,7 +680,12 @@ def test_auto_high_confidence_routes_to_breakout_momentum():
 def test_auto_trend_route_blocked_when_not_promoted():
     cfg = _base_cfg()
     cfg["token_regimes"] = {"TEST-USD": "AUTO"}
-    cfg["strategy_defaults"] = {"router": {"auto_use_multitimeframe_advisory": True}}
+    cfg["strategy_defaults"] = {
+        "router": {
+            "auto_use_multitimeframe_advisory": True,
+            "auto_use_route_quality_gates": True,
+        }
+    }
 
     decision = se.generate_decision(
         _snapshot(

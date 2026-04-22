@@ -87,10 +87,24 @@ class RuntimeSafetyService:
     def failure_limits(self) -> tuple[int, int]:
         return self._failure_limits()
 
-    def _freshness_guard_limits(self) -> tuple[bool, int]:
+    @staticmethod
+    def _normalize_execution_mode(value: Any) -> str:
+        if isinstance(value, str):
+            token = value.strip().lower()
+            if token:
+                return token
+        return "paper"
+
+    @staticmethod
+    def _is_live_like_mode(execution_mode: str) -> bool:
+        token = str(execution_mode or "").strip().lower()
+        return token not in {"paper", "sim", "simulation", "backtest", "dry_run", "dry-run", "test"}
+
+    def _freshness_guard_limits(self) -> tuple[bool, int, str, str]:
         market_data_cfg = self.cfg.get("market_data", {})
         if not isinstance(market_data_cfg, dict):
-            return True, 3
+            execution_mode = self._normalize_execution_mode(self.cfg.get("execution_mode"))
+            return True, 3, "always", execution_mode
         slo_cfg = market_data_cfg.get("freshness_slo", {})
         if not isinstance(slo_cfg, dict):
             slo_cfg = {}
@@ -102,7 +116,21 @@ class RuntimeSafetyService:
             enabled = str(enabled_raw).strip().lower() not in {"0", "false", "no", "off"}
         threshold_raw = self._safe_float(slo_cfg.get("entry_block_after_degraded_cycles"), 3)
         threshold = max(int(threshold_raw or 3), 1)
-        return enabled, threshold
+
+        mode_raw = str(slo_cfg.get("entry_block_mode", "always") or "").strip().lower()
+        if mode_raw not in {"always", "deploy_only", "paper_only", "never", "off"}:
+            mode_raw = "always"
+        execution_mode = self._normalize_execution_mode(self.cfg.get("execution_mode"))
+        live_like = self._is_live_like_mode(execution_mode)
+        if mode_raw in {"never", "off"}:
+            mode_enabled = False
+        elif mode_raw == "deploy_only":
+            mode_enabled = live_like
+        elif mode_raw == "paper_only":
+            mode_enabled = not live_like
+        else:
+            mode_enabled = True
+        return bool(enabled and mode_enabled), threshold, mode_raw, execution_mode
 
     def _emit(self, name: str, result: RuntimeSafetyResult):
         if not callable(self._event_hook):
@@ -116,7 +144,7 @@ class RuntimeSafetyService:
         now = float(now_epoch) if now_epoch is not None else time.time()
         daily_loss_state = self.risk.daily_loss_state()
         max_failures, pause_seconds = self._failure_limits()
-        freshness_guard_enabled, freshness_block_after = self._freshness_guard_limits()
+        freshness_guard_enabled, freshness_block_after, freshness_mode, execution_mode = self._freshness_guard_limits()
 
         counters: dict[str, float | int | str | None] = {
             "consecutive_execution_failures": self._consecutive_execution_failures,
@@ -132,6 +160,8 @@ class RuntimeSafetyService:
             "daily_loss_limit_usd": self._safe_float(daily_loss_state.get("limit_usd"), 0.0) or 0.0,
             "freshness_entry_block_enabled": freshness_guard_enabled,
             "freshness_block_after_cycles": freshness_block_after,
+            "freshness_entry_block_mode": freshness_mode,
+            "execution_mode": execution_mode,
         }
 
         remaining = int(self._execution_fail_pause_until - now)
@@ -215,7 +245,7 @@ class RuntimeSafetyService:
         return result
 
     def record_freshness_slo(self, slo: dict | None) -> RuntimeSafetyResult:
-        freshness_guard_enabled, freshness_block_after = self._freshness_guard_limits()
+        freshness_guard_enabled, freshness_block_after, freshness_mode, execution_mode = self._freshness_guard_limits()
         if not isinstance(slo, dict):
             slo = {}
         status = str(slo.get("status") or "UNKNOWN").strip().upper() or "UNKNOWN"
@@ -252,6 +282,8 @@ class RuntimeSafetyService:
             thresholds={
                 "freshness_entry_block_enabled": freshness_guard_enabled,
                 "freshness_block_after_cycles": freshness_block_after,
+                "freshness_entry_block_mode": freshness_mode,
+                "execution_mode": execution_mode,
             },
         )
         if previous_active != self._freshness_guard_active:

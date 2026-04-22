@@ -2,13 +2,20 @@ param(
     [switch]$Watch,
     [int]$RestartDelaySeconds = 3,
     [string]$PythonPath = "",
-    [string]$InitialRestartCause = "manual"
+    [string]$InitialRestartCause = "manual",
+    [ValidateSet("paper", "deploy")][string]$RuntimeMode = "paper"
 )
 
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
-$stateDir = Join-Path $repoRoot "crypto_bot\state"
+$runtimeDataDir = if (-not [string]::IsNullOrWhiteSpace($env:BOT_DATA_DIR)) {
+    $env:BOT_DATA_DIR
+}
+else {
+    Join-Path $repoRoot ".runtime"
+}
+$stateDir = Join-Path $runtimeDataDir "state"
 $runtimeEventsPath = Join-Path $stateDir "runtime_events.jsonl"
 if (-not $PythonPath) {
     $PythonPath = Join-Path $repoRoot ".venv\Scripts\python.exe"
@@ -53,6 +60,25 @@ $attempt = 0
 
 Push-Location $repoRoot
 try {
+    if ($RuntimeMode -eq "deploy") {
+        $env:REVBOT_DEPLOYMENT_MODE = "1"
+    }
+    else {
+        $env:REVBOT_DEPLOYMENT_MODE = "0"
+    }
+    $env:REVBOT_ENABLE_LEGACY_STATE_FALLBACK = "0"
+
+    # Ensure crypto_bot is importable when control entrypoint is launched from
+    # crypto_bot/control (run_control.py imports top-level modules like `api`).
+    $cryptoBotRoot = Join-Path $repoRoot "crypto_bot"
+    $existingPythonPath = [string]$env:PYTHONPATH
+    $pythonPathEntries = @($cryptoBotRoot)
+    if (-not [string]::IsNullOrWhiteSpace($existingPythonPath)) {
+        $pythonPathEntries += ($existingPythonPath -split ";")
+    }
+    $env:PYTHONPATH = (($pythonPathEntries | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Select-Object -Unique) -join ";")
+    $env:pythonpath = $env:PYTHONPATH
+
     # Ensure control API runtime calls do not inherit broken local proxy settings.
     foreach ($proxyVar in @("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy")) {
         if (Test-Path "Env:$proxyVar") {
@@ -75,6 +101,7 @@ try {
             watch_mode = [bool]$Watch
             restart_cause = $restartCause
             attempt = $attempt
+            runtime_mode = $RuntimeMode
         }
 
         & $PythonPath $target

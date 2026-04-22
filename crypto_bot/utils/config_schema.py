@@ -306,16 +306,93 @@ def normalize_config(
     normalize_int(cfg, "min_trades", 3, "min_trades", min_value=1)
     normalize_int(cfg, "loop_sleep", 10, "loop_sleep", min_value=1)
     set_default(cfg, "execution_mode", "paper", "execution_mode")
-    set_default(cfg, "log_level", "INFO", "log_level")
+    if "mode" in cfg:
+        cfg.pop("mode", None)
+        changed = True
+        warn("mode deprecated; removed; use execution_mode")
+    if "log_level" in cfg:
+        cfg.pop("log_level", None)
+        changed = True
+        warn("log_level deprecated; removed; use REVBOT_LOG_LEVEL environment variable")
 
     normalize_symbol_list()
-    normalize_bool_map("symbol_enabled")
     normalize_bool_map("symbol_buy_enabled")
     normalize_bool_map("symbol_sell_enabled")
+    legacy_symbol_enabled = cfg.get("symbol_enabled")
+    if legacy_symbol_enabled is not None:
+        migrated_map: dict[str, bool] = {}
+        if isinstance(legacy_symbol_enabled, dict):
+            for raw_symbol, raw_enabled in legacy_symbol_enabled.items():
+                if not isinstance(raw_symbol, str):
+                    changed = True
+                    continue
+                symbol = raw_symbol.strip().upper()
+                if not symbol:
+                    changed = True
+                    continue
+                migrated_map[symbol] = _to_bool(raw_enabled, True)
+        else:
+            warn("symbol_enabled invalid; removed")
+
+        buy_map = cfg.get("symbol_buy_enabled", {})
+        sell_map = cfg.get("symbol_sell_enabled", {})
+        if not isinstance(buy_map, dict):
+            buy_map = {}
+            cfg["symbol_buy_enabled"] = buy_map
+            changed = True
+        if not isinstance(sell_map, dict):
+            sell_map = {}
+            cfg["symbol_sell_enabled"] = sell_map
+            changed = True
+
+        for symbol, enabled in migrated_map.items():
+            if symbol not in buy_map:
+                buy_map[symbol] = enabled
+                changed = True
+            if symbol not in sell_map:
+                sell_map[symbol] = enabled
+                changed = True
+
+        cfg.pop("symbol_enabled", None)
+        changed = True
+        warn("symbol_enabled deprecated; migrated to symbol_buy_enabled/symbol_sell_enabled")
+
     normalize_token_regime_map()
 
     # Strategy defaults / routing safety flags.
     strategy_defaults = ensure_dict(cfg, "strategy_defaults", "strategy_defaults")
+    raw_route_gates = strategy_defaults.get("route_gates")
+    if raw_route_gates is None:
+        route_gates: dict[str, Any] = {}
+    elif isinstance(raw_route_gates, dict):
+        route_gates = raw_route_gates
+    else:
+        route_gates = {}
+        strategy_defaults["route_gates"] = route_gates
+        changed = True
+        warn("strategy_defaults.route_gates invalid; reset to empty object")
+    legacy_route_gates = cfg.get("route_gates")
+    if isinstance(legacy_route_gates, dict):
+        for route_name, route_cfg in legacy_route_gates.items():
+            if not isinstance(route_cfg, dict):
+                continue
+            current_route_cfg = route_gates.get(route_name)
+            if not isinstance(current_route_cfg, dict):
+                current_route_cfg = {}
+            merged_route_cfg = dict(current_route_cfg)
+            for key, value in route_cfg.items():
+                if key not in merged_route_cfg:
+                    merged_route_cfg[key] = value
+            if route_gates.get(route_name) != merged_route_cfg:
+                route_gates[route_name] = merged_route_cfg
+                changed = True
+        if strategy_defaults.get("route_gates") != route_gates:
+            strategy_defaults["route_gates"] = route_gates
+            changed = True
+        cfg.pop("route_gates", None)
+        changed = True
+        warn("route_gates deprecated; migrated to strategy_defaults.route_gates")
+
     raw_tuning_profile = strategy_defaults.get("tuning_profile")
     allowed_tuning_profiles = {"conservative", "balanced", "aggressive"}
     if raw_tuning_profile is None:
@@ -357,19 +434,19 @@ def normalize_config(
     normalize_bool(
         router,
         "auto_use_multitimeframe_advisory",
-        False,
+        True,
         "strategy_defaults.router.auto_use_multitimeframe_advisory",
     )
     normalize_bool(
         router,
         "auto_use_route_quality_gates",
-        True,
+        False,
         "strategy_defaults.router.auto_use_route_quality_gates",
     )
     normalize_bool(
         router,
         "auto_require_core_candle_readiness",
-        True,
+        False,
         "strategy_defaults.router.auto_require_core_candle_readiness",
     )
     normalize_float(
@@ -398,7 +475,7 @@ def normalize_config(
     normalize_float(
         router,
         "auto_trend_min_confidence",
-        74.0,
+        72.0,
         "strategy_defaults.router.auto_trend_min_confidence",
         min_value=0.0,
         max_value=100.0,
@@ -406,7 +483,7 @@ def normalize_config(
     normalize_float(
         router,
         "auto_trend_min_stability",
-        68.0,
+        55.0,
         "strategy_defaults.router.auto_trend_min_stability",
         min_value=0.0,
         max_value=100.0,
@@ -414,7 +491,7 @@ def normalize_config(
     normalize_float(
         router,
         "auto_trend_min_persistence",
-        68.0,
+        55.0,
         "strategy_defaults.router.auto_trend_min_persistence",
         min_value=0.0,
         max_value=100.0,
@@ -422,7 +499,7 @@ def normalize_config(
     normalize_float(
         router,
         "auto_breakout_min_confidence",
-        82.0,
+        72.0,
         "strategy_defaults.router.auto_breakout_min_confidence",
         min_value=0.0,
         max_value=100.0,
@@ -430,7 +507,7 @@ def normalize_config(
     normalize_float(
         router,
         "auto_breakout_min_stability",
-        76.0,
+        55.0,
         "strategy_defaults.router.auto_breakout_min_stability",
         min_value=0.0,
         max_value=100.0,
@@ -438,7 +515,7 @@ def normalize_config(
     normalize_float(
         router,
         "auto_breakout_min_persistence",
-        76.0,
+        55.0,
         "strategy_defaults.router.auto_breakout_min_persistence",
         min_value=0.0,
         max_value=100.0,
@@ -446,7 +523,7 @@ def normalize_config(
     normalize_float(
         router,
         "auto_trend_max_route_share_pct",
-        35.0,
+        45.0,
         "strategy_defaults.router.auto_trend_max_route_share_pct",
         min_value=0.0,
         max_value=100.0,
@@ -454,7 +531,7 @@ def normalize_config(
     normalize_float(
         router,
         "auto_breakout_max_route_share_pct",
-        8.0,
+        12.0,
         "strategy_defaults.router.auto_breakout_max_route_share_pct",
         min_value=0.0,
         max_value=100.0,
@@ -462,7 +539,7 @@ def normalize_config(
     normalize_float(
         router,
         "auto_volatile_breakout_min",
-        86.0,
+        82.0,
         "strategy_defaults.router.auto_volatile_breakout_min",
         min_value=0.0,
         max_value=100.0,
@@ -470,7 +547,7 @@ def normalize_config(
     normalize_float(
         router,
         "auto_volatile_breakout_min_confidence",
-        80.0,
+        76.0,
         "strategy_defaults.router.auto_volatile_breakout_min_confidence",
         min_value=0.0,
         max_value=100.0,
@@ -1156,27 +1233,27 @@ def normalize_config(
     normalize_bool(
         market_data,
         "route_quality_guard_enabled",
-        True,
+        False,
         "market_data.route_quality_guard_enabled",
     )
     normalize_float(
         market_data,
         "route_quality_min_confidence",
-        75.0,
+        68.0,
         "market_data.route_quality_min_confidence",
         min_value=1.0,
     )
     normalize_float(
         market_data,
         "route_quality_min_stability",
-        60.0,
+        55.0,
         "market_data.route_quality_min_stability",
         min_value=1.0,
     )
     normalize_float(
         market_data,
         "route_quality_min_persistence",
-        60.0,
+        55.0,
         "market_data.route_quality_min_persistence",
         min_value=1.0,
     )
@@ -1314,6 +1391,17 @@ def normalize_config(
         True,
         "market_data.freshness_slo.entry_block_on_degraded",
     )
+    raw_entry_block_mode = str(
+        freshness_slo.get("entry_block_mode", "always") or ""
+    ).strip().lower()
+    allowed_entry_block_modes = {"always", "deploy_only", "paper_only", "never", "off"}
+    if raw_entry_block_mode not in allowed_entry_block_modes:
+        freshness_slo["entry_block_mode"] = "always"
+        changed = True
+        warn("market_data.freshness_slo.entry_block_mode invalid; defaulted to 'always'")
+    elif freshness_slo.get("entry_block_mode") != raw_entry_block_mode:
+        freshness_slo["entry_block_mode"] = raw_entry_block_mode
+        changed = True
     normalize_int(
         freshness_slo,
         "entry_block_after_degraded_cycles",

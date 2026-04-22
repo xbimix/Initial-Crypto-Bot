@@ -71,6 +71,46 @@ def test_candle_upsert_and_deduplication(tmp_path: Path):
     assert rows[1]["close"] == 2.3
 
 
+def test_candle_upsert_infers_close_time_when_missing(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+    symbol = "BTC-USD"
+    timeframe = "1m"
+    revolut_market_db.upsert_candles(
+        symbol,
+        timeframe,
+        [{"ts": 60_000, "open": 1.0, "high": 1.1, "low": 0.9, "close": 1.0, "volume": 1.0}],
+        db_path=db_path,
+    )
+    rows = revolut_market_db.get_candles(symbol, timeframe, db_path=db_path, ascending=True)
+    assert len(rows) == 1
+    assert rows[0]["close_time"] == 119_999
+
+
+def test_backfill_null_close_times_updates_existing_rows(tmp_path: Path):
+    db_path = _db_path(tmp_path)
+    symbol = "BTC-USD"
+    timeframe = "1m"
+    revolut_market_db.ensure_schema(db_path)
+    with revolut_market_db.connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO candles (
+                symbol, timeframe, open_time, close_time, open, high, low, close, volume, source, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (symbol, timeframe, 120_000, None, 1.0, 1.1, 0.9, 1.0, 1.0, "test", 1),
+        )
+        conn.commit()
+    pre = revolut_market_db.audit_close_time_integrity(db_path=db_path)
+    assert pre["null_close_time_count"] == 1
+    result = revolut_market_db.backfill_null_close_times(db_path=db_path, dry_run=False)
+    assert result["updated_rows"] == 1
+    rows = revolut_market_db.get_candles(symbol, timeframe, db_path=db_path, ascending=True)
+    assert rows[0]["close_time"] == 179_999
+    post = revolut_market_db.audit_close_time_integrity(db_path=db_path)
+    assert post["null_close_time_count"] == 0
+
+
 def test_normalize_revolut_candles():
     payload = {
         "data": [

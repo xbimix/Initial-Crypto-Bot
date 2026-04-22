@@ -28,11 +28,11 @@ Commands:
 
 Runtime JSON files are preserved for recovery and replay inputs, but they are not part of strategy hash drift checks:
 
-- `crypto_bot/state/paper_state.json`
-- `crypto_bot/state/strategy_state.json`
-- `crypto_bot/state/trades.json`
-- `crypto_bot/state/config.json`
-- `crypto_bot/state/state.json`
+- `.runtime/state/paper_state.json`
+- `.runtime/state/strategy_state.json`
+- `.runtime/state/trades.json`
+- `.runtime/state/config.json`
+- `.runtime/state/state.json`
 
 Snapshot command:
 
@@ -42,7 +42,7 @@ Snapshot command:
 
 Snapshots are stored under:
 
-- `crypto_bot/state/backups/YYYYMMDD-HHMMSS/`
+- `.runtime/state/backups/YYYYMMDD-HHMMSS/`
 
 ## Replay Baseline
 
@@ -51,7 +51,7 @@ Replay fixtures must come from real runtime artifacts (logs/snapshots) and be st
 Primary files:
 
 - Fixture: `crypto_bot/tests/fixtures/strategy_replay_cases.json`
-- Diff outputs: `crypto_bot/state/reports/strategy_replay_*.json`
+- Diff outputs: `.runtime/state/reports/strategy_replay_*.json`
 
 Commands:
 

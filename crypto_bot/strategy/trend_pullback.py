@@ -38,14 +38,33 @@ def _gate_value(
 def _trend_gate_defaults(cfg: dict[str, Any]) -> dict[str, Any]:
     strategy_defaults = _as_dict(cfg.get("strategy_defaults"))
     route_gates = _as_dict(strategy_defaults.get("route_gates"))
-    route_defaults = _as_dict(route_gates.get("trend_pullback"))
-    # Backward-compatible legacy top-level route_gates support.
-    legacy_route_gates = _as_dict(cfg.get("route_gates"))
-    legacy_route_defaults = _as_dict(legacy_route_gates.get("trend_pullback"))
-    merged = dict(route_defaults)
-    if legacy_route_defaults:
-        merged.update(legacy_route_defaults)
-    return merged
+    return _as_dict(route_gates.get("trend_pullback"))
+
+
+def _extract_prices(snapshot: dict[str, Any]) -> list[float]:
+    ohlcv_rows = snapshot.get("ohlcv")
+    if isinstance(ohlcv_rows, list):
+        prices_from_ohlcv: list[float] = []
+        for row in ohlcv_rows:
+            if not isinstance(row, dict):
+                continue
+            value = _as_float(row.get("close"), default=None)
+            if value is None or value <= 0:
+                continue
+            prices_from_ohlcv.append(float(value))
+        if len(prices_from_ohlcv) >= 12:
+            return prices_from_ohlcv
+
+    rows = snapshot.get("recent_prices")
+    if not isinstance(rows, list):
+        return []
+    prices: list[float] = []
+    for raw in rows:
+        value = _as_float(raw, default=None)
+        if value is None or value <= 0:
+            continue
+        prices.append(float(value))
+    return prices
 
 
 def evaluate_trend_pullback_entry(
@@ -69,6 +88,7 @@ def evaluate_trend_pullback_entry(
     range_pos: float | None,
     cfg: dict[str, Any],
 ) -> tuple[str, str]:
+    _ = (high_24h, low_24h, vwap, range_pos)
     data_quality_allowed, blocked_reason = evaluate_entry_data_quality(
         snapshot=snapshot,
         cfg=cfg,
@@ -114,7 +134,6 @@ def evaluate_trend_pullback_entry(
             min_atr,
         )
         or min_atr,
-        min_atr,
         0.0,
     )
     if atr_value is None or atr_value <= 0:
@@ -122,125 +141,75 @@ def evaluate_trend_pullback_entry(
     if atr_value < min_mode_atr:
         return "HOLD", "trend_pullback_volatility_too_low"
 
-    ema_50 = _as_float(snapshot.get("ema_50"), default=None)
-    ema_200 = _as_float(snapshot.get("ema_200"), default=None)
-    if ema_50 is None or ema_200 is None:
-        return "HOLD", "trend_pullback_missing_trend_baseline"
-    if ema_50 <= ema_200:
-        return "HOLD", "trend_pullback_not_uptrend"
-    ema_50_slope = _as_float(snapshot.get("ema_50_slope"), default=None)
-    min_ema_50_slope = _as_float(
-        _gate_value(
-            mode_cfg=mode_cfg,
-            gate_defaults=gate_defaults,
-            key="min_ema_50_slope",
-            fallback=0.0,
-        ),
+    prices = _extract_prices(snapshot)
+    if len(prices) < 12:
+        return "HOLD", "trend_pullback_insufficient_history"
+
+    short_window = prices[-3:]
+    medium_window = prices[-8:]
+    short_ma = sum(short_window) / len(short_window)
+    medium_ma = sum(medium_window) / len(medium_window)
+    if short_ma < medium_ma:
+        return "HOLD", "trend_pullback_no_uptrend"
+
+    prior_swing_window = prices[-12:-8]
+    trend_swing_window = prices[-8:-4]
+    prior_swing_high = max(prior_swing_window)
+    prior_swing_low = min(prior_swing_window)
+    trend_swing_high = max(trend_swing_window)
+    trend_swing_low = min(trend_swing_window)
+    higher_high_buffer = max(
+        _as_float(
+            _gate_value(
+                mode_cfg=mode_cfg,
+                gate_defaults=gate_defaults,
+                key="higher_high_buffer",
+                fallback=0.0005,
+            ),
+            0.0005,
+        )
+        or 0.0005,
         0.0,
     )
-    if ema_50_slope is not None and ema_50_slope < (min_ema_50_slope or 0.0):
-        return "HOLD", "trend_pullback_flat_or_negative_slope"
-
-    adx = _as_float(snapshot.get("adx"), default=None)
-    min_adx = _as_float(
-        _gate_value(
-            mode_cfg=mode_cfg,
-            gate_defaults=gate_defaults,
-            key="min_adx",
-            fallback=18.0,
-        ),
-        18.0,
-    )
-    if adx is not None and min_adx is not None and adx < min_adx:
-        return "HOLD", "trend_pullback_adx_too_low"
-
-    structure_prices_raw = snapshot.get("recent_prices", [])
-    structure_prices: list[float] = []
-    if isinstance(structure_prices_raw, list):
-        for value in structure_prices_raw:
-            numeric = _as_float(value, default=None)
-            if numeric is not None and numeric > 0:
-                structure_prices.append(float(numeric))
-    structure_lookback = int(
+    higher_low_buffer = max(
         _as_float(
             _gate_value(
                 mode_cfg=mode_cfg,
                 gate_defaults=gate_defaults,
-                key="structure_lookback_points",
-                fallback=8,
+                key="higher_low_buffer",
+                fallback=0.0002,
             ),
-            8,
+            0.0002,
         )
-        or 8
-    )
-    structure_lookback = max(structure_lookback, 6)
-    if len(structure_prices) < structure_lookback:
-        return "HOLD", "trend_pullback_insufficient_structure_history"
-
-    structure_window = structure_prices[-structure_lookback:]
-    half = structure_lookback // 2
-    older_window = structure_window[:half]
-    newer_window = structure_window[half:]
-    if len(older_window) < 2 or len(newer_window) < 2:
-        return "HOLD", "trend_pullback_insufficient_structure_history"
-
-    min_higher_high_pct = max(
-        _as_float(
-            _gate_value(
-                mode_cfg=mode_cfg,
-                gate_defaults=gate_defaults,
-                key="min_higher_high_pct",
-                fallback=0.001,
-            ),
-            0.001,
-        )
-        or 0.001,
+        or 0.0002,
         0.0,
     )
-    min_higher_low_pct = max(
+    if trend_swing_high <= (prior_swing_high * (1.0 + higher_high_buffer)):
+        return "HOLD", "trend_pullback_missing_higher_high"
+    if trend_swing_low <= (prior_swing_low * (1.0 + higher_low_buffer)):
+        return "HOLD", "trend_pullback_missing_higher_low"
+
+    prior_swing = max(prices[-8:-4])
+    pullback_low = min(prices[-4:])
+    min_pullback_pct = max(
         _as_float(
             _gate_value(
                 mode_cfg=mode_cfg,
                 gate_defaults=gate_defaults,
-                key="min_higher_low_pct",
-                fallback=0.0,
+                key="min_pullback_pct",
+                fallback=0.0025,
             ),
-            0.0,
+            0.0025,
         )
-        or 0.0,
+        or 0.0025,
         0.0,
     )
-    older_high = max(older_window)
-    newer_high = max(newer_window)
-    older_low = min(older_window)
-    newer_low = min(newer_window)
-    if newer_high <= older_high * (1.0 + min_higher_high_pct):
-        return "HOLD", "trend_pullback_no_higher_high"
-    if newer_low <= older_low * (1.0 + min_higher_low_pct):
-        return "HOLD", "trend_pullback_no_higher_low"
-
-    bounce_confirm_pct = max(
+    structure_break_pct = max(
         _as_float(
             _gate_value(
                 mode_cfg=mode_cfg,
                 gate_defaults=gate_defaults,
-                key="bounce_confirm_pct",
-                fallback=0.001,
-            ),
-            0.001,
-        )
-        or 0.001,
-        0.0,
-    )
-    if price < newer_low * (1.0 + bounce_confirm_pct):
-        return "HOLD", "trend_pullback_wait_bounce_confirmation"
-
-    pullback_buffer_pct = max(
-        _as_float(
-            _gate_value(
-                mode_cfg=mode_cfg,
-                gate_defaults=gate_defaults,
-                key="pullback_buffer_pct",
+                key="structure_break_pct",
                 fallback=0.005,
             ),
             0.005,
@@ -248,140 +217,70 @@ def evaluate_trend_pullback_entry(
         or 0.005,
         0.0,
     )
-    pullback_depth_pct = max(
-        _as_float(
-            _gate_value(
-                mode_cfg=mode_cfg,
-                gate_defaults=gate_defaults,
-                key="pullback_depth_pct",
-                fallback=0.03,
-            ),
-            0.03,
-        )
-        or 0.03,
-        0.0,
-    )
-    pullback_ceiling = ema_50 * (1.0 + pullback_buffer_pct)
-    pullback_floor = ema_50 * (1.0 - pullback_depth_pct)
+    if pullback_low >= (prior_swing * (1.0 - min_pullback_pct)):
+        return "HOLD", "trend_pullback_no_pullback"
+    if pullback_low <= (prior_swing_low * (1.0 - structure_break_pct)):
+        return "HOLD", "trend_pullback_pullback_broke_structure"
 
-    if price > pullback_ceiling:
-        return "HOLD", "trend_pullback_wait_pullback"
-    if price < pullback_floor:
-        return "HOLD", "trend_pullback_too_deep"
-
-    max_extension_pct = max(
-        _as_float(
-            _gate_value(
-                mode_cfg=mode_cfg,
-                gate_defaults=gate_defaults,
-                key="max_extension_above_ema50_pct",
-                fallback=0.015,
-            ),
-            0.015,
-        )
-        or 0.015,
-        0.0,
-    )
-    if ema_50 > 0 and price > ema_50 * (1.0 + max_extension_pct):
-        return "HOLD", "trend_pullback_too_extended_above_ema50"
-
-    rsi = _as_float(snapshot.get("rsi"), default=None)
-    rsi_min = _as_float(
-        _gate_value(
-            mode_cfg=mode_cfg,
-            gate_defaults=gate_defaults,
-            key="pullback_rsi_min",
-            fallback=20.0,
-        ),
-        20.0,
-    )
-    rsi_max = _as_float(
-        _gate_value(
-            mode_cfg=mode_cfg,
-            gate_defaults=gate_defaults,
-            key="pullback_rsi_max",
-            fallback=65.0,
-        ),
-        65.0,
-    )
-    if rsi is not None and rsi_min is not None and rsi < rsi_min:
-        return "HOLD", "trend_pullback_rsi_too_low"
-    if rsi is not None and rsi_max is not None and rsi > rsi_max:
-        return "HOLD", "trend_pullback_rsi_too_high"
-
-    max_range_pos = _as_float(
-        _gate_value(
-            mode_cfg=mode_cfg,
-            gate_defaults=gate_defaults,
-            key="max_range_pos",
-            fallback=0.82,
-        ),
-        0.82,
-    )
-    if max_range_pos is not None and range_pos is not None and range_pos > max_range_pos:
-        return "HOLD", "trend_pullback_too_extended"
-
-    max_entry_z = _as_float(
-        _gate_value(
-            mode_cfg=mode_cfg,
-            gate_defaults=gate_defaults,
-            key="max_entry_z_score",
-            fallback=0.85,
-        ),
-        0.85,
-    )
-    if max_entry_z is not None and z_score is not None and z_score > max_entry_z:
-        return "HOLD", "trend_pullback_overextended"
-
-    min_entry_score = max(
-        _as_float(
-            _gate_value(
-                mode_cfg=mode_cfg,
-                gate_defaults=gate_defaults,
-                key="min_score_to_buy",
-                fallback=min_score_to_buy,
-            ),
-            min_score_to_buy,
-        )
-        or min_score_to_buy,
-        0.0,
-    )
-    if float(score) < min_entry_score:
-        return "HOLD", "trend_pullback_score_below_threshold"
+    if price < short_ma:
+        return "HOLD", "trend_pullback_recovery_not_confirmed"
 
     min_momentum = _as_float(
         _gate_value(
             mode_cfg=mode_cfg,
             gate_defaults=gate_defaults,
             key="min_momentum",
-            fallback=0.05,
+            fallback=0.08,
         ),
-        0.05,
+        0.08,
     )
     if min_momentum is not None and float(momentum) < min_momentum:
         return "HOLD", "trend_pullback_momentum_not_ready"
 
-    max_momentum_decay = max(
+    prev_mom_value = _as_float(prev_momentum, default=None)
+    if prev_mom_value is not None and float(momentum) < prev_mom_value:
+        return "HOLD", "trend_pullback_momentum_weakening"
+
+    overextended_z_score = _as_float(
+        _gate_value(
+            mode_cfg=mode_cfg,
+            gate_defaults=gate_defaults,
+            key="overextended_z_score",
+            fallback=1.2,
+        ),
+        1.2,
+    )
+    if overextended_z_score is not None and z_score is not None and z_score > overextended_z_score:
+        return "HOLD", "trend_pullback_overextended"
+
+    score_mult = max(
         _as_float(
             _gate_value(
                 mode_cfg=mode_cfg,
                 gate_defaults=gate_defaults,
-                key="max_momentum_decay_ratio",
-                fallback=0.55,
+                key="score_multiplier",
+                fallback=0.9,
             ),
-            0.55,
+            0.9,
         )
-        or 0.55,
+        or 0.9,
         0.0,
     )
-    if prev_momentum is not None:
-        prev_momentum_value = float(prev_momentum)
-        if prev_momentum_value > 0 and float(momentum) < (prev_momentum_value * (1.0 - max_momentum_decay)):
-            return "HOLD", "trend_pullback_momentum_weakening"
+    score_floor = max(
+        _as_float(
+            _gate_value(
+                mode_cfg=mode_cfg,
+                gate_defaults=gate_defaults,
+                key="score_floor",
+                fallback=50.0,
+            ),
+            50.0,
+        )
+        or 50.0,
+        0.0,
+    )
+    threshold = max(float(min_score_to_buy) * score_mult, score_floor)
+    if float(score) < threshold:
+        return "HOLD", "trend_pullback_score_below_threshold"
 
-    if high_24h <= low_24h:
-        return "HOLD", "trend_pullback_insufficient_range_data"
-    if vwap is None:
-        return "HOLD", "trend_pullback_missing_vwap"
-
-    return "BUY", "trend_pullback_entry"
+    return "BUY", "trend_pullback_entry_v1"

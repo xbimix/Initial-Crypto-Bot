@@ -1,0 +1,107 @@
+{
+  "window_hours": 14,
+  "before_window": {
+    "start_epoch": 1776102110.8744373,
+    "end_epoch": 1776152510.8744373,
+    "total_cycles": 0,
+    "trades_executed": 0,
+    "execution_attempts": 0,
+    "entry_blocked_cycles": 0,
+    "exit_hold_cycles": 0,
+    "top_reasons": [],
+    "trades": {
+      "closed_trades": 0,
+      "realized_net_pnl_usd": 0,
+      "max_drawdown_pct": 0.0
+    },
+    "daily_loss_block_events": 0
+  },
+  "after_window": {
+    "start_epoch": 1776152510.8744373,
+    "end_epoch": 1776202910.8744373,
+    "total_cycles": 15083,
+    "trades_executed": 0,
+    "execution_attempts": 0,
+    "entry_blocked_cycles": 13847,
+    "exit_hold_cycles": 1236,
+    "top_reasons": [
+      {
+        "reason": "price_above_buy_zone",
+        "count": 8096,
+        "pct": 53.68
+      },
+      {
+        "reason": "insufficient_volatility_stretch",
+        "count": 2100,
+        "pct": 13.92
+      },
+      {
+        "reason": "score_below_threshold",
+        "count": 1546,
+        "pct": 10.25
+      },
+      {
+        "reason": "waiting_for_first_lock",
+        "count": 1236,
+        "pct": 8.19
+      },
+      {
+        "reason": "atr_too_low",
+        "count": 591,
+        "pct": 3.92
+      },
+      {
+        "reason": "scalper_wait_for_pullback",
+        "count": 567,
+        "pct": 3.76
+      },
+      {
+        "reason": "regime_unknown",
+        "count": 190,
+        "pct": 1.26
+      },
+      {
+        "reason": "core_not_ready:1h:stale",
+        "count": 178,
+        "pct": 1.18
+      }
+    ],
+    "trades": {
+      "closed_trades": 0,
+      "realized_net_pnl_usd": 0,
+      "max_drawdown_pct": 0.0
+    },
+    "daily_loss_block_events": 0
+  },
+  "comparison": {
+    "execution_attempts_delta": 0,
+    "trades_executed_delta": 0,
+    "entry_blocked_cycles_delta": 13847,
+    "max_drawdown_pct_delta": 0.0,
+    "daily_loss_block_events_delta": 0,
+    "blocker_share_delta_pct": {
+      "price_above_buy_zone": 53.68,
+      "score_below_threshold": 10.25,
+      "insufficient_volatility_stretch": 13.92,
+      "waiting_for_first_lock": 8.19
+    }
+  },
+  "freshness_integrity": {
+    "slo_status": "OK",
+    "decision_freshness_ok": true,
+    "quality_ok": true,
+    "throughput_ok": true,
+    "entry_block_reason": null,
+    "stale_ratio_pct": 4.22,
+    "db_null_close_time": 0,
+    "db_duplicate_primary_rows": 0
+  },
+  "promotion_gate": {
+    "execution_attempts_increase": false,
+    "drawdown_not_worse": true,
+    "daily_loss_behavior_unchanged": true,
+    "rejection_mix_improved": false,
+    "freshness_data_green": true,
+    "promote": false
+  }
+}

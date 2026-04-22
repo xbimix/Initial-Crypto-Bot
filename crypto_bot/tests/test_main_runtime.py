@@ -381,7 +381,7 @@ def test_apply_adaptive_sync_request_budget_keeps_cap_when_healthy(monkeypatch):
     assert cfg["market_data"]["max_sync_requests_per_tick"] == 6
 
 
-def test_non_mr_route_guard_blocks_low_confidence():
+def test_non_mr_route_guard_ignores_regime_quality_thresholds():
     decision = {
         "effective_route": "TREND_PULLBACK",
         "detected_regime_confidence_score": 50,
@@ -399,8 +399,8 @@ def test_non_mr_route_guard_blocks_low_confidence():
         now_epoch=1000.0,
         pressure={"rate_limited_count": 0},
     )
-    assert ok is False
-    assert reason == "route_quality_low_confidence"
+    assert ok is True
+    assert reason is None
 
 
 def test_non_mr_route_guard_accepts_canonical_regime_confidence_aliases():
@@ -425,7 +425,7 @@ def test_non_mr_route_guard_accepts_canonical_regime_confidence_aliases():
     assert reason is None
 
 
-def test_non_mr_route_guard_blocks_when_route_exposure_cap_hit(monkeypatch):
+def test_non_mr_route_guard_ignores_route_exposure_cap():
     decision = {
         "effective_route": "TREND_PULLBACK",
         "detected_regime_confidence_score": 95,
@@ -441,12 +441,6 @@ def test_non_mr_route_guard_blocks_when_route_exposure_cap_hit(monkeypatch):
         }
     }
 
-    monkeypatch.setattr(
-        bot_main,
-        "load_route_quality_report_cached",
-        lambda **kwargs: {"current": {"effective_route_counts": {"trend_pullback": 8, "mean_reversion": 2}}},
-    )
-    bot_main._route_guard_cap_hits.clear()
     ok, reason = bot_main._non_mr_route_guard(
         symbol="BTC-USD",
         decision=decision,
@@ -455,8 +449,8 @@ def test_non_mr_route_guard_blocks_when_route_exposure_cap_hit(monkeypatch):
         now_epoch=1000.0,
         pressure={"rate_limited_count": 0},
     )
-    assert ok is False
-    assert str(reason).startswith("route_exposure_cap:trend_pullback:")
+    assert ok is True
+    assert reason is None
 
 
 def test_non_mr_route_guard_triggers_and_honors_route_cooldown(tmp_path: Path, monkeypatch):
@@ -609,6 +603,185 @@ def test_append_decision_audit_uses_cfg_for_gate_threshold_resolution(tmp_path: 
     assert row["gate_trigger_threshold"] == 0.4
     assert row["gate_trigger_actual"] == 0.55
     assert row["gate_trigger_correct"] is True
+
+
+def test_append_decision_audit_emits_buy_observability_for_blocked_buy_path(tmp_path: Path, monkeypatch):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(bot_main, "STATE_DIR", state_dir)
+    monkeypatch.setattr(bot_main, "DECISION_AUDIT_PATH", state_dir / "decision_audit.jsonl")
+
+    cfg = {
+        "market_regime": {
+            "preferred_buy_zone": [-0.1, 0.5],
+            "min_score_to_buy": 50.0,
+            "min_z_score": -1.3,
+        }
+    }
+    bot_main._append_decision_audit(
+        symbol="ETH-USD",
+        market={
+            "price": 95.0,
+            "vwap": 100.0,
+            "atr_raw": 2.5,
+            "range_position": 0.44,
+            "data_quality_status": "GOOD",
+        },
+        decision={
+            "action": "HOLD",
+            "effective_route": "mean_reversion",
+            "reason": "score_below_threshold",
+            "score": 41.25,
+            "price": 95.0,
+        },
+        cfg=cfg,
+        executed=False,
+        blocked_reason=None,
+        decision_context_audit={},
+    )
+    row = json.loads((state_dir / "decision_audit.jsonl").read_text(encoding="utf-8").strip())
+    assert row["buy_score_actual"] == 41.25
+    assert row["buy_score_threshold"] == 50.0
+    assert row["buy_zscore_actual"] == -2.0
+    assert row["buy_zscore_threshold"] == -1.3
+    assert row["buy_stretch_actual"] == -2.0
+    assert row["buy_stretch_threshold"] == -1.3
+    assert row["buy_price_position_in_range"] == 0.44
+    assert row["buy_zone_low"] == -0.1
+    assert row["buy_zone_high"] == 0.5
+    assert row["buy_route_name"] == "mean_reversion"
+
+
+def test_append_decision_audit_emits_buy_observability_for_passed_buy_path(tmp_path: Path, monkeypatch):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(bot_main, "STATE_DIR", state_dir)
+    monkeypatch.setattr(bot_main, "DECISION_AUDIT_PATH", state_dir / "decision_audit.jsonl")
+
+    cfg = {
+        "market_regime": {
+            "preferred_buy_zone": [-0.1, 0.5],
+            "min_score_to_buy": 50.0,
+            "min_z_score": -1.3,
+        }
+    }
+    bot_main._append_decision_audit(
+        symbol="BTC-USD",
+        market={
+            "price": 40000.0,
+            "vwap": 40400.0,
+            "atr_raw": 200.0,
+            "range_position": 0.28,
+            "data_quality_status": "GOOD",
+        },
+        decision={
+            "action": "BUY",
+            "effective_route": "mean_reversion",
+            "reason": "bear_market_mean_reversion_buy",
+            "score": 67.8,
+            "z_score": -2.1,
+            "price": 40000.0,
+        },
+        cfg=cfg,
+        executed=True,
+        blocked_reason=None,
+        execution_report={"status": "filled"},
+        decision_context_audit={},
+    )
+    row = json.loads((state_dir / "decision_audit.jsonl").read_text(encoding="utf-8").strip())
+    assert row["action"] == "BUY"
+    assert row["executed"] is True
+    assert row["buy_score_actual"] == 67.8
+    assert row["buy_score_threshold"] == 50.0
+    assert row["buy_zscore_actual"] == -2.1
+    assert row["buy_zscore_threshold"] == -1.3
+    assert row["buy_stretch_actual"] == -2.1
+    assert row["buy_stretch_threshold"] == -1.3
+    assert row["buy_price_position_in_range"] == 0.28
+    assert row["buy_zone_low"] == -0.1
+    assert row["buy_zone_high"] == 0.5
+    assert row["buy_route_name"] == "mean_reversion"
+
+
+def test_append_decision_audit_computes_buy_range_position_from_24h_window(tmp_path: Path, monkeypatch):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(bot_main, "STATE_DIR", state_dir)
+    monkeypatch.setattr(bot_main, "DECISION_AUDIT_PATH", state_dir / "decision_audit.jsonl")
+
+    cfg = {
+        "market_regime": {
+            "preferred_buy_zone": [-0.1, 0.5],
+            "min_score_to_buy": 46.0,
+            "min_z_score": -1.3,
+        }
+    }
+    bot_main._append_decision_audit(
+        symbol="SOL-USD",
+        market={
+            "price": 95.0,
+            "24h_low": 80.0,
+            "24h_high": 100.0,
+            "vwap": 100.0,
+            "atr_raw": 2.5,
+            "data_quality_status": "GOOD",
+        },
+        decision={
+            "action": "HOLD",
+            "effective_route": "mean_reversion",
+            "reason": "score_below_threshold",
+            "score": 40.0,
+            "price": 95.0,
+        },
+        cfg=cfg,
+        executed=False,
+        blocked_reason=None,
+        decision_context_audit={},
+    )
+    row = json.loads((state_dir / "decision_audit.jsonl").read_text(encoding="utf-8").strip())
+    assert row["buy_price_position_in_range"] == 0.75
+    assert row["buy_range_position_reason"] == "computed_from_24h_window"
+
+
+def test_append_decision_audit_preserves_zero_buy_score(tmp_path: Path, monkeypatch):
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(bot_main, "STATE_DIR", state_dir)
+    monkeypatch.setattr(bot_main, "DECISION_AUDIT_PATH", state_dir / "decision_audit.jsonl")
+
+    cfg = {
+        "market_regime": {
+            "preferred_buy_zone": [-0.1, 0.5],
+            "min_score_to_buy": 45.0,
+            "min_z_score": -1.3,
+        }
+    }
+    bot_main._append_decision_audit(
+        symbol="XRP-USD",
+        market={
+            "price": 0.50,
+            "24h_low": 0.45,
+            "24h_high": 0.55,
+            "vwap": 0.52,
+            "atr_raw": 0.01,
+            "data_quality_status": "GOOD",
+        },
+        decision={
+            "action": "HOLD",
+            "effective_route": "mean_reversion",
+            "reason": "score_below_threshold",
+            "score": 0.0,
+            "z_score": -2.0,
+            "price": 0.50,
+        },
+        cfg=cfg,
+        executed=False,
+        blocked_reason=None,
+        decision_context_audit={},
+    )
+    row = json.loads((state_dir / "decision_audit.jsonl").read_text(encoding="utf-8").strip())
+    assert row["buy_score_actual"] == 0.0
+    assert row["buy_score_population_reason"] == "available"
 
 
 def test_read_decision_audit_rows_infers_legacy_schema(tmp_path: Path, monkeypatch):

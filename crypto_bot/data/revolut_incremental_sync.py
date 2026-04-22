@@ -257,7 +257,8 @@ def sync_new_candles(
     partial_rows: list[dict] = []
     for row in new_rows:
         close_time = row.get("close_time")
-        candle_close = int(close_time) if close_time is not None else int(row["ts"]) + interval_ms
+        candle_close = int(close_time) if close_time is not None else int(row["ts"]) + interval_ms - 1
+        row["close_time"] = int(candle_close)
         if candle_close <= current_ms:
             closed_rows.append(row)
         else:

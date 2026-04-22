@@ -9,7 +9,13 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..")
 $uiDir = Join-Path $repoRoot "web-ui"
-$stateDir = Join-Path $repoRoot "crypto_bot\state"
+$runtimeDataDir = if (-not [string]::IsNullOrWhiteSpace($env:BOT_DATA_DIR)) {
+    $env:BOT_DATA_DIR
+}
+else {
+    Join-Path $repoRoot ".runtime"
+}
+$stateDir = Join-Path $runtimeDataDir "state"
 $runtimeEventsPath = Join-Path $stateDir "runtime_events.jsonl"
 if (-not (Test-Path $uiDir)) {
     throw "UI directory not found: $uiDir"
